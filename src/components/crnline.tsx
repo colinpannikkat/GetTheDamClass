@@ -10,13 +10,4 @@ function CrnLine(course: Course) {
     )
 }
 
-function App() {
-    return (
-      <div className="App">
-        <CrnLine name={"Test"} />
-        <CrnLine name={"Test"} />
-      </div>
-    );
-  }
-  
-export default App;
+export default CrnLine;
