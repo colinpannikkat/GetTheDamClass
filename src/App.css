@@ -37,11 +37,19 @@ html {
     border-radius: 5px;
     border-width: 5px;
     border-style: groove;
+    display: flex;
+    overflow: scroll;
+    overflow-x: hidden;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.container::-webkit-scrollbar {
+    display: none;
 }
 
 h1 {
     color: var(--text-color);
-    padding: 0% 2%;
+    padding: 1% 2%;
     margin: 0% 2%;
 }
 
@@ -96,4 +104,5 @@ div.EndNotify button:active {
 .footer {
     padding-left: 1px;
     color: var(--lt-color-gray-900);
+    font-weight: 900;
 }
