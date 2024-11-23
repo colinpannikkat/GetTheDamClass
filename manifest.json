@@ -3,6 +3,8 @@
     "manifest_version": 3,
     "name": "GetTheDamClass",
     "description": "This is a Chrome extension for class vacancy notification",
+    "permissions": ["storage"],
+
     "action": {
         "default_popup": "js/index.html",
         "default_title": "GetTheDamClass"
