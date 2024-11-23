@@ -3,12 +3,9 @@
     "manifest_version": 3,
     "name": "GetTheDamClass",
     "description": "This is a Chrome extension for class vacancy notification",
-    "permissions": ["storage"],
-    "background": {
-        "service_worker": "background.js"
-    },
     "action": {
-        "default_popup": "js/index.html",
+        "default_popup": "src/index.html",
+
         "default_title": "GetTheDamClass"
     },
     "host_permissions": ["<all_urls>"],
@@ -19,13 +16,13 @@
         "storage"
     ],
     "background": {
-        "service_worker": "js/background.js",
+        "service_worker": "src/background.js",
         "type": "module"
     },
     "content_scripts" : [
         {
             "matches": ["https://classes.oregonstate.edu/*"],
-            "js": ["js/content.js"]
+            "js": ["src/content.js"]
         }
     ]
 }

@@ -6,7 +6,8 @@ module.exports = {
     entry: {
         index: "./src/index.tsx",
         content: "./src/content.js",
-        background: "./src/background.js"
+        background: "./src/background.js",
+        popup: "./src/popup.tsx",
     },
     mode: "production",
     module: {
@@ -39,12 +40,13 @@ module.exports = {
             ],
         }),
         ...getHtmlPlugins(["index"]),
+        ...getHtmlPlugins(["popup"])
     ],
     resolve: {
         extensions: [".tsx", ".ts", ".js"],
     },
     output: {
-        path: path.join(__dirname, "dist/js"),
+        path: path.join(__dirname, "dist/src"),
         filename: "[name].js",
     },
 };
