@@ -4,7 +4,9 @@
     "name": "GetTheDamClass",
     "description": "This is a Chrome extension for class vacancy notification",
     "permissions": ["storage"],
-
+    "background": {
+        "service_worker": "background.js"
+    },
     "action": {
         "default_popup": "js/index.html",
         "default_title": "GetTheDamClass"
