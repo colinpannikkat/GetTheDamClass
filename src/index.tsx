@@ -13,3 +13,8 @@ rootDiv.render(
     <App />    
   </React.StrictMode>
 );
+
+const footer = document.createElement("footer");
+footer.className = "footer";
+footer.innerHTML = "<p>&copy; 2024 NothingSuspicious</p>";
+document.body.appendChild(footer);

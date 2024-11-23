@@ -1,11 +1,85 @@
+
+:root {
+    --lt-color-gray-100: #f8f9fc;
+    --lt-color-gray-200: #f1f3f9;
+    --lt-color-gray-300: #dee3ed;
+    --lt-color-gray-400: #c2c9d6;
+    --lt-color-gray-500: #8f96a3;
+    --lt-color-gray-600: #5e636e;
+    --lt-color-gray-700: #2f3237;
+    --lt-color-gray-800: #1d1e20;
+    --lt-color-gray-900: #111213;
+    --background-color: var(--lt-color-gray-700);
+    --primary-color: #383737;
+    --secondary-color: #353434;
+    --accent-color: #D73F09;
+    --text-color: var(--lt-color-gray-300);
+    --border-color: #525151;
+    --button-color: #3a3a3a;
+    --button-hover-color: #4a4a4a;
+    --button-active-color: #5a5a5a;
+}
+
+html {
+    background-color: var(--accent-color);
+}
+
 .App {
-    color: black;
-    text-align: center;
+    width: 30rem;
+    height: 20rem;
+    padding: 5px;
+    margin: 5px;
 }
 
 .container {
-    width: 15rem;
-    height: 15rem;
-    background-color: white;
+    background-color: var(--background-color);
+    border-color: var(--border-color);
+    border-radius: 5px;
+    border-width: 5px;
+    border-style: groove;
+}
 
+div.CourseLine {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0% 2%;
+    margin: 0% 2%;
+}
+
+div.CourseLine p {
+    padding-right: 10px;
+    color: var(--text-color);
+    font-size: medium;
+    overflow: hidden;
+}
+
+div.CourseLine div.text {
+    display: flex;
+}
+
+div.EndNotify button {
+    font-size: medium;
+    color: var(--text-color);
+    outline: 5px solid transparent;
+    border-radius: 2px;
+    border-style: groove;
+    background-color: var(--button-color);
+    align-items: center;
+}
+
+div.EndNotify button:hover {
+    background-color: var(--button-hover-color);
+    cursor: pointer;
+}
+
+div.EndNotify button:active {
+    background-color: var(--button-active-color);
+    transform: scale(0.98);
+}
+
+.footer {
+    padding-left: 1px;
+    color: var(--lt-color-gray-900);
 }
