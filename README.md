@@ -2,6 +2,8 @@
 
 Class vacancy notifier for Oregon State University.
 
+We have a backend server running on a private VPS to track course vacancies and alert students. The backend code can be found [here](https://github.com/aj-arts/GetTheDamClass-Backend).
+
 ## Build Info
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
