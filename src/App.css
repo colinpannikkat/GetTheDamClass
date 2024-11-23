@@ -39,6 +39,12 @@ html {
     border-style: groove;
 }
 
+h1 {
+    color: var(--text-color);
+    padding: 0% 2%;
+    margin: 0% 2%;
+}
+
 div.CourseLine {
     display: flex;
     flex-direction: row;
@@ -52,11 +58,19 @@ div.CourseLine p {
     padding-right: 10px;
     color: var(--text-color);
     font-size: medium;
-    overflow: hidden;
 }
 
 div.CourseLine div.text {
     display: flex;
+    flex-wrap: nowrap;
+    overflow: clip;
+}
+
+#course_name {
+    white-space: nowrap;
+    overflow: hidden;         
+    text-overflow: ellipsis;
+    max-width: 15rem;
 }
 
 div.EndNotify button {

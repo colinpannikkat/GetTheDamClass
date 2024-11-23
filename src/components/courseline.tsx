@@ -17,7 +17,8 @@ function CourseLine(course: Course) {
     return (
         <div className="CourseLine">
             <div className="text">
-                <p>{course.name} </p> <p>({course.crn})</p> 
+                <p id="course_name">{course.name}</p>
+                <p>({course.crn})</p> 
             </div>
             <EndNotify />
         </div>
