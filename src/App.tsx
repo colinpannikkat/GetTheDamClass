@@ -1,20 +1,10 @@
-export interface Course {
-    name: string;
-}
-
-function CrnLine(course: Course) {
-    return (
-        <div className="crnLine">
-            <p>{course.name}</p> <button>End Notify</button>
-        </div>
-    )
-}
+import CourseLine from './components/courseline'
 
 function App() {
     return (
       <div className="App">
-        <CrnLine name={"Test"} />
-        <CrnLine name={"Test"} />
+        <CourseLine name={"Test"} />
+        <CourseLine name={"Test"} />
       </div>
     );
   }
