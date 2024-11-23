@@ -18,5 +18,4 @@ Then, in the project directory, you can run:
 
 #### `npm run build`
 
-Builds the extension to the `dist` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+Which builds the extension to the `dist` folder, which you can then load into your browser by going to `chrome://extensions` and clicking `Load unpacked`, which you can then load the build and use in your browser.
