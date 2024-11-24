@@ -1,4 +1,4 @@
-import CourseLine from './components/courseline'
+import {CourseLine} from './components/courseline'
 
 function App() {
     return (

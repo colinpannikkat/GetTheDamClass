@@ -28,4 +28,4 @@ function CourseLine(course: Course) {
     )
 }
 
-export default CourseLine;
+export { CourseLine };

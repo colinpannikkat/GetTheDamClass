@@ -9,10 +9,12 @@ async function notifyMe(crn: string) {
 
     fetch("https://api.getthedamclass.sarvesh.me/sub", {
         method: "POST",
-        mode: "no-cors",
         headers: {
             "Content-Type": "application/json",
-            // "Access-Control-Allow-Origin": "*"
+            'Access-Control-Allow-Credentials' : 'true',
+            'Access-Control-Allow-Origin':'*',
+            'Access-Control-Allow-Methods':'POST',
+            'Access-Control-Allow-Headers':'application/json',
         },
         body: JSON.stringify(payload)
     })
@@ -43,10 +45,9 @@ function createButtonDiv(): HTMLButtonElement {
     if (dtl_section == null || dtl_section == undefined) {
         throw(Error("No CRN found on page"));
     } else {
-        // Find matching substring with regex
+        // Find matching substring with regex to get crn
         const crn = dtl_section.match(/CRN (\d+)/)?.[1];
         if (crn) {
-            console.log(crn);
             newButton?.addEventListener("click", async () => await notifyMe(crn));
             newButton.setAttribute("cumbutton", "true");
         } else {
@@ -62,7 +63,7 @@ var observer = new MutationObserver(function(mutations){
     const button_bar_div = document.querySelector("div.button-bar.button-bar--right-align") // bottom button bar element
     mutations.forEach(function() {
         if (button_bar_div && !button_bar_div.querySelector("button[cumbutton='true']")) {
-            button_bar_div.appendChild(createButtonDiv());
+            button_bar_div.prepend(createButtonDiv());
         }
     });
 });
