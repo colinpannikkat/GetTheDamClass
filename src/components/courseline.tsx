@@ -5,6 +5,7 @@ export interface Course {
     crn: number;
 }
 
+// EndNotify Button component
 function EndNotify() {
     return (
         <div className="EndNotify">
@@ -13,6 +14,8 @@ function EndNotify() {
     )
 }
 
+// CourseLine component for extension popout to display a course
+// and a button to unsubscribe from course notifications
 function CourseLine(course: Course) {
     return (
         <div className="CourseLine">

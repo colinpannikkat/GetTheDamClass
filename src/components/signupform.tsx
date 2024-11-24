@@ -1,5 +1,7 @@
 import React from "react";
+import { createSignupPayload, SignupPayload } from "../helpers";
 
+// SignupForm component
 function SignupForm() {
     function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
@@ -7,16 +9,44 @@ function SignupForm() {
         const user_email = formData.get("email");
         const user_pin = formData.get("pin");
 
-        /**
-         * Save the user's email and pin in the chromne local storage.
-         *
-         * @param {Object} items - An object containing the email and pin as key-value pairs.
-         */
-        chrome.storage.local.set({ email: user_email, pin: user_pin }, function(){
-            console.log("Email and PIN saved successfully");
-        });
+        let payload: SignupPayload | null = null;
 
-        window.close();
+        if (user_email && user_pin) {
+            payload = createSignupPayload(user_email, user_pin);
+        } else {
+            console.error("Email or pin is null");
+        }
+    
+        fetch("https://api.getthedamclass.sarvesh.me/signup", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log("Signup successful:", data);
+            /**
+             * Save the user's email and pin in the chrome local storage.
+             * Only saves if the post request to API is successful.
+             * 
+             * @param {Object} items - An object containing the email and pin as key-value pairs.
+             */
+            chrome.storage.local.set({ email: user_email, pin: user_pin }, function(){
+                console.log("Email and PIN saved successfully");
+            });
+
+            // Alert event listener in background that form was submitted
+            chrome.runtime.sendMessage({action: "signupComplete"});
+            window.close();
+        })
+        .catch(error => {
+            console.error("Error:", error);
+            alert("Signup failed: " + error.message);
+            chrome.runtime.sendMessage({action: "signupFailed"});
+
+        });
     }
 
     return (
