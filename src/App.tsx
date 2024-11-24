@@ -35,14 +35,19 @@ const AppWrapper: React.FC = () => {
         fetchCourses();
     }, []);
 
+    const isEmptyCourseList = courseList.length === 0;
+
     if (loading) {
         return (
             <div className='App'>
-                <h1>GetTheDamClass: Active Courses</h1>
-                <div className="CourseLine">
-                    <p>Loading...</p>
-                </div>
+                <h1>Loading...</h1>
             </div>);
+    } else if (isEmptyCourseList) {
+      return (
+          <div className="App">
+              <h1>No classes currently being monitored...</h1>
+          </div>
+      );  
     }
 
     return <App courselist={courseList} />;
