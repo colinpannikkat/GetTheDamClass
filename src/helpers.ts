@@ -156,10 +156,6 @@ async function unsubCourse(crn: string) {
     });
 }
 
-// 1: make post request to AJs endpoint for the crns (see backend docs0
-// Get json object of crns in the name
-// Some function which returns that list 
-// Call that function in index.tsx)
 
 export {getEmailAndPin, createSubscribePayload, createSignupPayload, getCourseList, unsubCourse};
 export type {SubscribePayload, SignupPayload};
