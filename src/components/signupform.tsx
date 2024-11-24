@@ -29,9 +29,6 @@ function SignupForm() {
             body: JSON.stringify(payload)
         })
         .then(response => {
-            if (response.status === 409) {
-                return response.json()
-            }
             if (!response.ok) {
                 console.error(`HTTP error! status: ${response.status}`);
                 chrome.runtime.sendMessage({action: "signupFailed"});
@@ -54,7 +51,7 @@ function SignupForm() {
             // Alert event listener in background that form was submitted and close window
             chrome.runtime.sendMessage({action: "signupComplete"});
 
-            setTimeout(() => {}, 1000);
+            setTimeout(() => {}, 1500);
             window.close();
         })
         .catch(error => {
