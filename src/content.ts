@@ -32,6 +32,7 @@ async function notifyMe(crn: string) {
     })
     .then(data => {
         console.log("Subscription successful:", data);
+        chrome.runtime.sendMessage({ message: "Notify Button Clicked" });
     })
     .catch(error => {
         console.error("Error:", error);
