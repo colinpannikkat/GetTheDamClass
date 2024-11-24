@@ -32,6 +32,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log("Signup message received");
     if (message.action === "signup") {
         SignupPopup();
+
+        // This is a second listening so this listener knows when the user
+        // has completed the signup
         const signupCompleteListener = (responseMessage: any) => {
             if (responseMessage.action === "signupComplete") {
                 sendResponse({ success: true });
@@ -44,8 +47,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chrome.runtime.onMessage.addListener(signupCompleteListener);
         return true; // keep listener open
     }
-    // sendResponse({ success: false });
-    // return false;
 });
 
 export {};

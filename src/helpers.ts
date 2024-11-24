@@ -1,12 +1,15 @@
 // Gets an email an pin from local storage, if it doesn't exist in local storage then it prompts
 // the user to sign up with the SignupPopup page
 async function getEmailAndPin(): Promise<[string, string]> {
-    // Send message to background.js to do signup popup
+
+    // Returning a promise to notifyMe() function
     return new Promise<[string, string]>((resolve, reject) => {
         chrome.storage.local.get(['email', 'pin'], (result) => {
             if (result.email && result.pin) {
                 resolve([result.email, result.pin]);
             } else {
+                
+                // Send message to background.js to do signup popup
                 chrome.runtime.sendMessage({action: "signup"}, (response) => {
                     if (chrome.runtime.lastError) {
                         console.error("Error:", chrome.runtime.lastError.message);
