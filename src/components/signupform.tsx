@@ -51,7 +51,7 @@ function SignupForm() {
             // Alert event listener in background that form was submitted and close window
             chrome.runtime.sendMessage({action: "signupComplete"});
 
-            setTimeout(() => {}, 1000);
+            setTimeout(() => {}, 1500);
             window.close();
         })
         .catch(error => {

@@ -20,8 +20,8 @@ async function notifyMe(crn: string) {
     })
     .then(response => {
         if (response.status === 409) {
-            alert("Sub failed: already subscribed");
-            return Promise.reject("Subscription was unsuccessful");
+            alert("Already subscribed for notifications for this class.");
+            return Promise.reject("Already subscribed for notifications");
         }
         if (!response.ok) {
             console.error(`HTTP error! status: ${response.status}`);
@@ -31,18 +31,18 @@ async function notifyMe(crn: string) {
     })
     .then(data => {
         console.log("Subscription successful:", data);
-        chrome.runtime.sendMessage({ message: "Notify Button Clicked" });
+        alert("Notification subscription successful!");
     })
     .catch(error => {
         console.error("Error:", error);
-        alert("Subscription failed: " + error.message);
+        // alert("Subscription failed: " + error.message);
     });
 }
 
 // Function to create a button element on the page
 function createButtonDiv(): HTMLButtonElement {
     const newButton = document.createElement("button");
-    newButton.textContent =  "Notify Me";
+    newButton.textContent = "Notify Me";
     newButton.className = "btn";
 
     // Get the dtl-section div, this holds "Section <section_num>, CRN <crn_num>"

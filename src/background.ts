@@ -16,22 +16,25 @@ function SignupPopup() {
     }
 }
 
-function courseAddedNotification() {
+// function courseAddedNotification() {
     
-    chrome.notifications.create(
-        "69",       //Notificatio ID... Nice
-        {
-            type: "basic",
-            title: "Notifcation Added",
-            message: "Notifications enabled!",
-            iconUrl: "",
-            silent: true
-        },
-        (notificationId) => {
-            console.log(`Notification created with ID: ${notificationId}`);
-        }
-    )
-};
+//     chrome.notifications.create(
+//         {
+//             type: "basic",
+//             iconUrl: "./d.png",
+//             title: "Notification Added",
+//             message: "Notifications enabled!"
+//         },
+//         (notificationId) => {
+//             if (chrome.runtime.lastError) {
+//                 console.error(`Notification creation failed: ${chrome.runtime.lastError.message}`);
+//             } else {
+//                 console.log(`Notification created with ID: ${notificationId}`);
+//             }
+//         }
+//     );
+    
+// };
 
 // https://developer.chrome.com/docs/extensions/reference/api/runtime#event-onInstalled
 chrome.runtime.onInstalled.addListener((details) => 
@@ -71,13 +74,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 
-//Listener for when the notify button is clicked
-chrome.runtime.onMessage.addListener((message) => {
-    console.log("Add notification mesasge received");
-    if (message.action === "Notify Button Clicked") {
-        courseAddedNotification();
-    }
-    return true; // keep listener open
-});
+// //Listener for when the notify button is clicked
+// chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+//     console.log("Add notification message received");
+//     if (message.action === "Notify Button Clicked") {
+//         courseAddedNotification();
+//         sendResponse({success : "success"});
+//     }
+//     return true; // keep listener open
+// });
 
 export {};

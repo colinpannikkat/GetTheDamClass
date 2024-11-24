@@ -148,6 +148,7 @@ async function unsubCourse(crn: string) {
     })
     .then(data => {
         console.log("Cancellation of subscription successful:", data);
+        // alert("Cancellation of subscription successful!");
     })
     .catch(error => {
         console.error("Error:", error);
