@@ -24,7 +24,7 @@ async function notifyMe(crn: string) {
         }
         if (!response.ok) {
             console.error(`HTTP error! status: ${response.status}`);
-            return Promise.reject("Server did not respond");
+            return Promise.reject("Server error");
         }
         return response.json()
     })
