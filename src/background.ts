@@ -1,3 +1,7 @@
+import { click } from "@testing-library/user-event/dist/click";
+
+//This script runs in the chrome background so we need to have event listeners here
+
 function SignupPopup() {
     if (typeof chrome !== 'undefined' && chrome.windows) {
         chrome.windows.create({
@@ -11,6 +15,23 @@ function SignupPopup() {
         console.error("Chrome API is not available.");
     }
 }
+
+function courseAddedNotification() {
+    
+    chrome.notifications.create(
+        "69",       //Notificatio ID... Nice
+        {
+            type: "basic",
+            title: "Notifcation Added",
+            message: "Notifications enabled!",
+            iconUrl: "",
+            silent: true
+        },
+        (notificationId) => {
+            console.log(`Notification created with ID: ${notificationId}`);
+        }
+    )
+};
 
 // https://developer.chrome.com/docs/extensions/reference/api/runtime#event-onInstalled
 chrome.runtime.onInstalled.addListener((details) => 
@@ -47,6 +68,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chrome.runtime.onMessage.addListener(signupCompleteListener);
         return true; // keep listener open
     }
+});
+
+
+//Listener for when the notify button is clicked
+chrome.runtime.onMessage.addListener((message) => {
+    console.log("Add notification mesasge received");
+    if (message.action === "Notify Button Clicked") {
+        courseAddedNotification();
+    }
+    return true; // keep listener open
 });
 
 export {};
