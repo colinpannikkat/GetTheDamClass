@@ -2,17 +2,15 @@ import {Course, CourseLine} from './components/courseline'
 import { getCourseList } from './helpers';
 import React, { useEffect, useState } from 'react';
 
-const [courseList, setCourseList] = useState<Course[]>([]);
+interface AppProps {
+    courselist: Course[]
+}
 
-useEffect(() => {
-    getCourseList().then(courses => setCourseList(courses));
-}, []);
-
-function App() {
+function App(props : AppProps) {
     return (
         <div className="App">
             <h1>GetTheDamClass: Active Courses</h1>
-            {courseList.map((course) => (
+            {props.courselist.map((course) => (
                 <CourseLine
                     name={course.name} 
                     crn={course.crn}
@@ -23,5 +21,31 @@ function App() {
         </div>
     );
 }
-  
-export default App;
+
+const AppWrapper: React.FC = () => {
+    const [courseList, setCourseList] = useState<Course[]>([]);
+    const [loading, setLoading] = useState<boolean>(true);
+
+    useEffect(() => {
+        const fetchCourses = async () => {
+            const courses = await getCourseList();
+            setCourseList(courses);
+            setLoading(false);
+        };
+        fetchCourses();
+    }, []);
+
+    if (loading) {
+        return (
+            <div className='App'>
+                <h1>GetTheDamClass: Active Courses</h1>
+                <div className="CourseLine">
+                    <p>Loading...</p>
+                </div>
+            </div>);
+    }
+
+    return <App courselist={courseList} />;
+};
+
+export default AppWrapper;

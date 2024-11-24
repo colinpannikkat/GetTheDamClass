@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
+import AppWrapper from './App';
 import "./App.css";
 
 const root = document.createElement("div")
@@ -10,7 +10,7 @@ const rootDiv = ReactDOM.createRoot(root);
 
 rootDiv.render(
   <React.StrictMode>
-    <App />    
+    <AppWrapper />        
   </React.StrictMode>
 );
 

@@ -93,7 +93,7 @@ async function getCourseList(): Promise<Course[]> {
     let cl: Course[] = [];
     const payload : SubListPayload = createSubListPayload(email, pin);
 
-    fetch("https://api.getthedamclass.sarvesh.me/getsubs", {
+    await fetch("https://api.getthedamclass.sarvesh.me/getsubs", {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
@@ -110,7 +110,7 @@ async function getCourseList(): Promise<Course[]> {
     })
     .then(data => {
         console.log("Get sub list was successful:", data);
-        cl = data.sub;
+        cl = data.subs;
         return
     })
     .catch(error => {
