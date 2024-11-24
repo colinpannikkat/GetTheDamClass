@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState }  from 'react';
 import { unsubCourse } from '../helpers';
 
 export interface Course {
@@ -22,13 +22,24 @@ function EndNotify(props: EndNotifyProps) {
 // CourseLine component for extension popout to display a course
 // and a button to unsubscribe from course notifications
 function CourseLine(course: Course) {
+    const [isNotified, setIsNotified] = useState(true);
+
+    const handleEndNotify = () => {
+        unsubCourse(course.crn);
+        setIsNotified(false);
+    };
+
     return (
         <div className="CourseLine">
             <div className="text">
-                <p id="course_name">{course.name}</p>
-                <p>({course.crn})</p> 
+                <p id="course_name" style={{ textDecoration: isNotified ? 'none' : 'line-through' }}>
+                    {course.name}
+                </p>
+                <p style={{ textDecoration: isNotified ? 'none' : 'line-through' }}>({course.crn})</p> 
             </div>
-            <EndNotify crn={course.crn} />
+            <div className="EndNotify">
+                <button onClick={handleEndNotify}>End Notify</button>
+            </div>
         </div>
     )
 }
