@@ -10,11 +10,17 @@ async function notifyMe(crn: string) {
     fetch("https://api.getthedamclass.sarvesh.me/sub", {
         method: "POST",
         headers: {
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*"
         },
         body: JSON.stringify(payload)
     })
-    .then(response => response.json())
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json()
+    })
     .then(data => {
         console.log("Subscription successful:", data);
     })
