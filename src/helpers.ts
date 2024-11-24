@@ -1,35 +1,35 @@
 // Gets an email an pin from local storage, if it doesn't exist in local storage then it prompts
 // the user to sign up with the SignupPopup page
 async function getEmailAndPin(): Promise<[string, string]> {
-    let email = localStorage.getItem('email');
-    let pin = localStorage.getItem('pin');
-    if (email && pin) {
-        return Promise.resolve([email, pin]);
-    } else {
-        // Send message to background.js to do signup popup
-        return new Promise<[string, string]>((resolve, reject) => {
-            chrome.runtime.sendMessage({action: "signup"}, (response) => {
-                if (chrome.runtime.lastError) {
-                    console.error("Error:", chrome.runtime.lastError.message);
-                    reject(new Error(chrome.runtime.lastError.message));
-                    return;
-                }
-                if (response && response.success) {
-                    console.log("Signup form completed");
-                    email = localStorage.getItem('email');
-                    pin = localStorage.getItem('pin');
-                    if (email && pin) {
-                        resolve([email, pin]);
-                    } else {
-                        reject(new Error("Still no email and pin in local storage."));
+    // Send message to background.js to do signup popup
+    return new Promise<[string, string]>((resolve, reject) => {
+        chrome.storage.local.get(['email', 'pin'], (result) => {
+            if (result.email && result.pin) {
+                resolve([result.email, result.pin]);
+            } else {
+                chrome.runtime.sendMessage({action: "signup"}, (response) => {
+                    if (chrome.runtime.lastError) {
+                        console.error("Error:", chrome.runtime.lastError.message);
+                        reject(new Error(chrome.runtime.lastError.message));
+                        return;
                     }
-                } else {
-                    console.log("No response or unsuccessful");
-                    reject(new Error("No response or unsuccessful"));
-                }
-            });
-        });
-    }
+                    if (response && response.success) {
+                        console.log("Signup form completed");
+                        chrome.storage.local.get(['email', 'pin'], (result) => {
+                            if (result.email && result.pin) {
+                                resolve([result.email, result.pin]);
+                            } else {
+                                reject(new Error("Still no email and pin in local storage."));
+                            }
+                        });
+                    } else {
+                        console.log("No response or unsuccessful");
+                        reject(new Error("No response or unsuccessful"));
+                    }
+                });
+            }
+        })
+    });
 }
 
 interface SubscribePayload {
