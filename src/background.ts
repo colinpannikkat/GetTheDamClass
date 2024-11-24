@@ -43,7 +43,7 @@ chrome.runtime.onInstalled.addListener((details) =>
         if (!result.email || !result.pin) {
             SignupPopup();
         } else {
-            console.log(result.email, result.pin);
+            console.log("Already signed in");
         }
     })
 )
