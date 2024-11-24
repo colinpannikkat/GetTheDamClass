@@ -24,7 +24,12 @@ function SignupForm() {
             },
             body: JSON.stringify(payload)
         })
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json()
+        })
         .then(data => {
             console.log("Signup successful:", data);
             /**
