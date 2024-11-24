@@ -20,7 +20,11 @@ function SignupForm() {
         fetch("https://api.getthedamclass.sarvesh.me/signup", {
             method: "POST",
             headers: {
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                'Access-Control-Allow-Credentials' : 'true',
+                'Access-Control-Allow-Origin':'*',
+                'Access-Control-Allow-Methods':'POST',
+                'Access-Control-Allow-Headers':'application/json',
             },
             body: JSON.stringify(payload)
         })

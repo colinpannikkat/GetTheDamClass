@@ -8,13 +8,11 @@
 
         "default_title": "GetTheDamClass"
     },
-    "host_permissions": ["<all_urls>"],
+    "host_permissions": ["*://*.oregonstate.edu/*, https://api.getthedamclass.sarvesh.me/*"],
     "permissions" : [
-        "webRequest",
         "scripting",
         "activeTab",
-        "storage",
-        "notifications"
+        "storage"
     ],
     "background": {
         "service_worker": "src/background.js",

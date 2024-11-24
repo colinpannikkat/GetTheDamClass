@@ -97,6 +97,10 @@ async function getCourseList(): Promise<Course[]> {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
+            'Access-Control-Allow-Credentials' : 'true',
+            'Access-Control-Allow-Origin':'*',
+            'Access-Control-Allow-Methods':'POST',
+            'Access-Control-Allow-Headers':'application/json',
         },
         body: JSON.stringify(payload)
     })
@@ -109,7 +113,7 @@ async function getCourseList(): Promise<Course[]> {
         return response.json();
     })
     .then(data => {
-        console.log("Get sub list was successful:", data);
+        console.log("Get course list was successful:", data);
         cl = data.subs;
         return
     })
