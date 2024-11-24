@@ -54,7 +54,7 @@ function SignupForm() {
             // Alert event listener in background that form was submitted and close window
             chrome.runtime.sendMessage({action: "signupComplete"});
 
-            setTimeout(() => {}, 1500);
+            setTimeout(() => {}, 1000);
             window.close();
         })
         .catch(error => {
@@ -72,9 +72,9 @@ function SignupForm() {
                     <label htmlFor="email">Enter your Email:</label>
                     <input type="email" id="email" name="email" required></input>
                     <br></br>
-                    <label htmlFor="pin">PIN:</label>
+                    <label htmlFor="pin">Create a 4 digit PIN:</label>
                     <br></br>
-                    <input type="password" id="pin" name="pin" required></input>
+                    <input type="password" id="pin" name="pin" required pattern = "^\d{4}$"></input>
                     <div>(This will be used to unsubscribe your email later)</div>
                     <br></br>
                     <button type="submit">Submit</button>
