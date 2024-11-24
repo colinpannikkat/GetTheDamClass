@@ -19,8 +19,6 @@ async function getEmailAndPin(): Promise<[string, string]> {
                     email = localStorage.getItem('email');
                     pin = localStorage.getItem('pin');
                     if (email && pin) {
-                        localStorage.setItem('email', email);
-                        localStorage.setItem('pin', pin);
                         resolve([email, pin]);
                     } else {
                         reject(new Error("Still no email and pin in local storage."));
