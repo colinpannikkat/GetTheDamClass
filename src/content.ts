@@ -19,8 +19,14 @@ async function notifyMe(crn: string) {
         body: JSON.stringify(payload)
     })
     .then(response => {
+        if (response.status === 409) {
+            alert("Sub failed: already subscribed");
+            return Promise.reject("Subscription was unsuccessful");
+        }
         if (!response.ok) {
             console.error(`HTTP error! status: ${response.status}`);
+            console.error(response.json())
+            return Promise.reject("Subscription was unsuccessful");
         }
         return response.json()
     })

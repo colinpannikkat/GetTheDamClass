@@ -4,7 +4,7 @@ import SignupForm from './components/signupform';
 import "./App.css";
 
 const root = document.createElement("div")
-// root.className = "container"        //This is throwing off the styles for the popup page 
+root.className = "popup-container"        //This is throwing off the styles for the popup page 
 document.body.appendChild(root)
 const rootDiv = ReactDOM.createRoot(root);
 

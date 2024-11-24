@@ -123,33 +123,37 @@ const test_subs = {
 
 function getCourseList(): Course[] {
     let [email, pin]: [string, string] = getEmailAndPin();
+    let cl;
     const payload : SubListPayload = createSubListPayload(email, pin);
 
     fetch("https://api.getthedamclass.sarvesh.me/getsubs", {
         method: "POST",
-        mode: "no-cors",
         headers: {
             "Content-Type": "application/json",
-            // "Access-Control-Allow-Origin": "*"
         },
         body: JSON.stringify(payload)
     })
     .then(response => {
         if (!response.ok) {
-            console.error(`HTTP error! status: ${response.status}`)
+            console.error(`HTTP error! status: ${response.status}`);
+            console.error(response.json())
+            return Promise.reject("Getting sub list was unsuccessful");
         }
-        return response.json()
+        return response.json();
     })
     .then(data => {
-        console.log("Get Sub List successful:", data);
-        return data;
+        console.log("Get sub list was successful:", data);
+        cl = data.sub;
+        return
     })
     .catch(error => {
         console.error("Error:", error);
+        return
     });
 
     // Temporary until endpoint is up
     return test_subs.subs;
+    return cl
 }
 
 // Unsub function
@@ -172,8 +176,10 @@ function unsubCourse(crn: string) {
     .then(response => {
         if (!response.ok) {
             console.error(`HTTP error! status: ${response.status}`);
+            console.error(response.json())
+            return Promise.reject("Cancellation of subscription unsuccessful");
         }
-        return response.json()
+        return response.json();
     })
     .then(data => {
         console.log("Cancellation of subscription successful:", data);

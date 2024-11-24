@@ -25,8 +25,16 @@ function SignupForm() {
             body: JSON.stringify(payload)
         })
         .then(response => {
+            if (response.status === 409) {
+                alert("Signup failed: Email already exists");
+                chrome.runtime.sendMessage({action: "signupComplete"});
+                return response.json()
+            }
             if (!response.ok) {
-                console.error(`HTTP error! status: ${response.status}`)
+                console.error(`HTTP error! status: ${response.status}`);
+                alert(`Signup failed: HTTP error! status: ${response.status}`);
+                chrome.runtime.sendMessage({action: "signupFailed"});
+                return
             }
             return response.json()
         })
@@ -56,7 +64,7 @@ function SignupForm() {
     }
 
     return (
-        // <div className="App" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
+        // <div className="SignupApp" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
             <div className="signupForm">
                 <form id="signupForm" onSubmit={handleSubmit}>
                     <label htmlFor="email">Enter your Email:</label>
@@ -71,7 +79,6 @@ function SignupForm() {
                 </form>
             </div>
         // </div>
-
     );
 }
 
