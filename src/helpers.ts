@@ -1,6 +1,5 @@
 import { Course } from "./components/courseline";
 
-
 // Gets an email an pin from local storage, if it doesn't exist in local storage then it prompts
 // the user to sign up with the SignupPopup page
 async function getEmailAndPinPromise(): Promise<[string, string]> {
@@ -89,6 +88,13 @@ interface SignupPayload {
     pin: FormDataEntryValue;
 }
 
+function createSignupPayload(email: FormDataEntryValue, pin: FormDataEntryValue): SignupPayload {
+    return {
+        email,
+        pin
+    };
+}
+
 interface SubListPayload {
     email: FormDataEntryValue;
     pin: FormDataEntryValue;
@@ -101,13 +107,6 @@ function createSubListPayload(email: FormDataEntryValue, pin: FormDataEntryValue
     };
 }
 
-
-function createSignupPayload(email: FormDataEntryValue, pin: FormDataEntryValue): SignupPayload {
-    return {
-        email,
-        pin
-    };
-}
 
 const test_subs = {
     subs : [
@@ -149,7 +148,40 @@ function getCourseList(): Course[] {
         console.error("Error:", error);
     });
 
-    return test_subs.subs.map(sub => ({ ...sub, crn: Number(sub.crn) }));
+    // Temporary until endpoint is up
+    return test_subs.subs;
+}
+
+// Unsub function
+function unsubCourse(crn: string) {
+
+    let [email, pin]: [string, string] = getEmailAndPin();
+    const payload : SubscribePayload = createSubscribePayload(crn, email, pin);
+
+    fetch("https://api.getthedamclass.sarvesh.me/unsub", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            'Access-Control-Allow-Credentials' : 'true',
+            'Access-Control-Allow-Origin':'*',
+            'Access-Control-Allow-Methods':'POST',
+            'Access-Control-Allow-Headers':'application/json',
+        },
+        body: JSON.stringify(payload)
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json()
+    })
+    .then(data => {
+        console.log("Cancellation of subscription successful:", data);
+    })
+    .catch(error => {
+        console.error("Error:", error);
+        // alert("Cancellation of subscription failed: " + error.message);
+    });
 }
 
 // 1: make post request to AJs endpoint for the crns (see backend docs0
@@ -157,5 +189,5 @@ function getCourseList(): Course[] {
 // Some function which returns that list 
 // Call that function in index.tsx)
 
-export {getEmailAndPin, getEmailAndPinPromise, createSubscribePayload, createSignupPayload, getCourseList};
+export {getEmailAndPin, getEmailAndPinPromise, createSubscribePayload, createSignupPayload, getCourseList, unsubCourse};
 export type {SubscribePayload, SignupPayload};

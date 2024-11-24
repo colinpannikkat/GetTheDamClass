@@ -1,15 +1,20 @@
 import React from 'react';
+import { unsubCourse } from '../helpers';
 
 export interface Course {
     name: string;
-    crn: number;
+    crn: string;
+}
+
+interface EndNotifyProps {
+    crn: string
 }
 
 // EndNotify Button component
-function EndNotify() {
+function EndNotify(props: EndNotifyProps) {
     return (
         <div className="EndNotify">
-            <button>End Notify</button>
+            <button onClick={() => unsubCourse(props.crn)}>End Notify</button>
         </div>
     )
 }
@@ -23,7 +28,7 @@ function CourseLine(course: Course) {
                 <p id="course_name">{course.name}</p>
                 <p>({course.crn})</p> 
             </div>
-            <EndNotify />
+            <EndNotify crn={course.crn} />
         </div>
     )
 }
