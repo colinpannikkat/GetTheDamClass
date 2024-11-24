@@ -1,10 +1,10 @@
-import { getEmailAndPin, createSubscribePayload, SubscribePayload} from "./helpers";
+import { getEmailAndPinPromise, createSubscribePayload, SubscribePayload} from "./helpers";
 
 MutationObserver = window.MutationObserver;
 
 // Notify function that runs when button is pressed
 async function notifyMe(crn: string) {
-    let [email, pin]: [string, string] = await getEmailAndPin();
+    let [email, pin]: [string, string] = await getEmailAndPinPromise();
     const payload : SubscribePayload = createSubscribePayload(crn, email, pin);
 
     fetch("https://api.getthedamclass.sarvesh.me/sub", {

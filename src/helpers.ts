@@ -3,7 +3,7 @@ import { Course } from "./components/courseline";
 
 // Gets an email an pin from local storage, if it doesn't exist in local storage then it prompts
 // the user to sign up with the SignupPopup page
-async function getEmailAndPin(): Promise<[string, string]> {
+async function getEmailAndPinPromise(): Promise<[string, string]> {
 
     // Returning a promise to notifyMe() function
     return new Promise<[string, string]>((resolve, reject) => {
@@ -36,6 +36,38 @@ async function getEmailAndPin(): Promise<[string, string]> {
             }
         })
     });
+}
+
+// Gets an email an pin from local storage, if it doesn't exist in local storage then it prompts
+// the user to sign up with the SignupPopup page
+function getEmailAndPin(): [string, string]{
+    chrome.storage.local.get(['email', 'pin'], (result) => {
+        if (result.email && result.pin) {
+            return [result.email, result.pin];
+        } else {
+            // Send message to background.js to do signup popup
+            chrome.runtime.sendMessage({action: "signup"}, (response) => {
+                if (chrome.runtime.lastError) {
+                    console.error("Error:", chrome.runtime.lastError.message);
+                    return new Error(chrome.runtime.lastError.message);
+                }
+                if (response && response.success) {
+                    console.log("Signup form completed");
+                    chrome.storage.local.get(['email', 'pin'], (result) => {
+                        if (result.email && result.pin) {
+                            return [result.email, result.pin];
+                        } else {
+                            return new Error("Still no email and pin in local storage.");
+                        }
+                    });
+                } else {
+                    console.log("No response or unsuccessful");
+                    return new Error("No response or unsuccessful");
+                }
+            });
+        }
+    })
+    return ["", ""]
 }
 
 interface SubscribePayload {
@@ -77,11 +109,24 @@ function createSignupPayload(email: FormDataEntryValue, pin: FormDataEntryValue)
     };
 }
 
-async function getList(): Promise <[Course]> {
-    let [email, pin]: [string, string] = await getEmailAndPin();
+const test_subs = {
+    subs : [
+        {
+            crn: "39835",
+            name: "INTRO TO DEEP LEARNING"
+        },
+        {
+            crn: "37429",
+            name: "TRUSTWORTHY ML"
+        }
+    ]
+}
+
+function getCourseList(): Course[] {
+    let [email, pin]: [string, string] = getEmailAndPin();
     const payload : SubListPayload = createSubListPayload(email, pin);
 
-    return fetch("https://api.getthedamclass.sarvesh.me/getsubs", {
+    fetch("https://api.getthedamclass.sarvesh.me/getsubs", {
         method: "POST",
         mode: "no-cors",
         headers: {
@@ -102,8 +147,9 @@ async function getList(): Promise <[Course]> {
     })
     .catch(error => {
         console.error("Error:", error);
-        alert("Failed to get sub list: " + error.message);
     });
+
+    return test_subs.subs.map(sub => ({ ...sub, crn: Number(sub.crn) }));
 }
 
 // 1: make post request to AJs endpoint for the crns (see backend docs0
@@ -111,5 +157,5 @@ async function getList(): Promise <[Course]> {
 // Some function which returns that list 
 // Call that function in index.tsx)
 
-export {getEmailAndPin, createSubscribePayload, createSignupPayload, getList};
+export {getEmailAndPin, getEmailAndPinPromise, createSubscribePayload, createSignupPayload, getCourseList};
 export type {SubscribePayload, SignupPayload};

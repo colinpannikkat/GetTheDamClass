@@ -2,12 +2,12 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import "./App.css";
-import { getList } from './helpers';
+import { getCourseList } from './helpers';
 import { Course } from './components/courseline';
 
-const classList: [Course] = getList();
+const courseList: Course[] = getCourseList();
 
-console.log(classList);
+console.log(courseList);
 
 const root = document.createElement("div")
 root.className = "container"
