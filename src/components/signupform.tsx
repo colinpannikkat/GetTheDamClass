@@ -37,15 +37,16 @@ function SignupForm() {
                 console.log("Email and PIN saved successfully");
             });
 
-            // Alert event listener in background that form was submitted
+            // Alert event listener in background that form was submitted and close window
             chrome.runtime.sendMessage({action: "signupComplete"});
             window.close();
         })
         .catch(error => {
             console.error("Error:", error);
             alert("Signup failed: " + error.message);
-            chrome.runtime.sendMessage({action: "signupFailed"});
 
+            // Let event listener know the signup failed
+            chrome.runtime.sendMessage({action: "signupFailed"});
         });
     }
 
