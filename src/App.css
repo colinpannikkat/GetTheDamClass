@@ -106,3 +106,51 @@ div.EndNotify button:active {
     color: var(--lt-color-gray-900);
     font-weight: 900;
 }
+
+
+/* Sign up form html */
+.signupForm {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%; 
+    text-align: center;
+    font-size: 1.2rem; 
+    color: var(--lt-color-gray-100);
+}
+
+.signupForm form {
+    background-color: #e65c28; /* Subtler orange */
+    padding: 2rem;
+    border-radius: 10px;
+    box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.2); /* shadow for depth */
+}
+
+.signupForm button {
+    font-size: 1rem; 
+    padding: 10px 20px;
+    background-color: #f27341; /* Lighter orange for buttons */
+    border: none;
+    border-radius: 5px;
+    color: var(--lt-color-gray-100);
+}
+
+.signupForm button:hover {
+    background-color: #d85b1e; /* Darker orange on hover */
+    cursor: pointer;
+}
+
+.signupForm label {
+    margin-bottom: 0.5rem;
+}
+
+.signupForm input {
+    width: 100%;
+    max-width: 300px;
+    padding: 0.5rem;
+    margin-bottom: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    font-size: 1rem;
+}

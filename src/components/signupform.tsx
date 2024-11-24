@@ -56,19 +56,22 @@ function SignupForm() {
     }
 
     return (
-        <div className="signupForm">
-            <form id="signupForm" onSubmit={handleSubmit}>
-                <label htmlFor="email">Enter your Email:</label>
-                <input type="email" id="email" name="email" required></input>
-                <br></br><br></br>
-                <label htmlFor="pin">PIN:</label>
-                <br></br>
-                <input type="password" id="pin" name="pin" required></input>
-                <div>(This will be used to unsubscribe your email later)</div>
-                <br></br><br></br>
-                <button type="submit">Submit</button>
-            </form>
-        </div>
+        // <div className="App" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
+            <div className="signupForm">
+                <form id="signupForm" onSubmit={handleSubmit}>
+                    <label htmlFor="email">Enter your Email:</label>
+                    <input type="email" id="email" name="email" required></input>
+                    <br></br>
+                    <label htmlFor="pin">PIN:</label>
+                    <br></br>
+                    <input type="password" id="pin" name="pin" required></input>
+                    <div>(This will be used to unsubscribe your email later)</div>
+                    <br></br>
+                    <button type="submit">Submit</button>
+                </form>
+            </div>
+        // </div>
+
     );
 }
 
