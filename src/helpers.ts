@@ -1,3 +1,6 @@
+import { Course } from "./components/courseline";
+
+
 // Gets an email an pin from local storage, if it doesn't exist in local storage then it prompts
 // the user to sign up with the SignupPopup page
 async function getEmailAndPin(): Promise<[string, string]> {
@@ -54,6 +57,19 @@ interface SignupPayload {
     pin: FormDataEntryValue;
 }
 
+interface SubListPayload {
+    email: FormDataEntryValue;
+    pin: FormDataEntryValue;
+}
+
+function createSubListPayload(email: FormDataEntryValue, pin: FormDataEntryValue): SubListPayload {
+    return {
+        email,
+        pin
+    };
+}
+
+
 function createSignupPayload(email: FormDataEntryValue, pin: FormDataEntryValue): SignupPayload {
     return {
         email,
@@ -61,5 +77,39 @@ function createSignupPayload(email: FormDataEntryValue, pin: FormDataEntryValue)
     };
 }
 
-export {getEmailAndPin, createSubscribePayload, createSignupPayload};
+async function getList(): Promise <[Course]> {
+    let [email, pin]: [string, string] = await getEmailAndPin();
+    const payload : SubListPayload = createSubListPayload(email, pin);
+
+    return fetch("https://api.getthedamclass.sarvesh.me/getsubs", {
+        method: "POST",
+        mode: "no-cors",
+        headers: {
+            "Content-Type": "application/json",
+            // "Access-Control-Allow-Origin": "*"
+        },
+        body: JSON.stringify(payload)
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json()
+    })
+    .then(data => {
+        console.log("Get Sub List successful:", data);
+        return data;
+    })
+    .catch(error => {
+        console.error("Error:", error);
+        alert("Failed to get sub list: " + error.message);
+    });
+}
+
+// 1: make post request to AJs endpoint for the crns (see backend docs0
+// Get json object of crns in the name
+// Some function which returns that list 
+// Call that function in index.tsx)
+
+export {getEmailAndPin, createSubscribePayload, createSignupPayload, getList};
 export type {SubscribePayload, SignupPayload};
