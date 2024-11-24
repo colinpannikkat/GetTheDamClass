@@ -35,7 +35,7 @@ async function notifyMe(crn: string) {
     })
     .catch(error => {
         console.error("Error:", error);
-        // alert("Subscription failed: " + error.message);
+        alert("Subscription failed: " + error.message);
     });
 }
 
