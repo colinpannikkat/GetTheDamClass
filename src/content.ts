@@ -9,9 +9,10 @@ async function notifyMe(crn: string) {
 
     fetch("https://api.getthedamclass.sarvesh.me/sub", {
         method: "POST",
+        mode: "no-cors",
         headers: {
             "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*"
+            // "Access-Control-Allow-Origin": "*"
         },
         body: JSON.stringify(payload)
     })
