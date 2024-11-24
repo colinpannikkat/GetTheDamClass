@@ -34,14 +34,13 @@ function SignupForm() {
             }
             if (!response.ok) {
                 console.error(`HTTP error! status: ${response.status}`);
-                alert(`Signup failed: HTTP error! status: ${response.status}`);
                 chrome.runtime.sendMessage({action: "signupFailed"});
-                return
+                return Promise.reject(`Signup failed: HTTP error! status: ${response.status}`);
             }
             return response.json()
         })
         .then(data => {
-            console.log("Signup successful:", data);
+            console.log("Signup/signin successful:", data);
             /**
              * Save the user's email and pin in the chrome local storage.
              * Only saves if the post request to API is successful.
@@ -60,7 +59,7 @@ function SignupForm() {
         })
         .catch(error => {
             console.error("Error:", error);
-            alert("Signup failed: " + error.message);
+            alert("Signup failed: " + error);
 
             // Let event listener know the signup failed
             chrome.runtime.sendMessage({action: "signupFailed"});

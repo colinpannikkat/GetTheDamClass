@@ -20,12 +20,11 @@ async function notifyMe(crn: string) {
     })
     .then(response => {
         if (response.status === 409) {
-            alert("Already subscribed for notifications for this class.");
-            return Promise.reject("Already subscribed for notifications");
+            return Promise.reject("Already subscribed for notifications for this class");
         }
         if (!response.ok) {
             console.error(`HTTP error! status: ${response.status}`);
-            return Promise.reject("Subscription was unsuccessful");
+            return Promise.reject("Server did not respond");
         }
         return response.json()
     })
@@ -35,7 +34,7 @@ async function notifyMe(crn: string) {
     })
     .catch(error => {
         console.error("Error:", error);
-        alert("Subscription failed: " + error.message);
+        alert("Subscription failed: " + error);
     });
 }
 

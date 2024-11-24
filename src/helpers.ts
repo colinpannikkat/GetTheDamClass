@@ -156,7 +156,7 @@ async function unsubCourse(crn: string) {
     })
     .catch(error => {
         console.error("Error:", error);
-        // alert("Cancellation of subscription failed: " + error.message);
+        // alert("Cancellation of subscription failed, try again: " + error);
     });
 }
 
