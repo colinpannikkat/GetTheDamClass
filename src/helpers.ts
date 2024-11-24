@@ -136,7 +136,7 @@ function getCourseList(): Course[] {
     })
     .then(response => {
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            console.error(`HTTP error! status: ${response.status}`)
         }
         return response.json()
     })
@@ -171,7 +171,7 @@ function unsubCourse(crn: string) {
     })
     .then(response => {
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            console.error(`HTTP error! status: ${response.status}`);
         }
         return response.json()
     })

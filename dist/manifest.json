@@ -13,7 +13,8 @@
         "webRequest",
         "scripting",
         "activeTab",
-        "storage"
+        "storage",
+        "notifications"
     ],
     "background": {
         "service_worker": "src/background.js",

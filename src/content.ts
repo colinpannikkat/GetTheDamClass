@@ -20,7 +20,7 @@ async function notifyMe(crn: string) {
     })
     .then(response => {
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            console.error(`HTTP error! status: ${response.status}`);
         }
         return response.json()
     })
@@ -43,7 +43,7 @@ function createButtonDiv(): HTMLButtonElement {
     let dtl_section: string | null | undefined = document.querySelector("div.dtl-section")?.textContent;
 
     if (dtl_section == null || dtl_section == undefined) {
-        throw(Error("No CRN found on page"));
+        console.error("No CRN found on page");
     } else {
         // Find matching substring with regex to get crn
         const crn = dtl_section.match(/CRN (\d+)/)?.[1];
@@ -51,7 +51,7 @@ function createButtonDiv(): HTMLButtonElement {
             newButton?.addEventListener("click", async () => await notifyMe(crn));
             newButton.setAttribute("cumbutton", "true");
         } else {
-            throw(Error("CRN is undefined"));
+            console.error("CRN is undefined");
         }    
     }
 
