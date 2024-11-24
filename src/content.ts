@@ -1,10 +1,10 @@
-import { getEmailAndPinPromise, createSubscribePayload, SubscribePayload} from "./helpers";
+import { getEmailAndPin, createSubscribePayload, SubscribePayload} from "./helpers";
 
 MutationObserver = window.MutationObserver;
 
 // Notify function that runs when button is pressed
 async function notifyMe(crn: string) {
-    let [email, pin]: [string, string] = await getEmailAndPinPromise();
+    let [email, pin]: [string, string] = await getEmailAndPin();
     const payload : SubscribePayload = createSubscribePayload(crn, email, pin);
 
     fetch("https://api.getthedamclass.sarvesh.me/sub", {
@@ -25,7 +25,6 @@ async function notifyMe(crn: string) {
         }
         if (!response.ok) {
             console.error(`HTTP error! status: ${response.status}`);
-            console.error(response.json())
             return Promise.reject("Subscription was unsuccessful");
         }
         return response.json()

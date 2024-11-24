@@ -2,8 +2,7 @@ import { Course } from "./components/courseline";
 
 // Gets an email an pin from local storage, if it doesn't exist in local storage then it prompts
 // the user to sign up with the SignupPopup page
-async function getEmailAndPinPromise(): Promise<[string, string]> {
-
+async function getEmailAndPin(): Promise<[string, string]> {
     // Returning a promise to notifyMe() function
     return new Promise<[string, string]>((resolve, reject) => {
         chrome.storage.local.get(['email', 'pin'], (result) => {
@@ -35,38 +34,6 @@ async function getEmailAndPinPromise(): Promise<[string, string]> {
             }
         })
     });
-}
-
-// Gets an email an pin from local storage, if it doesn't exist in local storage then it prompts
-// the user to sign up with the SignupPopup page
-function getEmailAndPin(): [string, string]{
-    chrome.storage.local.get(['email', 'pin'], (result) => {
-        if (result.email && result.pin) {
-            return [result.email, result.pin];
-        } else {
-            // Send message to background.js to do signup popup
-            chrome.runtime.sendMessage({action: "signup"}, (response) => {
-                if (chrome.runtime.lastError) {
-                    console.error("Error:", chrome.runtime.lastError.message);
-                    return new Error(chrome.runtime.lastError.message);
-                }
-                if (response && response.success) {
-                    console.log("Signup form completed");
-                    chrome.storage.local.get(['email', 'pin'], (result) => {
-                        if (result.email && result.pin) {
-                            return [result.email, result.pin];
-                        } else {
-                            return new Error("Still no email and pin in local storage.");
-                        }
-                    });
-                } else {
-                    console.log("No response or unsuccessful");
-                    return new Error("No response or unsuccessful");
-                }
-            });
-        }
-    })
-    return ["", ""]
 }
 
 interface SubscribePayload {
@@ -121,9 +88,9 @@ const test_subs = {
     ]
 }
 
-function getCourseList(): Course[] {
-    let [email, pin]: [string, string] = getEmailAndPin();
-    let cl;
+async function getCourseList(): Promise<Course[]> {
+    let [email, pin]: [string, string] = await getEmailAndPin();
+    let cl: Course[] = [];
     const payload : SubListPayload = createSubListPayload(email, pin);
 
     fetch("https://api.getthedamclass.sarvesh.me/getsubs", {
@@ -151,15 +118,13 @@ function getCourseList(): Course[] {
         return
     });
 
-    // Temporary until endpoint is up
-    return test_subs.subs;
-    return cl
+    return cl;
 }
 
 // Unsub function
-function unsubCourse(crn: string) {
+async function unsubCourse(crn: string) {
 
-    let [email, pin]: [string, string] = getEmailAndPin();
+    let [email, pin]: [string, string] = await getEmailAndPin();
     const payload : SubscribePayload = createSubscribePayload(crn, email, pin);
 
     fetch("https://api.getthedamclass.sarvesh.me/unsub", {
@@ -195,5 +160,5 @@ function unsubCourse(crn: string) {
 // Some function which returns that list 
 // Call that function in index.tsx)
 
-export {getEmailAndPin, getEmailAndPinPromise, createSubscribePayload, createSignupPayload, getCourseList, unsubCourse};
+export {getEmailAndPin, createSubscribePayload, createSignupPayload, getCourseList, unsubCourse};
 export type {SubscribePayload, SignupPayload};

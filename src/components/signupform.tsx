@@ -26,8 +26,6 @@ function SignupForm() {
         })
         .then(response => {
             if (response.status === 409) {
-                alert("Signup failed: Email already exists");
-                chrome.runtime.sendMessage({action: "signupComplete"});
                 return response.json()
             }
             if (!response.ok) {
@@ -52,6 +50,8 @@ function SignupForm() {
 
             // Alert event listener in background that form was submitted and close window
             chrome.runtime.sendMessage({action: "signupComplete"});
+
+            setTimeout(() => {}, 1000);
             window.close();
         })
         .catch(error => {
@@ -64,7 +64,6 @@ function SignupForm() {
     }
 
     return (
-        // <div className="SignupApp" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
             <div className="signupForm">
                 <form id="signupForm" onSubmit={handleSubmit}>
                     <label htmlFor="email">Enter your Email:</label>
@@ -78,7 +77,6 @@ function SignupForm() {
                     <button type="submit">Submit</button>
                 </form>
             </div>
-        // </div>
     );
 }
 
