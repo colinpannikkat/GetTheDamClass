@@ -1,6 +1,6 @@
 const path = require("path");
 const HTMLPlugin = require("html-webpack-plugin");
-const CopyPlugin = require("copy-webpack-plugin")
+const CopyPlugin = require("copy-webpack-plugin");
 
 module.exports = {
     entry: {
@@ -13,23 +13,21 @@ module.exports = {
     module: {
         rules: [
             {
-              test: /\.tsx?$/,
-               use: [
-                 {
-                  loader: "ts-loader",
-                   options: {
-                     compilerOptions: { noEmit: false },
-                    }
-                  }],
-               exclude: /node_modules/,
+                test: /\.tsx?$/,
+                use: [
+                    {
+                        loader: "ts-loader",
+                        options: {
+                            compilerOptions: { noEmit: false },
+                        },
+                    },
+                ],
+                exclude: /node_modules/,
             },
             {
-              exclude: /node_modules/,
-              test: /\.css$/i,
-               use: [
-                  "style-loader",
-                  "css-loader"
-               ]
+                exclude: /node_modules/,
+                test: /\.css$/i,
+                use: ["style-loader", "css-loader"],
             },
         ],
     },
@@ -37,10 +35,11 @@ module.exports = {
         new CopyPlugin({
             patterns: [
                 { from: "manifest.json", to: "../manifest.json" },
+                { from: "icons", to: "../icons" }, // Added pattern to include icons folder
             ],
         }),
         ...getHtmlPlugins(["index"]),
-        ...getHtmlPlugins(["popup"])
+        ...getHtmlPlugins(["popup"]),
     ],
     resolve: {
         extensions: [".tsx", ".ts", ".js"],
