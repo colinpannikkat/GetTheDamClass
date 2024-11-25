@@ -71,7 +71,7 @@ function SignupForm() {
                     <br></br>
                     <label htmlFor="pin">Create a 4 digit PIN:</label>
                     <br></br>
-                    <input type="password" id="pin" name="pin" required pattern = "^\d{4}$"></input>
+                    <input type="password" id="pin" name="pin" required pattern = "^[0-9]{4}$"></input>
                     <div>(This will be used to unsubscribe your email later)</div>
                     <br></br>
                     <button type="submit">Submit</button>
