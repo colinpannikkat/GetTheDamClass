@@ -50,6 +50,9 @@ html {
 .container::-webkit-scrollbar {
     display: none;
 }
+.popup-container::-webkit-scrollbar {
+    display: none;
+}
 
 h1 {
     color: var(--text-color);
@@ -123,6 +126,7 @@ div.EndNotify button:active {
     font-size: 1.2rem; 
     color: var(--lt-color-gray-100);
     background-color: var(--accent-color);
+
 }
 
 .signupForm form {
