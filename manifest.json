@@ -5,13 +5,9 @@
     "description": "This is a Chrome extension for class vacancy notification",
     "action": {
         "default_popup": "src/index.html",
-
         "default_title": "GetTheDamClass"
     },
-    "host_permissions": ["*://*.oregonstate.edu/*, https://api.getthedamclass.sarvesh.me/*"],
     "permissions" : [
-        "scripting",
-        "activeTab",
         "storage"
     ],
     "background": {
