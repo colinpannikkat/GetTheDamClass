@@ -39,7 +39,8 @@ We do not sell, rent, or share your information with third parties except in the
    - No sensitive data is transmitted in plaintext.
 
 2. **Data Storage**:
-   - Email addresses and PINs are securely hashed and stored in a database.
+   - Email addresses and PINs are securely stored in a database.
+   - The PIN is hashed and salted prior to being stored.
    - Subscription data is stored to facilitate the notification service.
 
 3. **Access Controls**:
