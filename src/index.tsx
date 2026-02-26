@@ -16,5 +16,5 @@ rootDiv.render(
 
 const footer = document.createElement("footer");
 footer.className = "footer";
-footer.innerHTML = "<p>&copy; 2024 NothingSuspicious</p>";
+footer.innerHTML = "<p>&copy; 2026 NothingSuspicious</p>";
 document.body.appendChild(footer);

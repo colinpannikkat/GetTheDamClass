@@ -14,9 +14,10 @@ function App(props : AppProps) {
                 <CourseLine
                     name={course.name} 
                     crn={course.crn}
+                    waitlist_notify={course.waitlist_notify}
                 />
             ))}
-            {/* <CourseLine name={"APPLIED DIFFERENTIAL EQUATIONS"} crn={"37631"} /> */}
+            {/* <CourseLine name={"APPLIED DIFFERENTIAL EQUATIONS"} crn={"37631"} waitlist_notify={false} /> */}
             {/* <CourseLine name={"DEEP LEARNING"} crn={"37631"} /> */}
         </div>
     );

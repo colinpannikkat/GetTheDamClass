@@ -74,6 +74,22 @@ function createSubListPayload(email: FormDataEntryValue, pin: FormDataEntryValue
     };
 }
 
+interface WaitlistNotifyPayload {
+    crn: FormDataEntryValue;
+    notify: FormDataEntryValue;
+    email: FormDataEntryValue;
+    pin: FormDataEntryValue;
+}
+
+function createWaitlistNotifyPayload(crn: FormDataEntryValue, notify: FormDataEntryValue, email: FormDataEntryValue, pin: FormDataEntryValue): WaitlistNotifyPayload {
+    return {
+        crn,
+        notify,
+        email,
+        pin
+    };
+}
+
 
 const test_subs = {
     subs : [
@@ -160,6 +176,40 @@ async function unsubCourse(crn: string) {
     });
 }
 
+// Update notification for waitlist
+async function updateNotifyWaitlist(crn: string, notify: boolean) {
 
-export {getEmailAndPin, createSubscribePayload, createSignupPayload, getCourseList, unsubCourse};
+    let [email, pin]: [string, string] = await getEmailAndPin();
+    const payload: WaitlistNotifyPayload = createWaitlistNotifyPayload(crn, notify ? "true" : "false", email, pin);
+
+     fetch("https://api.getthedamclass.sarvesh.me/notifyWaitlist", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            'Access-Control-Allow-Credentials' : 'true',
+            'Access-Control-Allow-Origin':'*',
+            'Access-Control-Allow-Methods':'POST',
+            'Access-Control-Allow-Headers':'application/json',
+        },
+        body: JSON.stringify(payload)
+    })
+    .then(response => {
+        if (!response.ok) {
+            console.error(`HTTP error! status: ${response.status}`);
+            console.error(response.json())
+            return Promise.reject("Updating waitlist notification unsuccessful");
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log("Waitlist notification update successful:", data);
+    })
+    .catch(error => {
+        console.error("Error:", error);
+    });
+
+}
+
+
+export {getEmailAndPin, createSubscribePayload, createSignupPayload, getCourseList, unsubCourse, updateNotifyWaitlist};
 export type {SubscribePayload, SignupPayload};

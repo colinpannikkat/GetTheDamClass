@@ -10,6 +10,7 @@
     "permissions" : [
         "storage"
     ],
+    "host_permissions": ["https://api.getthedamclass.sarvesh.me/*"],
     "background": {
         "service_worker": "src/background.js",
         "type": "module"

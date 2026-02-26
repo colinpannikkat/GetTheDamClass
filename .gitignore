@@ -24,4 +24,4 @@ yarn-error.log*
 /dist/src/index.js
 /dist/src/popup.js
 
-dist.zip
+dist*.zip
