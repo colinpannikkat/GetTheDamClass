@@ -6,7 +6,11 @@
  * https://developers.cloudflare.com/cf/projects/cloudflare-config/
  *
  * The settings depend on the mode: `cf dev` runs in "development", and
- * `cf build` and `cf deploy` in "production".
+ * `cf build` and `cf deploy` in "production". A build in "development" mode
+ * prints emails instead of sending them and uses the local database, so it
+ * gets a name of its own and no address: deployed by mistake
+ * (`cf deploy -m development`), it would be a separate Worker that nothing
+ * reaches, and the real one would stay as it is.
  */
 import { bindings, defineConfig, triggers } from "cf/config"
 
@@ -30,7 +34,7 @@ export default defineConfig(({ mode }) => {
   const local = mode === "development"
   return {
     worker: {
-      name: "getthedamclass",
+      name: local ? "getthedamclass-local" : "getthedamclass",
       entrypoint: "./src/index.ts",
       // Cloudflare updates the Workers runtime all the time. Changes that could
       // break existing code are switched on by date, and a Worker only gets the
@@ -45,7 +49,8 @@ export default defineConfig(({ mode }) => {
       triggers: [triggers.scheduled({ schedule: "* * * * *" }), triggers.scheduled({ schedule: "0 11 * * *" })],
       // The API's one public address, which the extension's normal build
       // calls. Cloudflare creates its DNS record and certificate on deploy.
-      domains: ["api.getthedamclass.ajinkya.dev"],
+      // None in "development" mode (see the top of this file).
+      domains: local ? [] : ["api.getthedamclass.ajinkya.dev"],
       // Off, so that the API answers at that address only, and not also at
       // getthedamclass.<account>.workers.dev or at a workers.dev address per
       // uploaded version. The rate limit on signing in (see the README) is
@@ -56,13 +61,25 @@ export default defineConfig(({ mode }) => {
       // "Deployment" in the README). The server's own lines are what matter:
       // one per request (method, path without the query, status), one per
       // check and cleanup run with its counts, and every email that could not
-      // be sent, with the reason. Cloudflare's own line per request (its
-      // "invocation log") is off: it would also keep each request's headers,
-      // query string (an unsubscribe link's key) and the client's IP
-      // address, none of which the privacy policy says are kept.
-      observability: { enabled: true, logs: { invocationLogs: false } },
+      // be sent, with the reason. Cloudflare stores each of those lines with
+      // the request it belongs to.
+      observability: {
+        enabled: true,
+        // Removes the query string from the request URL Cloudflare stores
+        // with every line, so an unsubscribe link's key (`?key=...`) is never
+        // kept.
+        redactQueryString: true,
+        // Turns off Cloudflare's own extra line per request (its "invocation
+        // log"), which would also keep each request's headers and the
+        // client's IP address, neither of which the privacy policy says is
+        // kept. It does not shorten the URL on the lines that remain; the
+        // setting above does.
+        logs: { invocationLogs: false }
+      },
       env: {
-        DB: bindings.d1({ name: "getthedamclass", id: local ? LOCAL_DATABASE_ID : PRODUCTION_DATABASE_ID }),
+        DB: local
+          ? bindings.d1({ name: "getthedamclass-local", id: LOCAL_DATABASE_ID })
+          : bindings.d1({ name: "getthedamclass", id: PRODUCTION_DATABASE_ID }),
         EMAIL: bindings.sendEmail({ allowedSenderAddresses: [SENDER] }),
         EMAIL_FROM: bindings.text(SENDER),
         // Where links in emails point.
@@ -71,7 +88,8 @@ export default defineConfig(({ mode }) => {
         // sending them (`Mailer.layerPrint`), so a sign-in code can be read
         // there. Only "development" mode sets it. `cf dev` runs in that mode;
         // `cf build` and `cf deploy` only do when told to with a flag
-        // (`-m development`), which a real deploy must never be given.
+        // (`-m development`), and then build the separate local Worker (see
+        // the top of this file), never the real one.
         MAILER: bindings.text(local ? "print" : "cloudflare")
       }
     }

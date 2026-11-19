@@ -14,12 +14,37 @@ const subscribed = Effect.gen(function*() {
   return { server, api, link }
 })
 
-/** Request a page, and read it. */
+/**
+ * Request a page, and read it. A browser posts the page's form with
+ * `Origin: null`, because the page's Referrer-Policy is "no-referrer", so the
+ * POST here does too.
+ */
 const open = (server: TestServer, url: string, method = "GET") =>
   Effect.promise(async () => {
-    const response = await server.fetch(url, { method })
-    return { status: response.status, type: response.headers.get("content-type"), html: await response.text() }
+    const response = await server.fetch(url, { method, headers: method === "POST" ? { origin: "null" } : {} })
+    return {
+      status: response.status,
+      type: response.headers.get("content-type"),
+      headers: response.headers,
+      html: await response.text()
+    }
   })
+
+/** What every one of these pages must carry, so its key goes nowhere (see PAGE_HEADERS in unsubscribe.ts). */
+const assertPrivate = (headers: Headers) => {
+  assert.strictEqual(headers.get("referrer-policy"), "no-referrer")
+  assert.strictEqual(headers.get("cache-control"), "no-store")
+  const policy = new Map(
+    headers.get("content-security-policy")!.split(";").map((directive) => {
+      const [name, ...values] = directive.trim().split(/\s+/)
+      return [name!, values.join(" ")]
+    })
+  )
+  // No script-src, so scripts fall back to default-src: none run.
+  assert.strictEqual(policy.get("default-src"), "'none'")
+  assert.isFalse(policy.has("script-src"))
+  assert.strictEqual(policy.get("form-action"), "'self'")
+}
 
 describe("the unsubscribe page", () => {
   it.effect("GET shows the class and a button, and stops nothing", () =>
@@ -30,6 +55,7 @@ describe("the unsubscribe page", () => {
       assert.include(page.type, "text/html")
       assert.include(page.html, "INTRO TO COMPUTER SCIENCE I (CRN 33940)")
       assert.match(page.html, /<form method="post" action="\/unsubscribe\?key=[^"]+">/)
+      assertPrivate(page.headers)
       // Opening it again (as a mail scanner might) still changes nothing.
       yield* open(server, link)
       assert.strictEqual((yield* api.alerts.list()).length, 1)
@@ -41,6 +67,7 @@ describe("the unsubscribe page", () => {
       const page = yield* open(server, link, "POST")
       assert.strictEqual(page.status, 200)
       assert.include(page.html, "Alerts stopped")
+      assertPrivate(page.headers)
       assert.include(page.html, "INTRO TO COMPUTER SCIENCE I (CRN 33940)")
       assert.deepStrictEqual(yield* api.alerts.list(), [])
     }))
@@ -62,6 +89,7 @@ describe("the unsubscribe page", () => {
         assert.strictEqual(page.status, 404)
         assert.include(page.type, "text/html")
         assert.include(page.html, "already stopped")
+        assertPrivate(page.headers)
       }
     }))
 
@@ -72,6 +100,7 @@ describe("the unsubscribe page", () => {
         const page = yield* open(server, url, "POST")
         assert.strictEqual(page.status, 404)
         assert.include(page.html, "already stopped")
+        assertPrivate(page.headers)
       }
       assert.strictEqual((yield* api.alerts.list()).length, 1)
     }))

@@ -96,6 +96,27 @@ export const UnsubscribePage = Layer.mergeAll(
   HttpRouter.add("POST", "/unsubscribe", Effect.flatMap(requestKey, stopAlert))
 )
 
+/**
+ * Sent with every one of these pages. The page's address holds the key that
+ * stops the alert, so nothing on it may send that address anywhere. Cloudflare
+ * can add its Web Analytics script to any HTML page on the zone, and that
+ * script reports the page it runs on; these headers stop it and anything like it.
+ */
+const PAGE_HEADERS = {
+  // No `Referer` with the page's address (and its key) on any request the page
+  // makes, nor on a link followed from it.
+  "referrer-policy": "no-referrer",
+  // The page has no scripts of its own, only inline styles and a form that
+  // posts back to this server, so allow exactly that: no script runs (an added
+  // one included), nothing is fetched, and the form can only post here.
+  // `form-action` does not fall back to `default-src`, so it is set apart.
+  "content-security-policy":
+    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+  // Neither the browser nor anything between keeps a copy of a page that holds
+  // a key, or one that answered for a key.
+  "cache-control": "no-store"
+}
+
 /** A small page of its own. `body` is HTML already. */
 const page = (status: number, title: string, body: string) =>
   HttpServerResponse.text(
@@ -113,7 +134,7 @@ ${body}
 </main>
 </body>
 </html>`,
-    { status, contentType: "text/html" }
+    { status, contentType: "text/html", headers: PAGE_HEADERS }
   )
 
 /**
