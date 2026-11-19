@@ -42,7 +42,7 @@ We do not sell, rent, or share your information with third parties except in the
    - Email addresses and PINs are securely stored in a database.
    - The PIN is hashed and salted prior to being stored.
    - Subscription data is stored to facilitate the notification service.
-   - In your browser, the extension keeps your email address, your 4-digit PIN and the list of class CRN numbers you are watching in the browser's local extension storage, unencrypted, so that it can make requests on your behalf. Signing out in the extension removes them from the browser.
+   - In your browser, the extension keeps your email address, your 4-digit PIN and the list of class CRN numbers you are watching in the browser's local extension storage, unencrypted, so that it can make requests on your behalf. Signing out in the extension removes them from the browser. One exception: if a request to start an alert is still in progress at the moment you sign out, your email address and that class's CRN (not your PIN) can be saved again when it finishes; they are removed the next time you sign out.
 
 3. **Access Controls**:
    - Access to user data is restricted to authorized personnel only, under strict confidentiality.
