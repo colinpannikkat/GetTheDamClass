@@ -264,11 +264,15 @@ Each deploy keeps the earlier versions. To put one back:
 
 ```sh
 pnpm exec cf workers deployments list --worker getthedamclass    # each deploy, with its version ID and message
-pnpm exec cf workers deployments create --worker getthedamclass \
+pnpm exec cf workers deployments create --worker getthedamclass --strategy percentage \
   --versions '[{"version_id":"<the earlier version ID>","percentage":100}]'
 ```
 
-That puts back the version's code and bindings only: the cron triggers, the domain and the log settings stay as the latest deploy set them. Or check out the earlier commit and `cf deploy` it, which puts back its whole configuration. Neither undoes a migration. If a migration or a bug damaged the data, D1 can restore the whole database to any minute of the last 30 days, which undoes every write made since, students' included. That is `pnpm exec cf d1 time-travel restore 8ec9fdcd-620b-414f-b468-8278130c41d0 --timestamp <ISO 8601 time>`. Try it with `--dry-run` first.
+That puts back the version's code and bindings only: the cron triggers, the domain and the log settings stay as the latest deploy set them. Or check out the earlier commit and `cf deploy` it, which puts back its whole configuration.
+
+Going back also takes back whatever the bad version's predecessors lacked. So afterwards, check what a student's privacy depends on: the unsubscribe page still answers with its `Referrer-Policy`, `Content-Security-Policy` and `Cache-Control` headers (`curl -sI "https://api.getthedamclass.ajinkya.dev/unsubscribe?key=x"`), and a request with a made-up `?x=1` shows in the live tail without its query. Versions deployed before 19 November 2026, 21:42 UTC have neither; do not go back that far.
+
+Neither way undoes a migration. If a migration or a bug damaged the data, D1 can restore the whole database to any minute of the last 30 days, which undoes every write made since, students' included. That is `pnpm exec cf d1 time-travel restore 8ec9fdcd-620b-414f-b468-8278130c41d0 --timestamp <ISO 8601 time>`. Try it with `--dry-run` first.
 
 ### Applying a new migration
 
@@ -293,7 +297,7 @@ The server writes one line per request (method, path, status), one per check (`C
 
 ### How many emails it can send
 
-Cloudflare lets a new account send 200 emails a day, counting sign-in codes, confirmations and alerts together, to any address. The limit rises by itself as the account keeps sending mail that is not bounced or reported. Cloudflare's [limits page](https://developers.cloudflare.com/email-service/platform/limits/) links a form for asking sooner, which is worth doing before a release. Past the limit a send fails, and the server logs it like any other email that could not be sent. In practice:
+This account may send 200 emails a day for now (`limits get` below shows the current number), counting sign-in codes, confirmations and alerts together, to any address. The limit rises by itself as the account keeps sending mail that is not bounced or reported. Cloudflare's [limits page](https://developers.cloudflare.com/email-service/platform/limits/) links a form for asking sooner, which is worth doing before a release. Past the limit a send fails, and the server logs it like any other email that could not be sent. In practice:
 
 - Nobody can sign in until the limit resets: the code never arrives, and the form says it couldn't send the email.
 - A seat alert that fails then is lost, not sent later (`sendAlert` in `src/poll.ts`). The check has already recorded the change, so that student only hears of the next one.
@@ -307,7 +311,7 @@ pnpm exec cf email-sending limits get    # the daily limit, how many were sent, 
 
 ### Addresses Cloudflare has stopped sending to
 
-After a hard bounce (an address that does not exist, say) or a spam complaint, Cloudflare puts the address on a suppression list. A hard bounce stays there for 7 days or for good, depending on the cause, and a complaint for good. Every send to that address then fails, so that student sees "We couldn't send the email with your code" at sign-in and gets no alerts. `pnpm exec cf email-sending suppressions list` shows them (`--email <address>` for one), and `cf email-sending suppressions delete` removes one once the student has fixed the cause (see [Cloudflare's page](https://developers.cloudflare.com/email-service/concepts/suppressions/)).
+After a hard bounce (an address that does not exist, say) or a spam complaint, Cloudflare puts the address on a suppression list. A hard bounce stays there for 7 days or for good, depending on the cause, and a complaint for good. (A soft bounce, such as a full mailbox, stops sends to the address for 24 hours.) Every send to that address then fails, so that student sees "We couldn't send the email with your code" at sign-in and gets no alerts. `pnpm exec cf email-sending suppressions list` shows them (`--email <address>` for one), and `cf email-sending suppressions delete` removes one, by the ID that `list` shows and not by the address, once the student has fixed the cause (see [Cloudflare's page](https://developers.cloudflare.com/email-service/concepts/suppressions/)).
 
 ### The certificate
 
@@ -333,8 +337,8 @@ This was done once, in this order. Everything below uses the new account's own r
    }]'
    ```
 
-   That is 10 requests per 10 seconds from one IP address; beyond that, the address gets HTTP 429 on those paths for 10 seconds. A student sends a handful of these requests a minute, so only a script meets it; it then gets about one try a second. It counts per IP address, so many students signing in at once from behind one shared address (a campus network, say) could be blocked for those 10 seconds. A free zone allows one rate-limiting rule, with 10 seconds as its only period and block time.
-5. **HTTPS only.** Without this rule, a request over plain HTTP reaches the Worker, and a client using the wrong scheme would send its token unencrypted. This rule answers HTTP for the API's host with a redirect to HTTPS (308, which keeps the method) before the Worker sees it. It leaves the zone's other hosts alone. The same warning applies: `entrypoint update` replaces every redirect rule in the zone, so read them first and send them all back with this one:
+   That is 10 requests per 10 seconds from one IP address (counted separately in each Cloudflare data center); beyond that, the address gets HTTP 429 on those paths for 10 seconds. A student sends a handful of these requests a minute, and a script gets about one try a second. Because it counts per IP address, many students signing in at once from behind one shared address (a campus network, say) could also be blocked for those 10 seconds. A free zone allows one rate-limiting rule, with 10 seconds as its only period and block time.
+5. **HTTPS only.** Without this rule, a request over plain HTTP reaches the Worker and gets an answer, so a client using the wrong scheme would work, sending its token unencrypted every time. This rule answers HTTP for the API's host with a redirect to HTTPS (308, which keeps the method) before the Worker sees it. (It cannot take back what that first request already sent in the clear; the extension only ever uses HTTPS.) It leaves the zone's other hosts alone. The same warning applies: `entrypoint update` replaces every redirect rule in the zone, so read them first and send them all back with this one:
 
    ```sh
    pnpm exec cf rulesets entrypoint get http_request_dynamic_redirect -z <zone>

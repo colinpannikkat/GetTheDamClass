@@ -40,9 +40,12 @@ const assertPrivate = (headers: Headers) => {
       return [name!, values.join(" ")]
     })
   )
-  // No script-src, so scripts fall back to default-src: none run.
+  // Nothing loads or runs unless named: no script directive of any kind is
+  // there, so scripts fall back to default-src and none run. The page's own
+  // inline styles and its form's POST to itself are the two things allowed.
   assert.strictEqual(policy.get("default-src"), "'none'")
-  assert.isFalse(policy.has("script-src"))
+  assert.deepStrictEqual([...policy.keys()].filter((name) => name.startsWith("script-src")), [])
+  assert.strictEqual(policy.get("style-src"), "'unsafe-inline'")
   assert.strictEqual(policy.get("form-action"), "'self'")
 }
 

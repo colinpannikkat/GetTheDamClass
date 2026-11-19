@@ -10,7 +10,9 @@
  * prints emails instead of sending them and uses the local database, so it
  * gets a name of its own and no address: deployed by mistake
  * (`cf deploy -m development`), it would be a separate Worker that nothing
- * reaches, and the real one would stay as it is.
+ * reaches, and the real one would stay as it is. (Delete that Worker if it
+ * ever happens: its jobs would still run every minute, against a database
+ * with no tables.)
  */
 import { bindings, defineConfig, triggers } from "cf/config"
 
