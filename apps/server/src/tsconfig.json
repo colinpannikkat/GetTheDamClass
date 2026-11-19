@@ -1,6 +1,9 @@
 {
   // Checks the Worker's own code: everything in this folder except the tests.
   // (Tests and config files run in Node; see ../tsconfig.node.json.)
+  // One file from outside comes along: the generated types import
+  // ../cloudflare.config.ts to read the bindings from it, so that file is
+  // checked here too and cannot use Node globals such as `process.env`.
   // The strict settings are the same ones the extension gets from WXT.
   "compilerOptions": {
     "target": "ES2024",
