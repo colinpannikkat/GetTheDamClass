@@ -125,6 +125,17 @@ export const signIn = Effect.fn("signIn")(function*(email: EmailAddress, code: S
   return yield* issueToken(accounts[0]!.id)
 }, dieOnSqlError)
 
+/**
+ * Remove the codes that have expired, for the daily job (cleanup.ts). Nothing
+ * is lost: an expired code signs nobody in, and its row stopped counting for
+ * the one-minute wait long before.
+ */
+export const deleteExpiredCodes = Effect.fn("deleteExpiredCodes")(function*() {
+  const sql = yield* SqlClient.SqlClient
+  const now = yield* Clock.currentTimeMillis
+  yield* sql`DELETE FROM sign_in_codes WHERE sent_at <= ${now - Duration.toMillis(CODE_LIFETIME)}`
+})
+
 export const SignInHandlers = HttpApiBuilder.group(Api, "signIn", (handlers) =>
   handlers
     .handle("sendCode", ({ payload }) => sendCode(payload.email))

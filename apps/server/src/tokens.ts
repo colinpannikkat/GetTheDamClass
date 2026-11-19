@@ -3,8 +3,9 @@
  * comes with every request (the `Authentication` middleware), and ending one.
  *
  * Each browser gets its own token, so signing in somewhere new leaves the
- * others signed in. A token ends when its browser signs out, or when the
- * account is deleted (the database removes its tokens with it). The database
+ * others signed in. A token ends when its browser signs out, when nobody has
+ * used it for a year, or when the account is deleted (the database removes
+ * its tokens with it). The database
  * keeps only a hash of each token; the token itself exists only in the
  * browser that holds it.
  */
@@ -22,6 +23,9 @@ import { hashSecret, randomKey } from "./secrets"
  * removing tokens nobody has used for a year.
  */
 const LAST_USED_PRECISION = Duration.days(1)
+
+/** How long a token may go unused before the daily job removes it, signing that browser out. */
+const UNUSED_TOKEN_LIFETIME = Duration.days(365)
 
 /** Create a token for this account, and return it. This is the only time it is seen. */
 export const issueToken = Effect.fn("issueToken")(function*(accountId: number) {
@@ -41,6 +45,13 @@ export const endToken = Effect.fn("endToken")(function*(tokenId: number) {
   const sql = yield* SqlClient.SqlClient
   yield* sql`DELETE FROM tokens WHERE id = ${tokenId}`
 }, dieOnSqlError)
+
+/** Remove the tokens nobody has used for a year, for the daily job (cleanup.ts). */
+export const deleteUnusedTokens = Effect.fn("deleteUnusedTokens")(function*() {
+  const sql = yield* SqlClient.SqlClient
+  const now = yield* Clock.currentTimeMillis
+  yield* sql`DELETE FROM tokens WHERE last_used_at <= ${now - Duration.toMillis(UNUSED_TOKEN_LIFETIME)}`
+})
 
 const notSignedIn = new NotSignedIn({ message: "You're not signed in. Sign in with your email to continue." })
 
