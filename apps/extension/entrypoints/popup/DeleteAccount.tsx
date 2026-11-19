@@ -13,15 +13,12 @@ import { errorMessage } from "@/lib/errorMessage"
 import { useAction } from "@/lib/react"
 import { deleteAccount } from "@/lib/workflows"
 
-/** `useAction` wants a function; `deleteAccount` is an effect that takes no arguments. */
-const runDeleteAccount = () => deleteAccount
-
 export function DeleteAccount({ onDeleted }: {
   /** The account is gone, and so is everything this browser saved. */
   readonly onDeleted: () => void
 }) {
   const [confirming, setConfirming] = useState(false)
-  const { state, run } = useAction(runDeleteAccount)
+  const { state, run } = useAction(deleteAccount)
   const questionId = useId()
 
   if (!confirming) {

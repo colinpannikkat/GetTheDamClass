@@ -460,14 +460,22 @@ describe("NotifyControl, sign-in popover", () => {
     expect(calls).toEqual([{ classId: INTRO, token }])
   })
 
-  it("does not subscribe when the user signs in somewhere else while the popover is open", async () => {
+  it("closes, and does not subscribe, when the user signs in somewhere else while the popover is open", async () => {
     const { calls, run } = await renderControl({ subscribe: () => Effect.void })
     await openPopover()
 
     // In the toolbar popup, or on another tab: nobody used this form.
     await run(signIn(email, "012345"))
     await settled()
+    // Only the frame can tell whose sign-in it was, so it is the frame that
+    // asks to be closed (see SignInFrame.test.tsx).
+    expect(screen.getByRole("dialog")).toBeDefined()
+    postToPage({ type: "getthedamclass/close" })
 
+    expect(screen.queryByRole("dialog")).toBeNull()
+    expect(notifyButton().getAttribute("aria-expanded")).toBeNull()
+    expect(screen.queryByRole("alert")?.textContent).toBe("")
+    await settled()
     expect(calls).toEqual([])
     expect(notifyButton()).toBeDefined()
   })

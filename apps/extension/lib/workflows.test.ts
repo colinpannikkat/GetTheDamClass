@@ -83,6 +83,12 @@ beforeEach(() => {
 })
 
 describe("requestCode", () => {
+  /** How many codes the fake server was asked for in the test so far. */
+  let sent = 0
+  beforeEach(() => {
+    sent = 0
+  })
+
   it.effect("asks the server for a code, then remembers where it went and when", () => {
     const asked: Array<string> = []
     return Effect.gen(function*() {
@@ -95,6 +101,16 @@ describe("requestCode", () => {
         codeRequest: { email, sentAt: 60_000 }
       })
     }).pipe(withFakeApi({ sendCode: (email) => Effect.sync(() => void asked.push(email)) }))
+  })
+
+  it.effect("remembers it before the server has answered: the popup may be closed by then", () => {
+    const asked = Latch.makeUnsafe()
+    return Effect.gen(function*() {
+      yield* TestClock.setTime(60_000)
+      yield* Effect.forkChild(requestCode(email))
+      yield* Latch.await(asked)
+      assert.deepStrictEqual(yield* raw, { codeRequest: { email, sentAt: 60_000 } })
+    }).pipe(withFakeApi({ sendCode: () => Effect.andThen(Latch.open(asked), Effect.never) }))
   })
 
   it.effect("remembers it too when a code went there less than a minute ago, and passes the refusal on", () =>
@@ -113,6 +129,19 @@ describe("requestCode", () => {
       assert.strictEqual((yield* Effect.flip(requestCode(email)))._tag, error._tag)
       assert.deepStrictEqual(yield* raw, {})
     }).pipe(withFakeApi({ sendCode: () => Effect.fail(error) })))
+
+  it.effect.each([
+    { title: "a code went there less than a minute ago", error: new CodeRecentlySent({ message: "Wait a minute." }) },
+    { title: "the email could not be sent", error: new EmailNotSent({ message: "We couldn't send it." }) },
+    { title: "no answer", error: new NetworkError({ cause: "offline" }) }
+  ])("a new code that fails ($title) keeps the time of the code really sent", ({ error }) =>
+    Effect.gen(function*() {
+      yield* TestClock.setTime(60_000)
+      yield* requestCode(email)
+      yield* TestClock.setTime(90_000)
+      assert.strictEqual((yield* Effect.flip(requestCode(email)))._tag, error._tag)
+      assert.deepStrictEqual(yield* raw, { codeRequest: { email, sentAt: 60_000 } })
+    }).pipe(withFakeApi({ sendCode: () => (sent++ === 0 ? Effect.void : Effect.fail(error)) })))
 })
 
 describe("signIn", () => {
@@ -158,19 +187,19 @@ describe("changeEmail", () => {
   it.effect("forgets the code request, so the form goes back to the email step", () =>
     Effect.gen(function*() {
       yield* requestCode(email)
-      yield* changeEmail
+      yield* changeEmail()
       assert.deepStrictEqual(yield* raw, {})
     }).pipe(withFakeApi({ sendCode: () => Effect.void })))
 })
 
 describe("signOut", () => {
-  it.effect("ends the token on the server, then leaves nothing saved, of any account", () => {
+  it.effect("leaves nothing saved, of any account, and ends the token on the server", () => {
     const ended: Array<string> = []
     return Effect.gen(function*() {
       yield* signedInWatching(intro)
       yield* signedInAs(other, otherToken)
       yield* subscribe(ethics)
-      yield* signOut
+      yield* signOut()
       assert.deepStrictEqual(ended, [otherToken])
       assert.deepStrictEqual(yield* raw, {})
     }).pipe(withFakeApi({
@@ -179,20 +208,34 @@ describe("signOut", () => {
     }))
   })
 
+  it.effect("forgets before asking the server, and gives up on a server that does not answer within 5 seconds", () => {
+    const asked = Latch.makeUnsafe()
+    return Effect.gen(function*() {
+      yield* signedInWatching(intro)
+      const pending = yield* Effect.forkChild(signOut())
+      yield* Latch.await(asked)
+      // Signed out already, while the server has not answered.
+      assert.deepStrictEqual(yield* raw, {})
+
+      yield* TestClock.adjust("5 seconds")
+      yield* Fiber.join(pending)
+    }).pipe(withFakeApi({ signOut: () => Effect.andThen(Latch.open(asked), Effect.never) }))
+  })
+
   it.effect.each([
     { title: "cannot be reached", error: new NetworkError({ cause: "offline" }) },
     { title: "no longer knows the token", error: notSignedIn }
   ])("forgets everything all the same when the server $title", ({ error }) =>
     Effect.gen(function*() {
       yield* signedInWatching(intro)
-      yield* signOut
+      yield* signOut()
       assert.deepStrictEqual(yield* raw, {})
     }).pipe(withFakeApi({ signOut: () => Effect.fail(error) })))
 
   it.effect("only forgets when nobody is signed in, without calling the server", () =>
     Effect.gen(function*() {
       yield* requestCode(email)
-      yield* signOut
+      yield* signOut()
       assert.deepStrictEqual(yield* raw, {})
     }).pipe(withFakeApi({ sendCode: () => Effect.void })))
 })
@@ -202,7 +245,7 @@ describe("deleteAccount", () => {
     const deleted: Array<string> = []
     return Effect.gen(function*() {
       yield* signedInWatching(intro)
-      yield* deleteAccount
+      yield* deleteAccount()
       assert.deepStrictEqual(deleted, [token])
       assert.deepStrictEqual(yield* raw, {})
     }).pipe(withFakeApi({ deleteAccount: (token) => Effect.sync(() => void deleted.push(token)) }))
@@ -211,13 +254,13 @@ describe("deleteAccount", () => {
   it.effect("forgets nothing when the server could not delete it: the account still exists", () =>
     Effect.gen(function*() {
       yield* signedInWatching(intro)
-      assert.strictEqual((yield* Effect.flip(deleteAccount))._tag, "NetworkError")
+      assert.strictEqual((yield* Effect.flip(deleteAccount()))._tag, "NetworkError")
       assert.deepStrictEqual(yield* watching, ["202702/33940"])
     }).pipe(withFakeApi({ deleteAccount: () => Effect.fail(new NetworkError({ cause: "offline" })) })))
 
   it.effect("fails with NotSignedIn, without calling the server, when nobody is signed in", () =>
     Effect.gen(function*() {
-      assert.strictEqual((yield* Effect.flip(deleteAccount))._tag, "NotSignedIn")
+      assert.strictEqual((yield* Effect.flip(deleteAccount()))._tag, "NotSignedIn")
     }).pipe(withFakeApi({})))
 })
 
@@ -226,7 +269,7 @@ describe("subscribe, unsubscribe and listAlerts", () => {
     Effect.gen(function*() {
       assert.strictEqual((yield* Effect.flip(subscribe(intro)))._tag, "NotSignedIn")
       assert.strictEqual((yield* Effect.flip(unsubscribe(intro)))._tag, "NotSignedIn")
-      assert.strictEqual((yield* Effect.flip(listAlerts))._tag, "NotSignedIn")
+      assert.strictEqual((yield* Effect.flip(listAlerts()))._tag, "NotSignedIn")
       // An empty fake: any call to the server would have failed this test.
     }).pipe(withFakeApi({})))
 
@@ -237,7 +280,7 @@ describe("subscribe, unsubscribe and listAlerts", () => {
 
       yield* subscribe(intro)
       yield* unsubscribe(introInFall)
-      const alerts = yield* listAlerts
+      const alerts = yield* listAlerts()
 
       assert.deepStrictEqual(alerts, [alertFor(intro)])
       assert.deepStrictEqual(calls, [
@@ -274,8 +317,8 @@ describe("a sign-in the server no longer accepts", () => {
   it.effect.each([
     { name: "subscribe", call: subscribe(ethics) },
     { name: "unsubscribe", call: unsubscribe(intro) },
-    { name: "listAlerts", call: listAlerts },
-    { name: "deleteAccount", call: deleteAccount }
+    { name: "listAlerts", call: listAlerts() },
+    { name: "deleteAccount", call: deleteAccount() }
   ])("$name: signs this browser out, keeping the email for the form, and fails with NotSignedIn", ({ call }) =>
     Effect.gen(function*() {
       yield* signedInWatching(intro)
@@ -284,12 +327,26 @@ describe("a sign-in the server no longer accepts", () => {
       assert.deepStrictEqual(yield* saved, { status: "signedOut", email, codeRequest: undefined })
     }).pipe(rejectingApi))
 
+  it.effect("forgets the classes saved as watched by that account, and only those: its alerts may be gone", () =>
+    Effect.gen(function*() {
+      // Deleted in another browser, then the same address signs in again here:
+      // a new account, with none of the old one's alerts.
+      yield* signedInWatching(intro)
+      const store = yield* AccountStore
+      yield* store.watch(other, [ethics])
+      yield* Effect.flip(listAlerts())
+
+      assert.deepStrictEqual(yield* raw, { email, "watch:202702:other@oregonstate.edu:53476": true })
+      yield* signedInAs(email, "a-new-token")
+      assert.deepStrictEqual(yield* watching, [])
+    }).pipe(rejectingApi))
+
   it.effect("leaves alone a sign-in made while the server was answering", () => {
     const asked = Latch.makeUnsafe()
     const letGo = Latch.makeUnsafe()
     return Effect.gen(function*() {
       yield* signedInWatching()
-      const pending = yield* Effect.forkChild(Effect.flip(listAlerts))
+      const pending = yield* Effect.forkChild(Effect.flip(listAlerts()))
       yield* Latch.await(asked)
 
       yield* signedInAs(other, otherToken)
@@ -364,7 +421,7 @@ describe("the saved watch list follows what the server says", () => {
       // 33940 in Winter was stopped somewhere else; the same CRN in Fall and
       // 39835 were added somewhere else.
       yield* signedInWatching(intro, ethics)
-      yield* listAlerts
+      yield* listAlerts()
       assert.deepStrictEqual(yield* watching, ["202701/33940", "202702/39835", "202702/53476"])
     }).pipe(withFakeApi({
       listAlerts: () => Effect.succeed([alertFor(ethics), alertFor(deepLearning), alertFor(introInFall)])
@@ -373,7 +430,7 @@ describe("the saved watch list follows what the server says", () => {
   it.effect("listAlerts empties the list when the server lists nothing", () =>
     Effect.gen(function*() {
       yield* signedInWatching(intro, ethics)
-      yield* listAlerts
+      yield* listAlerts()
       assert.deepStrictEqual(yield* watching, [])
     }).pipe(withFakeApi({ listAlerts: () => Effect.succeed([]) })))
 })
@@ -410,7 +467,7 @@ describe("while the server is still answering", () => {
     const letGo = Latch.makeUnsafe()
     return Effect.gen(function*() {
       yield* signedInWatching(intro)
-      const pending = yield* Effect.forkChild(listAlerts)
+      const pending = yield* Effect.forkChild(listAlerts())
       yield* Latch.await(asked)
 
       yield* signedInAs(other, otherToken)
@@ -447,7 +504,7 @@ describe("while the server is still answering", () => {
     return Effect.gen(function*() {
       yield* signedInWatching(intro, ethics)
       // The popup opens and asks for the list...
-      const pending = yield* Effect.forkChild(listAlerts)
+      const pending = yield* Effect.forkChild(listAlerts())
       yield* Latch.await(asked)
 
       // ...and before the answer is back, a class page starts another alert.
@@ -470,7 +527,7 @@ describe("while the server is still answering", () => {
     return Effect.gen(function*() {
       yield* signedInWatching(intro, ethics)
       // The popup opens and asks for the list...
-      const pending = yield* Effect.forkChild(listAlerts)
+      const pending = yield* Effect.forkChild(listAlerts())
       yield* Latch.await(asked)
 
       // ...and before the answer is back, a class page stops one alert.

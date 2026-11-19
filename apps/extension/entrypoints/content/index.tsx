@@ -125,9 +125,8 @@ function place(ctx: ContentScriptContext, panel: Element, control: Control): voi
   // No CRN means the panel shows a whole class rather than one section, and
   // an alert needs a section. No term means we cannot tell which class the
   // CRN is: the same number can be another class in another term. In all
-  // three cases we show nothing rather
-  // than a button that does the wrong thing. The control appears as soon as
-  // the page has drawn what was missing.
+  // three cases we show nothing rather than a button that does the wrong
+  // thing. The control appears as soon as the page has drawn what was missing.
   const wanted = ctx.isValid && panel.isConnected && bar !== null && crn !== undefined && term !== undefined
 
   const mounted = control.mounted

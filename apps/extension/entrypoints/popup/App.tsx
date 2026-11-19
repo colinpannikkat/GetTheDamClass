@@ -73,17 +73,14 @@ function SignedOut({ email, codeRequest, farewell }: {
   )
 }
 
-/** `useAction` wants a function; `signOut` is an effect that takes no arguments. */
-const runSignOut = () => signOut
-
 function SignedIn({ email, onLeft }: {
   readonly email: string
   /** The student signed out or deleted the account here. */
   readonly onLeft: (farewell: Farewell) => void
 }) {
   // Loads when the popup opens, and again if another account signs in.
-  const { state, reload } = useQuery(() => listAlerts, [email])
-  const signOutAction = useAction(runSignOut)
+  const { state, reload } = useQuery(() => listAlerts(), [email])
+  const signOutAction = useAction(signOut)
 
   // `NotSignedIn` is left out: the server no longer accepts the saved sign-in,
   // so the workflow has signed this browser out, and the sign-in form is about

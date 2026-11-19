@@ -5,7 +5,7 @@
 import { Schema } from "effect"
 
 export const FrameMessage = Schema.Union([
-  /** Escape was pressed in the form: close the popover. */
+  /** Escape was pressed in the form, or someone signed in elsewhere: close the popover. */
   Schema.Struct({ type: Schema.Literal("getthedamclass/close") }),
   /** This form was used to sign in, and the sign-in is saved: carry on. */
   Schema.Struct({ type: Schema.Literal("getthedamclass/signed-in") }),

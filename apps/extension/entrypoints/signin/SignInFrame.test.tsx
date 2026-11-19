@@ -55,6 +55,7 @@ describe("SignInFrame", () => {
   /** The messages posted so far, without the ones about the frame's height. */
   const postedEvents = () => posted.filter(([message]) => (message as { type: string }).type !== "getthedamclass/resize")
   const SIGNED_IN = [{ type: "getthedamclass/signed-in" }, "https://classes.oregonstate.edu"]
+  const CLOSE = [{ type: "getthedamclass/close" }, "https://classes.oregonstate.edu"]
 
   it("signs in, saves the token, and then tells the class page that it did (and nothing more)", async () => {
     await renderFrame({ sendCode: () => Effect.void, signIn: () => Effect.succeed(token) })
@@ -70,15 +71,45 @@ describe("SignInFrame", () => {
     expect(JSON.stringify(posted)).not.toContain(token)
   })
 
-  it("tells the class page also when the sign-in saved is the one already saved", async () => {
-    // Saving it again changes nothing in storage, so the page would never
-    // hear of this sign-in through storage (see vitest.setup.ts).
-    await fakeBrowser.storage.local.set({ email, token })
-    await renderFrame({ sendCode: () => Effect.void, signIn: () => Effect.succeed(token) })
+  it("tells the class page that it signed in, not to close, when the sign-in shows up in storage before it is done", async () => {
+    // Storage is saved before the form hears back from the workflow, and the
+    // frame can see the change first. Here it is in storage even before the
+    // workflow saves it, which then changes nothing in storage (see
+    // vitest.setup.ts).
+    await renderFrame({
+      sendCode: () => Effect.void,
+      signIn: () =>
+        Effect.promise(() => fakeBrowser.storage.local.set({ email, token })).pipe(
+          Effect.andThen(Effect.sleep("50 millis")),
+          Effect.as(token)
+        )
+    })
 
     await signInWith("012345")
 
     await expect.poll(postedEvents).toEqual([SIGNED_IN])
+  })
+
+  it("asks to be closed when someone signs in somewhere else, and does not say it signed in", async () => {
+    await renderFrame()
+
+    // The toolbar popup, or the frame on another tab.
+    await fakeBrowser.storage.local.set({ email, token })
+
+    await expect.poll(postedEvents).toEqual([CLOSE])
+  })
+
+  it("asks to be closed when someone signs in somewhere else after a code was refused here", async () => {
+    await renderFrame({
+      sendCode: () => Effect.void,
+      signIn: () => Effect.fail(new InvalidCode({ message: "That code isn't right." }))
+    })
+    await signInWith("987654")
+    await screen.findByText("That code isn't right.")
+
+    await fakeBrowser.storage.local.set({ email, token })
+
+    await expect.poll(postedEvents).toEqual([CLOSE])
   })
 
   it("tells the class page nothing when the code is refused", async () => {

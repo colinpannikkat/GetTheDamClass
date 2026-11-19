@@ -82,8 +82,9 @@ describe("signed out", () => {
     expect(asked).toEqual([token])
   })
 
-  it("is at the code step again when opened after switching to the inbox", async () => {
-    const view = renderPopup({ sendCode: () => Effect.void })
+  it("is at the code step again, with the keyboard in its field, when opened after switching to the inbox", async () => {
+    // The server has not even answered when the popup closes.
+    const view = renderPopup({ sendCode: () => Effect.never })
     fireEvent.change(await screen.findByLabelText("Email"), { target: { value: email } })
     fireEvent.click(screen.getByRole("button", { name: "Email me a code" }))
     await screen.findByLabelText("6-digit code")
@@ -92,8 +93,9 @@ describe("signed out", () => {
     view.unmount()
     renderPopup({ signIn: () => Effect.succeed(token), listAlerts: () => Effect.succeed([]) })
 
-    expect(await screen.findByLabelText("6-digit code")).toBeDefined()
+    const codeField = await screen.findByLabelText("6-digit code")
     expect(screen.getByText(`We sent it to ${email}. It works for 15 minutes.`)).toBeDefined()
+    expect(document.activeElement).toBe(codeField)
   })
 
   it("is at the email step when the code asked for has expired", async () => {
@@ -205,6 +207,16 @@ describe("signed in", () => {
       listAlerts: () => Effect.succeed([deepLearning]),
       signOut: () => Effect.fail(new NetworkError({ cause: "offline" }))
     })
+    await screen.findByText("INTRO TO DEEP LEARNING")
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }))
+
+    expect(await screen.findByLabelText("Email")).toBeDefined()
+    expect(await fakeBrowser.storage.local.get()).toEqual({})
+  })
+
+  it("signs out here at once when the server does not answer", async () => {
+    renderPopup({ listAlerts: () => Effect.succeed([deepLearning]), signOut: () => Effect.never })
     await screen.findByText("INTRO TO DEEP LEARNING")
 
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }))

@@ -16,6 +16,10 @@ The extension talks to its own server, `apps/server` in this repository: a [Clou
 
 ## Adding the Chrome Extension
 
+The version you can install today is the earlier one: v1.0.1 on the [releases page](https://github.com/colinpannikkat/GetTheDamClass/releases), which is also the version in the Chrome Web Store. It signs in with a PIN and uses the old backend. The version this README describes, with sign-in by emailed code and its own server, is not released yet. Until it is, build it from source ([Building it yourself](#building-it-yourself)); and since its server is not deployed yet either, it only works for now against a server running on your computer ([Trying the extension against a local server](#trying-the-extension-against-a-local-server)).
+
+To install a release:
+
 1. Download the latest release from the [releases page](https://github.com/colinpannikkat/GetTheDamClass/releases).
 2. Extract the downloaded zip file to a location on your local machine.
 3. Open Chrome and navigate to `chrome://extensions`.
@@ -23,9 +27,7 @@ The extension talks to its own server, `apps/server` in this repository: a [Clou
 5. Click on the "Load unpacked" button and select the extracted folder.
 6. The extension should now be added to Chrome and ready to use.
 
-**Updating from an earlier version**: extract the new zip over the old folder and press the reload button on the extension's card. Versions that signed in with a PIN used the old backend, so you are signed out once (your email is filled in; ask for a code), and alerts made with them are not carried over: press "Notify me" on those classes again. If you extract to a new folder instead, Chrome treats it as a different extension: remove the old GetTheDamClass first (otherwise the class page gets two buttons).
-
-We will hopefully have it released on the Chrome Web Store soon!
+**Updating from an earlier version**, once this version is released: extract the new zip over the old folder and press the reload button on the extension's card. Versions that signed in with a PIN used the old backend, so you are signed out once (your email is filled in; ask for a code), and alerts made with them are not carried over: press "Notify me" on those classes again. If you extract to a new folder instead, or load a build of your own, Chrome treats it as a different extension: remove or turn off the old GetTheDamClass first (otherwise the class page gets two buttons).
 
 ## Building it yourself
 
@@ -185,23 +187,25 @@ What is stored, unencrypted, until you sign out or delete your account (which re
 | `codeRequest` | `{ "email": "...", "sentAt": 1795075200000 }` | A code was emailed to this address at this time (milliseconds since 1970), and not used yet. |
 | `watch:202702:student@oregonstate.edu:33940` | `true` | One key per watched class, named after the term, the account and the CRN. |
 
-`codeRequest` is what lets the form survive being closed: Chrome closes the popup as soon as you click into your inbox to read the code, and when it opens again the form is at the code step for the address you typed. It counts for 15 minutes, as long as the code works, and is removed when you sign in or press "Use a different email".
+`codeRequest` is what lets the form survive being closed: Chrome closes the popup as soon as you click into your inbox to read the code, and when it opens again the form is at the code step for the address you typed. So it is saved just before the server is asked for the code, not after: the popup is often gone before the answer comes. If the server refuses or cannot be reached while the form is still open, the request saved before it is put back (none, or the code really sent, so that its 15 minutes do not start again). It counts for 15 minutes, as long as the code works. After that, the first part of the extension that reads it removes it; signing in, "Use a different email" and signing out remove it straight away.
 
 A watched class is a key of its own so that adding one is a single write and removing one a single delete. Nothing reads a list, changes it and writes it back, so two changes made at the same moment (in the popup and on a class page, say) cannot undo each other. The account is part of the name so that an answer from the server that arrives after someone else signed in is saved for the account that asked, where the other never sees it. And the term is part of it because the university reuses CRNs from term to term: the same CRN in two terms is two classes, everywhere in the extension.
 
-When the server answers a request with `NotSignedIn` (the token was ended: the account was deleted from another browser, or the token went unused for a year), the extension removes `token` and keeps `email`, so every part of it shows the sign-in form with the address filled in.
+When the server answers a request with `NotSignedIn` (the token was ended: the account was deleted from another browser, or the token went unused for a year), the extension removes `token` and that account's `watch:` keys, and keeps `email`, so every part of it shows the sign-in form with the address filled in. The `watch:` keys go because the account may be gone: kept, they would show "Watching" again after signing in with the same address, to a new account without those alerts. If the account does still exist, the popup lists its alerts again when it is next opened.
 
 Versions that signed in with a PIN also stored a `pin` key, and `watch:` keys for alerts on the old backend. The first time any part of the extension starts after an update in place, it removes both (see `AccountStore.layer`); the email stays.
 
-One known gap: if you sign out while a "Notify me" request is still waiting for the server, its answer is saved after the sign-out, leaving one `watch:` key (term, email and CRN) until the next sign-out.
+Signing out forgets everything in the browser first, and only then asks the server to end the token (giving it 5 seconds), so it works with the server down and with the popup closed straight after. A token the server was not told about stays there, held by no browser, until it has gone unused for a year.
 
-The page trusts that saved list and does not ask the server when a class is opened. If an alert ended elsewhere (stopped with the link in an email or in another browser, or removed by the server's daily cleanup after the class's add deadline), the page still says "Watching" until the popup is next opened, which fetches the real list, or until "Stop alerts" is pressed, which works either way.
+One known gap: a request still waiting for the server when you sign out (in another part of the extension) can save something after the sign-out. A "Notify me" leaves one `watch:` key (term, email and CRN) until the next sign-out; a code request that fails puts back the `codeRequest` it replaced, which is removed once its 15 minutes are over.
+
+The page trusts that saved list and does not ask the server when a class is opened. If an alert ended elsewhere (stopped with the link in an email or in another browser, or removed by the server's daily cleanup after the class's add deadline), the page still says "Watching" until the popup is next opened, which fetches the real list, or until "Stop alerts" is pressed, which works either way. The other way round, after a `NotSignedIn` and signing in again, a class whose alert is still on shows "Notify me" until the popup is opened; pressing it just finds the alert already there and shows "Watching".
 
 ### Why the sign-in form on the class page is in a frame
 
 Whatever a content script draws into a web page, that page's own scripts can read, including every key typed into a field. So the email and the sign-in code are never typed into the university's page. The popover that "Notify me" opens contains an `<iframe>` showing `signin.html`, a page of the extension itself (`apps/extension/entrypoints/signin/`). The class page cannot look inside it. `apps/extension/wxt.config.ts` lists that one page under `web_accessible_resources`, for classes.oregonstate.edu only, which is what allows it to be framed there.
 
-The frame tells the page around it three things, with `window.postMessage` (`apps/extension/entrypoints/signin/messages.ts`): "close me" (Escape was pressed), "I am this tall now", and "signed in". None of them carries what was typed. "Signed in" is what makes the button carry on and set up the alert, so only the form that was actually submitted does that: signing in through the toolbar popup while a popover is open on a class page subscribes to nothing.
+The frame tells the page around it three things, with `window.postMessage` (`apps/extension/entrypoints/signin/messages.ts`): "close me" (Escape was pressed, or someone signed in elsewhere), "I am this tall now", and "signed in". None of them carries what was typed. "Signed in" is what makes the button carry on and set up the alert, so only the form that was actually submitted does that: signing in through the toolbar popup while a popover is open on a class page closes the popover and subscribes to nothing. Only the frame can tell the two apart (both look the same in storage), so it is the frame that asks to be closed.
 
 ### When the university changes its page
 
@@ -214,7 +218,7 @@ The button is only put on the page when the script can read three things from a 
 1. Bump `version` in `apps/extension/package.json` (the manifest takes its version from there).
 2. `pnpm typecheck && pnpm test`
 3. `pnpm zip` in `apps/extension/`, which writes `apps/extension/.output/getthedamclass-<version>-chrome.zip`.
-4. Attach the zip to a new release on GitHub (and upload it to the Chrome Web Store once the extension is listed there).
+4. Attach the zip to a new release on GitHub, and upload it to the Chrome Web Store.
 
 ## How the Effect code is organised
 

@@ -41,9 +41,13 @@ export interface Account {
   readonly token: string
   /**
    * The classes this user gets alerts for, as far as this browser knows, in no
-   * particular order. The server holds the real list; this copy is brought up
-   * to date after every call to it (see `lib/workflows.ts`), so the class
-   * page can show "Watching" without asking the server.
+   * particular order, so the class page can show "Watching" without asking
+   * the server. The server holds the real list. Starting or stopping an alert
+   * here adds or removes that one class; only `listAlerts` (run when the
+   * popup opens) brings the whole list in line with the server's. An alert
+   * that ended elsewhere (the link in an email, another browser, the server's
+   * daily cleanup) therefore stays here until the popup is next opened. See
+   * `lib/workflows.ts`.
    */
   readonly watching: ReadonlyArray<ClassId>
 }
@@ -108,14 +112,21 @@ export class AccountStore extends Context.Service<AccountStore, {
   save(email: EmailAddress, token: string): Effect.Effect<void, StorageError>
   /**
    * The server no longer accepts this token: forget it, so this browser is
-   * signed out. The email stays, for the sign-in form. A token that is not the
-   * saved one any more (someone signed in again since) is left alone.
+   * signed out, and forget the classes saved as watched by its account. The
+   * email stays, for the sign-in form. A token that is not the saved one any
+   * more (someone signed in again since) is left alone.
+   *
+   * The classes go because the account may be gone (deleted from another
+   * browser). Kept, they would show as "Watching" again when the same
+   * address signs in, to a new account that has no such alerts. If the
+   * account still exists, the popup lists them again when it next opens, and
+   * "Notify me" on one meanwhile only hears "already subscribed".
    */
   forgetToken(token: string): Effect.Effect<void, StorageError>
   /** Forget everything, of every account (sign out on this browser). */
   readonly clear: Effect.Effect<void, StorageError>
-  /** Remember that a code was just emailed to this address. */
-  saveCodeRequest(email: EmailAddress): Effect.Effect<void, StorageError>
+  /** Remember that a code was emailed to this address at this time. */
+  saveCodeRequest(request: CodeRequest): Effect.Effect<void, StorageError>
   /** Forget the code that was asked for (the student wants to use another address). */
   readonly forgetCodeRequest: Effect.Effect<void, StorageError>
   /** Note that the account with this email gets alerts for these classes. */
@@ -156,16 +167,24 @@ function makeAccountStore(): AccountStore["Service"] {
   const decodeToken = Schema.decodeUnknownOption(Schema.NonEmptyString)
   const decodeCodeRequest = Schema.decodeUnknownOption(Schema.Struct({ email: EmailAddress, sentAt: Schema.Number }))
 
+  const forgetCodeRequest = storage(() => browser.storage.local.remove("codeRequest"))
+
   // `get()` without a key reads everything this extension has stored.
   const get = Effect.gen(function*() {
     const saved = yield* storage(() => browser.storage.local.get())
     const now = yield* Clock.currentTimeMillis
     const email = decodeEmail(saved.email)
     const token = decodeToken(saved.token)
-    const codeRequest = decodeCodeRequest(saved.codeRequest).pipe(
-      Option.filter((request) => now < request.sentAt + Duration.toMillis(CODE_LIFETIME)),
-      Option.getOrUndefined
-    )
+    const request = decodeCodeRequest(saved.codeRequest)
+    const expired = Option.filter(request, (request) => now >= request.sentAt + Duration.toMillis(CODE_LIFETIME))
+    if (Option.isSome(expired)) {
+      // The code no longer works, so the address it went to (perhaps
+      // mistyped, by someone who gave up) is not kept either. Like
+      // `forgetToken`, this reads and then removes: a new request saved in
+      // the few milliseconds between the two would be removed with it.
+      yield* forgetCodeRequest
+    }
+    const codeRequest = Option.isSome(expired) ? undefined : Option.getOrUndefined(request)
 
     if (Option.isSome(email) && Option.isSome(token)) {
       const watching = Object.keys(saved).flatMap((key) =>
@@ -191,21 +210,19 @@ function makeAccountStore(): AccountStore["Service"] {
       // Read, compare, then remove: another part of the extension could sign
       // in between the two. That window is a few milliseconds, and the worst
       // it can do is sign out someone who has just signed in.
-      const saved = await browser.storage.local.get("token")
+      const saved = await browser.storage.local.get()
       if (saved.token === token) {
-        await browser.storage.local.remove("token")
+        const watchKeys = Object.keys(saved).filter((key) =>
+          Option.exists(parseWatchKey(key), (watched) => watched.email === saved.email)
+        )
+        await browser.storage.local.remove(["token", ...watchKeys])
       }
     })
 
   const clear = storage(() => browser.storage.local.clear())
 
-  const saveCodeRequest = (email: EmailAddress) =>
-    Effect.flatMap(
-      Clock.currentTimeMillis,
-      (sentAt) => storage(() => browser.storage.local.set({ codeRequest: { email, sentAt } satisfies CodeRequest }))
-    )
-
-  const forgetCodeRequest = storage(() => browser.storage.local.remove("codeRequest"))
+  const saveCodeRequest = ({ email, sentAt }: CodeRequest) =>
+    storage(() => browser.storage.local.set({ codeRequest: { email, sentAt } satisfies CodeRequest }))
 
   const watch = (email: EmailAddress, classes: ReadonlyArray<ClassId>) =>
     storage(() => browser.storage.local.set(Object.fromEntries(classes.map((watched) => [watchKey(email, watched), true]))))

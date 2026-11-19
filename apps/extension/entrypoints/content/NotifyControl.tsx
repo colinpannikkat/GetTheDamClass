@@ -18,7 +18,9 @@
  *
  * If the user is not signed in (or the server no longer accepts the saved
  * sign-in), a small sign-in popover opens above the button, and the alert is
- * set up as soon as they have signed in there. Any other failure shows as a
+ * set up as soon as they have signed in there. If they sign in somewhere else
+ * instead (the toolbar popup, another tab), the popover closes and nothing is
+ * set up: nobody pressed anything for this class there. Any other failure shows as a
  * message above the button, which can then be pressed again. When the server
  * refuses an alert (the term's registration is not open, the add deadline has
  * passed, ...) that message is the server's own sentence.
@@ -106,14 +108,15 @@ export function NotifyControl({ classId }: NotifyControlProps) {
   // A press asks for `watching` to become `asked`. It is spoken of only while
   // that explains what is on screen: "done" while it is so, "failed" while it
   // is not. (The popup or another tab can change `watching` at any time.)
+  const confirmed = state.status === "success" && watching === asked
+  const failure = state.status === "failure" ? state.error : null
   // One failure is the other way round: a "Stop alerts" that found the server
   // no longer accepts the sign-in. That signed this browser out, so
   // "Watching" went away although the alert is still on. It is said for as
   // long as this browser stays signed out.
-  const confirmed = state.status === "success" && watching === asked
-  const failure = state.status === "failure" ? state.error : null
   const stopFoundSignedOut = failure?._tag === "NotSignedIn" && !asked
-  const error = failure && (stopFoundSignedOut ? account.status === "signedOut" : watching !== asked) ? failure : null
+  const failureStillShows = stopFoundSignedOut ? account.status === "signedOut" : watching !== asked
+  const error = failureStillShows ? failure : null
   const needsSignIn = error?._tag === "NotSignedIn" && asked
   const popoverOpen = needsSignIn && !popoverDismissed
 
@@ -136,9 +139,10 @@ export function NotifyControl({ classId }: NotifyControlProps) {
 
   /**
    * The form in our popover was used to sign in: carry on with what the user
-   * pressed the button for. Only that form does this. A sign-in anywhere else
-   * (the toolbar popup, another tab) shows up in `account`, but nobody
-   * pressed anything for this class there.
+   * pressed the button for. Only that form does this. After a sign-in
+   * anywhere else (the toolbar popup, another tab), the frame asks to be
+   * closed instead (`SignInFrame.tsx`): nobody pressed anything for this
+   * class there.
    */
   function continueAfterSignIn() {
     buttonRef.current?.focus()

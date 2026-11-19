@@ -76,7 +76,7 @@ async function settle<A, E>(
  * Run an effect when the component mounts, and again whenever `deps` change
  * or `reload()` is called.
  *
- *   const { state, reload } = useQuery(() => listAlerts, [])
+ *   const { state, reload } = useQuery(() => listAlerts(), [])
  */
 export function useQuery<A, E>(
   makeEffect: () => Effect.Effect<A, E, AppServices>,
