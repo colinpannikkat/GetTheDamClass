@@ -7,6 +7,10 @@ node_modules
 stats.html
 stats-*.json
 
+# cf (apps/server): build output, generated types, and the data of the local
+# simulation `cf dev` runs
+.cloudflare
+
 # local files
 .DS_Store
 .env*.local

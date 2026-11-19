@@ -1,0 +1,23 @@
+{
+  "name": "getthedamclass-server",
+  "description": "Cloudflare Worker that emails Oregon State students when a class seat opens",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "cf dev",
+    "build": "cf build",
+    "typecheck": "cf workers types && tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "effect": "^4.1.4"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^2.0.0-rc.1",
+    "@effect/vitest": "^4.1.4",
+    "cf": "^1.0.0-rc.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
+  }
+}

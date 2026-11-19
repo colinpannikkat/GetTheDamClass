@@ -48,6 +48,18 @@ Run these in `apps/extension/`. `pnpm typecheck`, `pnpm test` and `pnpm build` a
 | `pnpm typecheck` | Checks the TypeScript types. |
 | `pnpm test` | Runs the unit tests. |
 
+### Running the server
+
+`apps/server` is a Cloudflare Worker that will replace the backend. For now it only answers `GET /` with a hello. It runs on [cf](https://developers.cloudflare.com/cf/), Cloudflare's command-line tool, which needs Node.js 22.23, 24.22 or 26.12 (or newer within that line).
+
+```sh
+cd apps/server
+pnpm dev                       # runs the Worker locally, at http://localhost:5173
+curl http://localhost:5173/    # {"message":"Hello from GetTheDamClass"}
+```
+
+`pnpm dev` (`cf dev`) runs the Worker in workerd, the same runtime Cloudflare uses, and reloads it as you edit. `pnpm typecheck`, `pnpm test` and `pnpm build` work there as they do in the extension.
+
 ## How it is built
 
 - [WXT](https://wxt.dev) builds the extension and generates `manifest.json` (from `apps/extension/wxt.config.ts` and the files in `apps/extension/entrypoints/`).
@@ -90,6 +102,12 @@ apps/extension/           The browser extension.
   public/icons/           The extension's icons, copied into the build as they are.
   wxt.config.ts           Extension name, permissions, icons; build plugins.
   vitest.config.ts        Test setup (with vitest.setup.ts).
+apps/server/              The Cloudflare Worker that will replace the backend. Only a hello for now.
+  src/Api.ts              The endpoints, defined with Effect's HttpApi.
+  src/index.ts            The Worker: answers each request with the handlers for those endpoints.
+  cloudflare.config.ts    The Worker's name and settings for Cloudflare.
+  vite.config.ts          Builds and runs the Worker, with Cloudflare's Vite plugin.
+  vitest.config.ts        Test setup.
 ```
 
 There is no background script. The extension only needs the `storage` permission, and no access to any website beyond the content script on the class search.

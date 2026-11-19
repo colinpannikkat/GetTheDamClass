@@ -3,10 +3,7 @@ packages:
   - packages/*
 
 # pnpm does not run the install scripts of dependencies unless they are listed
-# here. Both download a native binary when installed, and both come with
-# apps/server (coming next): workerd is the local Cloudflare Workers runtime,
-# and esbuild bundles the Worker. (The extension builds with Vite, which needs
-# neither.)
+# here. workerd, the Cloudflare Workers runtime that runs apps/server locally
+# (in `cf dev`), downloads its native binary in one.
 allowBuilds:
-  esbuild: true
   workerd: true
