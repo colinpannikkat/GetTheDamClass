@@ -93,7 +93,11 @@ export class InvalidCode extends Schema.TaggedError<InvalidCode>()("InvalidCode"
   httpApiStatus: 400
 }) {}
 
-/** The server could not send the email with the code. Asking again is fine. */
+/**
+ * The server did not send the email with the code: either sending failed
+ * (asking again is fine), or the server has sent as many sign-in emails as it
+ * allows in one day (asking again works the next day). The message says which.
+ */
 export class EmailNotSent extends Schema.TaggedError<EmailNotSent>()("EmailNotSent", refusal, {
   httpApiStatus: 503
 }) {}

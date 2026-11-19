@@ -271,9 +271,13 @@ pnpm exec cf workers deployments create --worker getthedamclass --strategy perce
 
 That puts back the version's code and bindings only: the cron triggers, the domain and the log settings stay as the latest deploy set them. Or check out the earlier commit and `cf deploy` it, which puts back its whole configuration.
 
-Going back also takes back whatever the bad version's predecessors lacked. So afterwards, check what a student's privacy depends on: the unsubscribe page still answers with its `Referrer-Policy`, `Content-Security-Policy` and `Cache-Control` headers (`curl -sI "https://api.getthedamclass.ajinkya.dev/unsubscribe?key=x"`), and a request with a made-up `?x=1` shows in the live tail without its query. Versions deployed before 19 November 2026, 21:42 UTC have neither; do not go back that far.
+Going back also takes back whatever the bad version's predecessors lacked. Versions deployed before 19 November 2026, 23:00 UTC lack one or more of the protections below; do not go back to them (the list shows each version's time; go by that, not by its message). After going back to any version, check:
 
-Neither way undoes a migration. If a migration or a bug damaged the data, D1 can restore the whole database to any minute of the last 30 days, which undoes every write made since, students' included. That is `pnpm exec cf d1 time-travel restore 8ec9fdcd-620b-414f-b468-8278130c41d0 --timestamp <ISO 8601 time>`. Try it with `--dry-run` first.
+- The unsubscribe page still answers with its `Referrer-Policy`, `Content-Security-Policy` and `Cache-Control` headers: `curl -sI "https://api.getthedamclass.ajinkya.dev/unsubscribe?key=x"`.
+- A request with a made-up `?x=1` shows in the live tail without its query.
+- The dry run of the commit that version was built from lists `SIGN_IN_EMAILS_PER_DAY` at about a third of the account's email limit.
+
+Neither way undoes a migration. If a migration or a bug damaged the data, D1 can restore the whole database to any minute of the last 30 days, which undoes every write made since, students' included. That is `pnpm exec cf d1 time-travel restore 8ec9fdcd-620b-414f-b468-8278130c41d0 --timestamp <ISO 8601 time>`. Try it with `--dry-run` first. A restore takes the tables back too: if it goes back past a migration, the running Worker is left without tables it needs (without `sign_in_emails`, nobody can ask for a code), so run `migrations list` and apply what is missing straight after. It also takes back the day's count of sign-in emails, while Cloudflare's own count of what was sent stays; until the next day the cap may let through more than the usual share.
 
 ### Applying a new migration
 

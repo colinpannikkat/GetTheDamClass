@@ -123,8 +123,11 @@ const afterRefusal = (
       // browser asked for it; otherwise this request's time is the best guess.
       return earlier?.email === request.email ? earlier : request
     case "EmailNotSent":
-      // The server replaced the earlier code with a new one, then forgot the
-      // new one when its email failed: no code works for this address now.
+      // Usually the server replaced the earlier code with a new one, then
+      // forgot the new one when its email failed: no code works for this
+      // address now. (When the server's daily cap on sign-in emails is the
+      // cause, an earlier code does still work, but the answer does not say
+      // which it was, so the form starts again either way.)
       return undefined
     case "NetworkError":
     case "ServerError":

@@ -205,6 +205,29 @@ describe("sendCode, past the day's cap on sign-in emails", () => {
       assert.deepStrictEqual(yield* storedCodes(server), ["a@example.com", "b@example.com"])
     }))
 
+  it.effect("leaves a code that already works alone: a student refused a new one can still use it", () =>
+    Effect.gen(function*() {
+      const server = yield* makeTestServer({ signInEmailsPerDay: 1 })
+      assert.strictEqual(yield* ask(server, "a@example.com"), "sent")
+      const code = server.lastCode("a@example.com")
+      // Past the minute, so only the cap stands in the way of a new code.
+      yield* TestClock.adjust("2 minutes")
+      assert.strictEqual(yield* ask(server, "a@example.com"), "EmailNotSent")
+      const api = yield* server.client()
+      yield* api.signIn.signIn({ payload: { email: "a@example.com", code } })
+    }))
+
+  it.effect("counts an email that could not be sent", () =>
+    Effect.gen(function*() {
+      const server = yield* makeTestServer({ signInEmailsPerDay: 1 })
+      server.mailer.failure = "Cloudflare said no"
+      assert.strictEqual(yield* ask(server, "a@example.com"), "EmailNotSent")
+      server.mailer.failure = undefined
+      const api = yield* server.client()
+      const error = yield* Effect.flip(api.signIn.sendCode({ payload: { email: "b@example.com" } }))
+      assert.deepStrictEqual(error, new EmailNotSent({ message: TOO_MANY }))
+    }))
+
   it.effect("counts only emails sent: a request refused for the minute does not use one up", () =>
     Effect.gen(function*() {
       const server = yield* makeTestServer({ signInEmailsPerDay: 2 })

@@ -80,8 +80,8 @@ const utcDay = (millis: number) => DateTime.formatIsoDateUtc(DateTime.makeUnsafe
  * their inbox at once, which closes the extension's popup, and the browser
  * drops the request. Effect's router interrupts the handler of a dropped
  * request; cut off after storing the code and before sending it (or before
- * forgetting it when the email fails or the day's cap is reached), the
- * server would hold a code nobody received, and refuse another for a minute.
+ * forgetting it when the email fails), the server would hold a code nobody
+ * received, and refuse another for a minute.
  * (index.ts keeps the Worker itself running until the handler is done.)
  */
 export const sendCode = Effect.fn("sendCode")(function*(email: EmailAddress) {
@@ -91,10 +91,33 @@ export const sendCode = Effect.fn("sendCode")(function*(email: EmailAddress) {
   const code = yield* randomCode
   const codeHash = yield* hashSecret(code)
 
+  // Take one of today's sign-in emails, unless the day's cap is reached. The
+  // check and the write are one statement: when one email is left and many
+  // requests arrive together, only one of them takes it, and only that one
+  // sends. It returns the new total only when it took one.
+  //
+  // This comes first so that a request refused by the cap changes nothing at
+  // all: a student who already has a code that works keeps it. What ends up
+  // counted is every email the server tries to send. A send that fails stays
+  // counted: it is rare, Cloudflare may have counted it too, and counting one
+  // too many only leaves alerts more room.
+  const cap = yield* SignInEmailsPerDay
+  const day = utcDay(now)
+  const taken = yield* sql<{ sent: number }>`
+    INSERT INTO sign_in_emails (day, sent) VALUES (${day}, 1)
+    ON CONFLICT (day) DO UPDATE
+      SET sent = sign_in_emails.sent + 1
+      WHERE sign_in_emails.sent < ${cap}
+    RETURNING sent
+  `
+  if (taken.length === 0) {
+    return yield* new EmailNotSent({ message: "Too many sign-in emails were sent today. Please try again tomorrow." })
+  }
+
   // Store the new code, unless one went to this address less than a minute
-  // ago. One statement does both the check and the write, so two requests at
-  // the same moment cannot both get through. It returns a row only when it
-  // stored the code.
+  // ago. Again one statement does both the check and the write, so two
+  // requests at the same moment cannot both get through. It returns a row
+  // only when it stored the code.
   const stored = yield* sql`
     INSERT INTO sign_in_codes (email, code_hash, sent_at, attempts, used)
     VALUES (${email}, ${codeHash}, ${now}, 0, 0)
@@ -104,42 +127,17 @@ export const sendCode = Effect.fn("sendCode")(function*(email: EmailAddress) {
     RETURNING email
   `
   if (stored.length === 0) {
+    // No email goes out, so give back the one taken above: a request refused
+    // for the minute must not use up the day's emails.
+    yield* sql`UPDATE sign_in_emails SET sent = sent - 1 WHERE day = ${day}`
     return yield* new CodeRecentlySent({
       message: "A code went to this address less than a minute ago. Please wait a minute before asking for another."
     })
   }
 
-  // Forget the code nobody received, so that asking again works straight
-  // away instead of after a minute.
-  const forgetCode = sql`DELETE FROM sign_in_codes WHERE email = ${email} AND code_hash = ${codeHash}`
-
-  // Count this email in today's total, unless the total has reached the cap.
-  // As above, the check and the write are one statement: when one email is
-  // left and many requests arrive together, only one of them counts it, and
-  // only that one sends. It returns the new total only when it counted.
-  //
-  // What counts is every email the server tries to send. This comes after
-  // storing the code, so that a request refused for the minute above never
-  // counts; one refused by the cap changes nothing. A send that fails stays
-  // counted: it is rare, Cloudflare may have counted it too, and counting one
-  // too many only leaves alerts more room. (Storing first does replace an
-  // older code of this address, so a refusal here loses it, as a failed send
-  // does.)
-  const cap = yield* SignInEmailsPerDay
-  const counted = yield* sql<{ sent: number }>`
-    INSERT INTO sign_in_emails (day, sent) VALUES (${utcDay(now)}, 1)
-    ON CONFLICT (day) DO UPDATE
-      SET sent = sign_in_emails.sent + 1
-      WHERE sign_in_emails.sent < ${cap}
-    RETURNING sent
-  `
-  if (counted.length === 0) {
-    yield* forgetCode
-    return yield* new EmailNotSent({ message: "Too many sign-in emails were sent today. Please try again tomorrow." })
-  }
-  // Only the request that took the last email sees this total, so the line is
-  // logged once a day.
-  if (counted[0]!.sent === cap) {
+  // The request that takes the day's last email says so in the log. (Usually
+  // once a day; again if an email was given back above in the meantime.)
+  if (taken[0]!.sent === cap) {
     yield* Effect.logWarning("Reached the day's cap on sign-in emails; no more codes go out until midnight UTC", {
       cap
     })
@@ -149,7 +147,9 @@ export const sendCode = Effect.fn("sendCode")(function*(email: EmailAddress) {
     Effect.catchTag("SendFailed", (error) =>
       Effect.gen(function*() {
         yield* Effect.logWarning("Could not send a sign-in code", error.reason)
-        yield* forgetCode
+        // Forget the code nobody received, so that asking again works
+        // straight away instead of after a minute.
+        yield* sql`DELETE FROM sign_in_codes WHERE email = ${email} AND code_hash = ${codeHash}`
         return yield* new EmailNotSent({ message: "We couldn't send the email with your code. Please try again." })
       }))
   )
