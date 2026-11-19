@@ -20,6 +20,12 @@ const SENDER = "alerts@getthedamclass.ajinkya.dev"
  */
 const LOCAL_DATABASE_ID = "00000000-0000-4000-8000-000000000000"
 
+/**
+ * The real database, "getthedamclass" on Cloudflare (see "Deployment" in the
+ * README). Without an ID here, `cf deploy` would create a new, empty one.
+ */
+const PRODUCTION_DATABASE_ID = "8ec9fdcd-620b-414f-b468-8278130c41d0"
+
 export default defineConfig(({ mode }) => {
   const local = mode === "development"
   return {
@@ -37,11 +43,26 @@ export default defineConfig(({ mode }) => {
       // from the Worker. Locally they do not run by themselves; see "Running
       // the server" in the README.
       triggers: [triggers.scheduled({ schedule: "* * * * *" }), triggers.scheduled({ schedule: "0 11 * * *" })],
+      // The API's one public address, which the extension's normal build
+      // calls. Cloudflare creates its DNS record and certificate on deploy.
+      domains: ["api.getthedamclass.ajinkya.dev"],
+      // Off, so that the API answers at that address only, and not also at
+      // getthedamclass.<account>.workers.dev or at a workers.dev address per
+      // uploaded version. The rate limit on signing in (see the README) is
+      // set on that address, and would not apply to the others.
+      workersDev: false,
+      previewUrls: false,
+      // Workers Logs keeps what the server logs for 7 days (how to read it:
+      // "Deployment" in the README). The server's own lines are what matter:
+      // one per request (method, path without the query, status), one per
+      // check and cleanup run with its counts, and every email that could not
+      // be sent, with the reason. Cloudflare's own line per request (its
+      // "invocation log") is off: it would also keep each request's headers,
+      // query string (an unsubscribe link's key) and the client's IP
+      // address, none of which the privacy policy says are kept.
+      observability: { enabled: true, logs: { invocationLogs: false } },
       env: {
-        // TODO(production): the real database's ID goes here instead of
-        // `undefined`, once it exists. Without one, `cf deploy` creates a new
-        // database.
-        DB: bindings.d1({ name: "getthedamclass", id: local ? LOCAL_DATABASE_ID : undefined }),
+        DB: bindings.d1({ name: "getthedamclass", id: local ? LOCAL_DATABASE_ID : PRODUCTION_DATABASE_ID }),
         EMAIL: bindings.sendEmail({ allowedSenderAddresses: [SENDER] }),
         EMAIL_FROM: bindings.text(SENDER),
         // Where links in emails point.

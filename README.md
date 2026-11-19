@@ -12,11 +12,11 @@ On [classes.oregonstate.edu](https://classes.oregonstate.edu), open a class and 
 
 There are no passwords. To sign in (or sign up, or get back in after forgetting everything), type your email and then the six-digit code the server emails you.
 
-The extension talks to its own server, `apps/server` in this repository: a [Cloudflare Worker](https://developers.cloudflare.com/workers/) with a D1 database, which checks the watched classes every minute and sends the emails. It replaces the earlier backend ([GetTheDamClass-Backend](https://github.com/aj-arts/GetTheDamClass-Backend)), which ran on a private server and signed in with a PIN. The new server is not deployed yet.
+The extension talks to its own server, `apps/server` in this repository: a [Cloudflare Worker](https://developers.cloudflare.com/workers/) with a D1 database, which checks the watched classes every minute and sends the emails. It replaces the earlier backend ([GetTheDamClass-Backend](https://github.com/aj-arts/GetTheDamClass-Backend)), which ran on a private server and signed in with a PIN. The new server runs on Cloudflare at `https://api.getthedamclass.ajinkya.dev` (see [Deployment](#deployment)).
 
 ## Adding the Chrome Extension
 
-The version you can install today is the earlier one: v1.0.1 on the [releases page](https://github.com/colinpannikkat/GetTheDamClass/releases), which is also the version in the Chrome Web Store. It signs in with a PIN and uses the old backend. The version this README describes, with sign-in by emailed code and its own server, is not released yet. Until it is, build it from source ([Building it yourself](#building-it-yourself)); and since its server is not deployed yet either, it only works for now against a server running on your computer ([Trying the extension against a local server](#trying-the-extension-against-a-local-server)).
+The version you can install today is the earlier one: v1.0.1 on the [releases page](https://github.com/colinpannikkat/GetTheDamClass/releases), which is also the version in the Chrome Web Store. It signs in with a PIN and uses the old backend. The version this README describes, with sign-in by emailed code and its own server, is not released yet. Until it is, build it from source ([Building it yourself](#building-it-yourself)).
 
 To install a release:
 
@@ -231,6 +231,67 @@ The button is only put on the page when the script can read three things from a 
 2. `pnpm typecheck && pnpm test`
 3. `pnpm zip` in `apps/extension/`, which writes `apps/extension/.output/getthedamclass-<version>-chrome.zip`.
 4. Attach the zip to a new release on GitHub, and upload it to the Chrome Web Store.
+
+## Deployment
+
+The server runs on the Cloudflare account that holds the `ajinkya.dev` zone (a free zone, on an account with the Workers Paid plan). Everything there was set up with `cf`, and is changed with it, from `apps/server` (`pnpm exec cf ...`, after `pnpm exec cf auth login`). Nothing deploys from CI.
+
+| What | Name | Set in |
+| --- | --- | --- |
+| Worker | `getthedamclass`, at `https://api.getthedamclass.ajinkya.dev` (a custom domain), with both cron triggers. Its `workers.dev` address and preview URLs are off, so the API answers at that one address. | `apps/server/cloudflare.config.ts` |
+| D1 database | `getthedamclass`, ID `8ec9fdcd-620b-414f-b468-8278130c41d0`, kept in western North America | its ID in `cloudflare.config.ts`, its tables in `migrations/` |
+| Email sending domain | `getthedamclass.ajinkya.dev`; every email comes from `alerts@getthedamclass.ajinkya.dev` | set up once, below |
+| Rate-limiting rule | "GetTheDamClass: limit sign-in requests per IP", on the zone | set up once, below |
+
+### Deploying a new version
+
+```sh
+cd apps/server
+pnpm exec cf deploy --dry-run   # builds and lists the bindings: MAILER must be "cloudflare", PUBLIC_URL the real address
+pnpm exec cf deploy
+```
+
+`cf deploy` builds in "production" mode. Never give it `-m development`: that build prints emails instead of sending them, sign-in codes included, into the logs. If the version needs a new migration, apply it first.
+
+### Applying a new migration
+
+Add the file to `apps/server/migrations/`, then:
+
+```sh
+pnpm exec cf d1 migrations list 8ec9fdcd-620b-414f-b468-8278130c41d0    # what has not been applied yet
+pnpm exec cf d1 migrations apply 8ec9fdcd-620b-414f-b468-8278130c41d0
+```
+
+The version already running keeps using the database until the deploy, so a migration must not break it (add columns and tables; remove things only in a later migration, once no deployed code uses them).
+
+### Reading the logs
+
+```sh
+pnpm exec cf observability tail --worker getthedamclass    # live, one JSON line per log line
+```
+
+The server writes one line per request (method, path, status), one per check (`Checked the watched classes:`, every minute, with its counts), one per daily cleanup (`Daily cleanup done.`, at 11:00 UTC), and a warning for every email that could not be sent, with Cloudflare's reason. Workers Logs keeps them for 7 days; to look further back than the tail, open the Worker in the Cloudflare dashboard and choose **Logs**.
+
+### Setting it up on another account
+
+This was done once, in this order:
+
+1. **Database.** `pnpm exec cf d1 create --name getthedamclass --primary-location-hint wnam`. Put the ID it prints in `PRODUCTION_DATABASE_ID` in `cloudflare.config.ts`, then apply the migrations as above.
+2. **Email.** `pnpm exec cf email-sending subdomains create -z <zone> --name getthedamclass.<zone>`. It adds six DNS records, all under that name: three MX and an SPF record on `cf-bounce.getthedamclass.<zone>`, the DKIM key on `cf-bounce._domainkey.getthedamclass.<zone>`, and a DMARC policy on `_dmarc.getthedamclass.<zone>`. `pnpm exec cf email-sending subdomains preview -z <zone> --name getthedamclass.<zone>` shows any that are missing. `pnpm exec cf email-sending limits get` must say `"recipient_mode": "arbitrary"`: the account can send to any address (an account with no sending domain can only send to its own verified addresses).
+3. **Worker.** Change the domain in `cloudflare.config.ts` (and `SENDER`, `PUBLIC_URL`), then deploy as above. The first deploy creates the custom domain's DNS record and its certificate, which takes a few minutes: until then HTTPS to it fails with a handshake error. (Here the very first deploy also stopped with "This Worker does not exist on your account" right after uploading; running it again finished it.)
+4. **Rate limit.** Anyone can call `POST /sign-in/code`, which sends an email, and `POST /sign-in`, which tries a code, without signing in. The server already allows one code a minute per address and five tries per code; this rule also stops one client from sending many requests in a row. It lives in the zone, not in this repository:
+
+   ```sh
+   pnpm exec cf rulesets entrypoint update http_ratelimit -z <zone> --rules '[{
+     "description": "GetTheDamClass: limit sign-in requests per IP",
+     "expression": "(http.host eq \"api.getthedamclass.<zone>\" and starts_with(http.request.uri.path, \"/sign-in\"))",
+     "action": "block",
+     "ratelimit": { "characteristics": ["cf.colo.id", "ip.src"], "period": 10, "requests_per_period": 10, "mitigation_timeout": 10 },
+     "enabled": true
+   }]'
+   ```
+
+   That is 10 requests per 10 seconds from one IP address; beyond that, the address gets HTTP 429 on those paths for 10 seconds. A student sends a handful of these requests a minute, so only a script meets it; it then gets about one try a second. A free zone allows one rate-limiting rule, with 10 seconds as its only period and block time. `entrypoint update` replaces every rule in the zone's rate-limiting list, so on a zone that already has one, change that list instead (`pnpm exec cf rulesets entrypoint get http_ratelimit -z <zone>` shows it).
 
 ## How the Effect code is organised
 
