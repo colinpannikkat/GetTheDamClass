@@ -2,338 +2,210 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Fiber } from "effect"
 import { TestClock } from "effect/testing"
 import { Api, API_BASE_URL } from "./Api"
-import type { AlreadySubscribed, AppError, NotSubscribed } from "./domain"
+import type { AppError } from "./domain"
 
 // These tests never touch the network: `Api.layerWithFetch` builds the real
-// Api on top of a fake `fetch` that answers with whatever the test says.
+// Api on top of a fake `fetch` that answers with whatever the test says. The
+// answers are written the way the server sends them (try `curl` against a
+// local server, see the README): an error is JSON with its `_tag` and the
+// student's sentence.
 
-const credentials = { email: "student@oregonstate.edu", pin: "1234" }
-const crn = "39835"
+const email = "student@oregonstate.edu"
+const token = "token-of-this-browser"
+const intro = { term: "202702", crn: "33940" }
+const introAlert = { ...intro, title: "INTRO TO COMPUTER SCIENCE I" }
 
-interface RecordedRequest {
-  readonly url: string
-  readonly init: RequestInit
-}
+/** A `Response` like the server's: a status and a JSON body. */
+const jsonResponse = (status: number, body: unknown) =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
 
-/** A `Response` like the backend's: a status and a JSON body. */
-const jsonResponse = (status: number, body: unknown) => new Response(JSON.stringify(body), { status })
+/** The server's answer to a successful call that returns nothing. */
+const noContent = () => new Response(null, { status: 204 })
+
+/** A refusal, as the server sends it. */
+const refusal = (status: number, tag: string) => jsonResponse(status, { _tag: tag, message: `The sentence for ${tag}.` })
 
 /** Build a fake `fetch`, and keep a list of the requests it received. */
 function fakeFetch(respond: () => Response) {
-  const requests: Array<RecordedRequest> = []
+  const requests: Array<Request> = []
   const fetch: typeof globalThis.fetch = async (input, init) => {
-    requests.push({ url: String(input), init: init ?? {} })
+    requests.push(new Request(input, init))
     return respond()
   }
   return { fetch, requests }
 }
 
 /** Run one Api call against a server that always gives the same answer. */
-const callApi = <A, E>(
-  respond: () => Response,
-  call: (api: Api["Service"]) => Effect.Effect<A, E>
-) => Api.use(call).pipe(Effect.provide(Api.layerWithFetch(fakeFetch(respond).fetch)))
+const callApi = <A, E>(respond: () => Response, call: (api: Api["Service"]) => Effect.Effect<A, E>) =>
+  Api.use(call).pipe(Effect.provide(Api.layerWithFetch(fakeFetch(respond).fetch)))
 
 /** The same, for a call that is expected to fail: succeeds with the error. */
-const callApiError = <A, E>(
-  respond: () => Response,
-  call: (api: Api["Service"]) => Effect.Effect<A, E>
-) => Effect.flip(callApi(respond, call))
+const callApiError = <A, E>(respond: () => Response, call: (api: Api["Service"]) => Effect.Effect<A, E>) =>
+  Effect.flip(callApi(respond, call))
+
+/** Every call, with a reply that makes it succeed. */
+const everyCall: ReadonlyArray<{
+  readonly name: string
+  readonly call: (api: Api["Service"]) => Effect.Effect<unknown, AppError | { readonly _tag: string }>
+  readonly success: () => Response
+}> = [
+  { name: "sendCode", call: (api) => api.sendCode(email), success: noContent },
+  { name: "signIn", call: (api) => api.signIn(email, "012345"), success: () => jsonResponse(200, { token }) },
+  { name: "signOut", call: (api) => api.signOut(token), success: noContent },
+  { name: "listAlerts", call: (api) => api.listAlerts(token), success: () => jsonResponse(200, [introAlert]) },
+  { name: "subscribe", call: (api) => api.subscribe(token, intro), success: () => jsonResponse(200, introAlert) },
+  { name: "unsubscribe", call: (api) => api.unsubscribe(token, intro), success: noContent }
+]
 
 describe("requests", () => {
-  /** Run a call and return the single request it made. */
-  const requestOf = <A, E>(call: (api: Api["Service"]) => Effect.Effect<A, E>, body: unknown = { message: "ok" }) =>
+  /** Run a call against a server that answers `reply`, and return the single request it made. */
+  const requestOf = <A, E>(call: (api: Api["Service"]) => Effect.Effect<A, E>, reply: () => Response) =>
     Effect.gen(function*() {
-      const fake = fakeFetch(() => jsonResponse(200, body))
+      const fake = fakeFetch(reply)
       yield* Api.use(call).pipe(Effect.provide(Api.layerWithFetch(fake.fetch)))
       assert.strictEqual(fake.requests.length, 1)
       return fake.requests[0]!
     })
 
-  it.effect("signIn posts the email and PIN to /signup", () =>
+  /** What a request carried: method, URL, sign-in token and JSON body. */
+  const describeRequest = (request: Request) =>
+    Effect.promise(async () => {
+      const text = await request.text()
+      return {
+        method: request.method,
+        url: request.url,
+        authorization: request.headers.get("authorization"),
+        body: text === "" ? undefined : JSON.parse(text)
+      }
+    })
+
+  it.effect("sendCode posts the email to /sign-in/code, without a token", () =>
     Effect.gen(function*() {
-      const request = yield* requestOf((api) => api.signIn(credentials))
-      assert.strictEqual(request.url, `${API_BASE_URL}/signup`)
-      assert.strictEqual(request.init.method, "POST")
-      assert.deepStrictEqual(JSON.parse(String(request.init.body)), {
-        email: "student@oregonstate.edu",
-        pin: "1234"
+      const request = yield* requestOf((api) => api.sendCode(email), noContent)
+      assert.deepStrictEqual(yield* describeRequest(request), {
+        method: "POST",
+        url: `${API_BASE_URL}/sign-in/code`,
+        authorization: null,
+        body: { email }
       })
     }))
 
-  it.effect("sends JSON, and none of the Access-Control headers version 1 sent", () =>
+  it.effect("signIn posts the email and code to /sign-in, without a token, and returns the token", () =>
     Effect.gen(function*() {
-      const request = yield* requestOf((api) => api.signIn(credentials))
-      assert.deepStrictEqual(request.init.headers, { "Content-Type": "application/json" })
+      const request = yield* requestOf((api) => api.signIn(email, "012345"), () => jsonResponse(200, { token }))
+      assert.deepStrictEqual(yield* describeRequest(request), {
+        method: "POST",
+        url: `${API_BASE_URL}/sign-in`,
+        authorization: null,
+        body: { email, code: "012345" }
+      })
+      assert.strictEqual(yield* callApi(() => jsonResponse(200, { token }), (api) => api.signIn(email, "012345")), token)
     }))
 
-  it.effect("subscribe posts the CRN as a string, with the credentials, to /sub", () =>
+  it.effect("signOut posts to /sign-out with the token", () =>
     Effect.gen(function*() {
-      const request = yield* requestOf((api) => api.subscribe(crn, credentials))
-      assert.strictEqual(request.url, `${API_BASE_URL}/sub`)
-      assert.deepStrictEqual(JSON.parse(String(request.init.body)), {
-        crn: "39835",
-        email: "student@oregonstate.edu",
-        pin: "1234"
+      const request = yield* requestOf((api) => api.signOut(token), noContent)
+      assert.deepStrictEqual(yield* describeRequest(request), {
+        method: "POST",
+        url: `${API_BASE_URL}/sign-out`,
+        authorization: `Bearer ${token}`,
+        body: undefined
       })
     }))
 
-  it.effect("unsubscribe posts the CRN and the credentials to /unsub", () =>
+  it.effect("listAlerts gets /alerts with the token, and returns the alerts", () =>
     Effect.gen(function*() {
-      const request = yield* requestOf((api) => api.unsubscribe(crn, credentials))
-      assert.strictEqual(request.url, `${API_BASE_URL}/unsub`)
-      assert.deepStrictEqual(JSON.parse(String(request.init.body)), {
-        crn: "39835",
-        email: "student@oregonstate.edu",
-        pin: "1234"
+      const reply = () => jsonResponse(200, [introAlert, { term: "202701", crn: "33940", title: "OTHER CLASS" }])
+      const request = yield* requestOf((api) => api.listAlerts(token), reply)
+      assert.deepStrictEqual(yield* describeRequest(request), {
+        method: "GET",
+        url: `${API_BASE_URL}/alerts`,
+        authorization: `Bearer ${token}`,
+        body: undefined
       })
-    }))
-
-  it.effect("listSubscriptions posts the credentials to /getsubs", () =>
-    Effect.gen(function*() {
-      const request = yield* requestOf((api) => api.listSubscriptions(credentials), { subs: [] })
-      assert.strictEqual(request.url, `${API_BASE_URL}/getsubs`)
-      assert.deepStrictEqual(JSON.parse(String(request.init.body)), {
-        email: "student@oregonstate.edu",
-        pin: "1234"
-      })
-    }))
-})
-
-describe("signIn", () => {
-  it.effect.each([
-    { title: "a new email, so the account was created", message: "User signed up successfully" },
-    { title: "a known email", message: "User logged in" }
-  ])("200 ($title): succeeds", ({ message }) =>
-    callApi(() => jsonResponse(200, { message }), (api) => api.signIn(credentials)))
-
-  it.effect("401: WrongPin, with the server's message", () =>
-    Effect.gen(function*() {
-      const error = yield* callApiError(
-        () => jsonResponse(401, { message: "Wrong pin. Try again!" }),
-        (api) => api.signIn(credentials)
-      )
-      assert.strictEqual(error._tag, "WrongPin")
-      assert.strictEqual(error.message, "Wrong pin. Try again!")
-    }))
-
-  it.effect("400: RequestRejected, with the server's message", () =>
-    Effect.gen(function*() {
-      const error = yield* callApiError(
-        () => jsonResponse(400, { message: "Invalid email or pin" }),
-        (api) => api.signIn(credentials)
-      )
-      assert.strictEqual(error._tag, "RequestRejected")
-      assert.strictEqual(error.message, "Invalid email or pin")
-    }))
-})
-
-describe("subscribe", () => {
-  it.effect("200: succeeds", () =>
-    callApi(
-      () => jsonResponse(200, { message: "student@oregonstate.edu subscribed to class 39835 successfully" }),
-      (api) => api.subscribe(crn, credentials)
-    ))
-
-  it.effect("409: AlreadySubscribed", () =>
-    Effect.gen(function*() {
-      const error = yield* callApiError(
-        () => jsonResponse(409, { message: "Already subscribed to class" }),
-        (api) => api.subscribe(crn, credentials)
-      )
-      assert.strictEqual(error._tag, "AlreadySubscribed")
-    }))
-
-  it.effect("401: WrongPin", () =>
-    Effect.gen(function*() {
-      const error = yield* callApiError(
-        () => jsonResponse(401, { message: "User authentication failed" }),
-        (api) => api.subscribe(crn, credentials)
-      )
-      assert.strictEqual(error._tag, "WrongPin")
-    }))
-
-  it.effect("400 \"CRN doesn't exist\": ClassNotFound, carrying the CRN", () =>
-    Effect.gen(function*() {
-      const error = yield* callApiError(
-        () => jsonResponse(400, { message: "CRN doesn't exist" }),
-        (api) => api.subscribe(crn, credentials)
-      )
-      assert.strictEqual(error._tag, "ClassNotFound")
-      assert.strictEqual(error._tag === "ClassNotFound" && error.crn, "39835")
-    }))
-
-  it.effect("any other 400: RequestRejected, with the server's message", () =>
-    Effect.gen(function*() {
-      const error = yield* callApiError(
-        () => jsonResponse(400, { message: "Couldn't subscribe to class. Try again!" }),
-        (api) => api.subscribe(crn, credentials)
-      )
-      assert.strictEqual(error._tag, "RequestRejected")
-      assert.strictEqual(error.message, "Couldn't subscribe to class. Try again!")
-    }))
-})
-
-describe("unsubscribe", () => {
-  it.effect("200: succeeds", () =>
-    callApi(
-      () => jsonResponse(200, { message: "Unsubscribed from class 39835 successfully" }),
-      (api) => api.unsubscribe(crn, credentials)
-    ))
-
-  it.effect("401: WrongPin", () =>
-    Effect.gen(function*() {
-      const error = yield* callApiError(
-        () => jsonResponse(401, { message: "User authentication failed" }),
-        (api) => api.unsubscribe(crn, credentials)
-      )
-      assert.strictEqual(error._tag, "WrongPin")
-    }))
-
-  it.effect("400 \"Not subscribed to class\": NotSubscribed", () =>
-    Effect.gen(function*() {
-      const error = yield* callApiError(
-        () => jsonResponse(400, { message: "Not subscribed to class" }),
-        (api) => api.unsubscribe(crn, credentials)
-      )
-      assert.strictEqual(error._tag, "NotSubscribed")
-    }))
-
-  it.effect("400 \"CRN doesn't exist\": ClassNotFound", () =>
-    Effect.gen(function*() {
-      const error = yield* callApiError(
-        () => jsonResponse(400, { message: "CRN doesn't exist" }),
-        (api) => api.unsubscribe(crn, credentials)
-      )
-      assert.strictEqual(error._tag, "ClassNotFound")
-    }))
-
-  it.effect("any other 400: RequestRejected", () =>
-    Effect.gen(function*() {
-      const error = yield* callApiError(
-        () => jsonResponse(400, { message: "User doesn't exist" }),
-        (api) => api.unsubscribe(crn, credentials)
-      )
-      assert.strictEqual(error._tag, "RequestRejected")
-      assert.strictEqual(error.message, "User doesn't exist")
-    }))
-})
-
-describe("listSubscriptions", () => {
-  it.effect("200: returns the subscriptions", () =>
-    Effect.gen(function*() {
-      const subscriptions = yield* callApi(
-        () => jsonResponse(200, { subs: [{ crn: "39835", name: "INTRO TO DEEP LEARNING" }] }),
-        (api) => api.listSubscriptions(credentials)
-      )
-      assert.deepStrictEqual(subscriptions, [{ crn: "39835", name: "INTRO TO DEEP LEARNING" }])
-    }))
-
-  it.effect("200 with no subscriptions: returns an empty list", () =>
-    Effect.gen(function*() {
-      const subscriptions = yield* callApi(
-        () => jsonResponse(200, { subs: [] }),
-        (api) => api.listSubscriptions(credentials)
-      )
-      assert.deepStrictEqual(subscriptions, [])
-    }))
-
-  it.effect("quirk: the server sends the CRN as a number; we turn it into a string", () =>
-    Effect.gen(function*() {
-      const subscriptions = yield* callApi(
-        () => jsonResponse(200, { subs: [{ crn: 39835, name: "INTRO TO DEEP LEARNING" }] }),
-        (api) => api.listSubscriptions(credentials)
-      )
-      assert.deepStrictEqual(subscriptions, [{ crn: "39835", name: "INTRO TO DEEP LEARNING" }])
-    }))
-
-  it.effect("a name that is blank, missing or not text at all becomes null, and the rest of the list still shows", () =>
-    Effect.gen(function*() {
-      const subscriptions = yield* callApi(
-        () =>
-          jsonResponse(200, {
-            subs: [
-              { crn: 1, name: false },
-              { crn: 2, name: null },
-              { crn: 3, name: "  " },
-              { crn: 4 },
-              { crn: 5, name: 161 },
-              { crn: 6, name: { title: "INTRO TO DEEP LEARNING" } },
-              { crn: 7, name: " INTRO TO DEEP LEARNING " }
-            ]
-          }),
-        (api) => api.listSubscriptions(credentials)
-      )
-      assert.deepStrictEqual(subscriptions, [
-        { crn: "1", name: null },
-        { crn: "2", name: null },
-        { crn: "3", name: null },
-        { crn: "4", name: null },
-        { crn: "5", name: null },
-        { crn: "6", name: null },
-        { crn: "7", name: "INTRO TO DEEP LEARNING" }
+      assert.deepStrictEqual(yield* callApi(reply, (api) => api.listAlerts(token)), [
+        introAlert,
+        { term: "202701", crn: "33940", title: "OTHER CLASS" }
       ])
     }))
 
-  it.effect("401: WrongPin", () =>
+  it.effect("subscribe posts the term and CRN to /alerts with the token, and returns the alert", () =>
     Effect.gen(function*() {
-      const error = yield* callApiError(
-        () => jsonResponse(401, { message: "User authentication failed" }),
-        (api) => api.listSubscriptions(credentials)
+      const request = yield* requestOf((api) => api.subscribe(token, intro), () => jsonResponse(200, introAlert))
+      assert.deepStrictEqual(yield* describeRequest(request), {
+        method: "POST",
+        url: `${API_BASE_URL}/alerts`,
+        authorization: `Bearer ${token}`,
+        body: { term: "202702", crn: "33940" }
+      })
+      assert.deepStrictEqual(
+        yield* callApi(() => jsonResponse(200, introAlert), (api) => api.subscribe(token, intro)),
+        introAlert
       )
-      assert.strictEqual(error._tag, "WrongPin")
     }))
 
-  it.effect("400: RequestRejected", () =>
+  it.effect("unsubscribe deletes /alerts/<term>/<crn> with the token", () =>
     Effect.gen(function*() {
-      const error = yield* callApiError(
-        () => jsonResponse(400, { message: "Invalid email or pin" }),
-        (api) => api.listSubscriptions(credentials)
-      )
-      assert.strictEqual(error._tag, "RequestRejected")
+      const request = yield* requestOf((api) => api.unsubscribe(token, intro), noContent)
+      assert.deepStrictEqual(yield* describeRequest(request), {
+        method: "DELETE",
+        url: `${API_BASE_URL}/alerts/202702/33940`,
+        authorization: `Bearer ${token}`,
+        body: undefined
+      })
     }))
 
-  it.effect.each([
-    { title: "no subs field", body: { message: "ok" } },
-    { title: "subs is not a list", body: { subs: "none" } },
-    { title: "a CRN that is not digits", body: { subs: [{ crn: "abc", name: "X" }] } },
-    { title: "a CRN that is not a whole number", body: { subs: [{ crn: 1.5, name: "X" }] } }
-  ])("200 with a body of the wrong shape ($title): ServerError", ({ body }) =>
+  it.effect.each(everyCall)("$name sends no header the server's CORS rules would refuse", ({ call, success }) =>
     Effect.gen(function*() {
-      const error = yield* callApiError(
-        () => jsonResponse(200, body),
-        (api) => api.listSubscriptions(credentials)
-      )
-      assert.strictEqual(error._tag, "ServerError")
+      const request = yield* requestOf(call, success)
+      // A browser sends nothing the server has not allowed in its answer to
+      // the preflight (`Cors` in apps/server/src/server.ts). Tracing headers
+      // (`traceparent`, `b3`) would make every call fail there.
+      const allowed = ["authorization", "content-type"]
+      assert.deepStrictEqual([...request.headers.keys()].filter((name) => !allowed.includes(name)), [])
+    }))
+})
+
+describe("the server's refusals", () => {
+  const refusals: ReadonlyArray<{
+    readonly name: string
+    readonly call: (api: Api["Service"]) => Effect.Effect<unknown, { readonly _tag: string; readonly message?: string }>
+    readonly status: number
+    readonly tag: string
+  }> = [
+    { name: "sendCode", call: (api) => api.sendCode(email), status: 429, tag: "CodeRecentlySent" },
+    { name: "sendCode", call: (api) => api.sendCode(email), status: 503, tag: "EmailNotSent" },
+    { name: "signIn", call: (api) => api.signIn(email, "012345"), status: 400, tag: "InvalidCode" },
+    { name: "signOut", call: (api) => api.signOut(token), status: 401, tag: "NotSignedIn" },
+    { name: "listAlerts", call: (api) => api.listAlerts(token), status: 401, tag: "NotSignedIn" },
+    { name: "subscribe", call: (api) => api.subscribe(token, intro), status: 401, tag: "NotSignedIn" },
+    { name: "subscribe", call: (api) => api.subscribe(token, intro), status: 409, tag: "AlreadySubscribed" },
+    { name: "subscribe", call: (api) => api.subscribe(token, intro), status: 404, tag: "ClassNotFound" },
+    { name: "subscribe", call: (api) => api.subscribe(token, intro), status: 409, tag: "TermNotOpen" },
+    { name: "subscribe", call: (api) => api.subscribe(token, intro), status: 409, tag: "AddDeadlinePassed" },
+    { name: "subscribe", call: (api) => api.subscribe(token, intro), status: 502, tag: "UniversityUnavailable" },
+    { name: "unsubscribe", call: (api) => api.unsubscribe(token, intro), status: 401, tag: "NotSignedIn" },
+    { name: "unsubscribe", call: (api) => api.unsubscribe(token, intro), status: 404, tag: "NotSubscribed" }
+  ]
+
+  it.effect.each(refusals)("$name, HTTP $status: $tag, with the server's sentence", ({ call, status, tag }) =>
+    Effect.gen(function*() {
+      const error = yield* callApiError(() => refusal(status, tag), call)
+      assert.strictEqual(error._tag, tag)
+      assert.strictEqual(error.message, `The sentence for ${tag}.`)
     }))
 })
 
 describe("problems every call can have", () => {
-  const everyCall: ReadonlyArray<{
-    readonly name: string
-    readonly call: (api: Api["Service"]) => Effect.Effect<unknown, AppError | AlreadySubscribed | NotSubscribed>
-  }> = [
-    { name: "signIn", call: (api) => api.signIn(credentials) },
-    { name: "subscribe", call: (api) => api.subscribe(crn, credentials) },
-    { name: "unsubscribe", call: (api) => api.unsubscribe(crn, credentials) },
-    { name: "listSubscriptions", call: (api) => api.listSubscriptions(credentials) }
-  ]
-
-  it.effect("the request cannot be sent (offline): NetworkError", () =>
+  it.effect.each(everyCall)("$name: the request cannot be sent (offline): NetworkError", ({ call }) =>
     Effect.gen(function*() {
-      const cause = new TypeError("Failed to fetch")
-      const error = yield* callApiError(
-        () => {
-          throw cause
-        },
-        (api) => api.signIn(credentials)
-      )
+      const error = yield* callApiError(() => {
+        throw new TypeError("Failed to fetch")
+      }, call)
       assert.strictEqual(error._tag, "NetworkError")
-      assert.strictEqual(error._tag === "NetworkError" && error.cause, cause)
     }))
 
-  it.effect.each(everyCall
-  )("$name: no answer within 30 seconds: NetworkError, and the request is given up", ({ call }) =>
+  it.effect.each(everyCall)("$name: no answer within 30 seconds: NetworkError, and the request is given up", ({ call }) =>
     Effect.gen(function*() {
       let signal: AbortSignal | null | undefined
       const neverAnswers: typeof globalThis.fetch = (_input, init) => {
@@ -353,38 +225,42 @@ describe("problems every call can have", () => {
       assert.isTrue(signal?.aborted)
     }))
 
-  it.effect("the body is not JSON (a proxy's HTML error page): ServerError with the status", () =>
+  it.effect.each(everyCall)("$name: a status the API does not list (a crash, HTTP 500): ServerError", ({ call }) =>
+    Effect.gen(function*() {
+      const error = yield* callApiError(() => new Response("Internal Server Error", { status: 500 }), call)
+      assert.strictEqual(error._tag, "ServerError")
+    }))
+
+  it.effect("the bare HTTP 400 the server gives input its schemas refuse: ServerError", () =>
+    Effect.gen(function*() {
+      // The forms check what is typed first, so this means a bug.
+      const error = yield* callApiError(() => new Response(null, { status: 400 }), (api) => api.sendCode(email))
+      assert.strictEqual(error._tag, "ServerError")
+    }))
+
+  it.effect("a proxy's HTML error page: ServerError", () =>
     Effect.gen(function*() {
       const error = yield* callApiError(
-        () => new Response("<html>502 Bad Gateway</html>", { status: 502 }),
-        (api) => api.subscribe(crn, credentials)
-      )
-      assert.strictEqual(error._tag, "ServerError")
-      assert.strictEqual(error._tag === "ServerError" && error.status, 502)
-    }))
-
-  it.effect("a 200 whose body is not JSON: ServerError", () =>
-    Effect.gen(function*() {
-      const error = yield* callApiError(
-        () => new Response("OK", { status: 200 }),
-        (api) => api.signIn(credentials)
+        () => new Response("<html>502 Bad Gateway</html>", { status: 502, headers: { "content-type": "text/html" } }),
+        (api) => api.subscribe(token, intro)
       )
       assert.strictEqual(error._tag, "ServerError")
     }))
 
-  it.effect.each(everyCall
-  )("$name: a status the API does not document (500): ServerError", ({ call }) =>
+  it.effect.each([
+    { title: "not a list", body: { alerts: [] } },
+    { title: "an alert without a title", body: [{ term: "202702", crn: "33940" }] },
+    { title: "a CRN that is not digits", body: [{ term: "202702", crn: "abc", title: "X" }] },
+    { title: "a term that is not six digits", body: [{ term: "2027", crn: "33940", title: "X" }] }
+  ])("a reply of the wrong shape ($title): ServerError", ({ body }) =>
     Effect.gen(function*() {
-      const error = yield* callApiError(() => jsonResponse(500, { message: "Internal Server Error" }), call)
+      const error = yield* callApiError(() => jsonResponse(200, body), (api) => api.listAlerts(token))
       assert.strictEqual(error._tag, "ServerError")
-      assert.strictEqual(error._tag === "ServerError" && error.status, 500)
-      assert.strictEqual(error.message, "Internal Server Error")
     }))
 
-  it.effect("an error without a message still gets a readable one", () =>
+  it.effect("a refusal of a kind this call cannot get: ServerError", () =>
     Effect.gen(function*() {
-      const error = yield* callApiError(() => jsonResponse(401, {}), (api) => api.signIn(credentials))
-      assert.strictEqual(error._tag, "WrongPin")
-      assert.strictEqual(error.message, "The server replied with HTTP 401.")
+      const error = yield* callApiError(() => refusal(409, "TermNotOpen"), (api) => api.unsubscribe(token, intro))
+      assert.strictEqual(error._tag, "ServerError")
     }))
 })

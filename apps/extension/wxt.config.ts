@@ -16,7 +16,7 @@ export default defineConfig({
     // `version` is taken from this folder's package.json (not the one at the
     // repository root).
     permissions: ["storage"],
-    // No `host_permissions`: the backend allows cross-origin requests (CORS),
+    // No `host_permissions`: the server allows cross-origin requests (CORS),
     // so the extension does not need access to any site.
     icons: {
       16: "icons/icon16.png",

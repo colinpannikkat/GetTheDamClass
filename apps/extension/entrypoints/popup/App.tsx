@@ -12,9 +12,10 @@ import { useState } from "react"
 import { Button } from "@/components/Button"
 import { Message } from "@/components/Message"
 import { SignInForm } from "@/components/SignInForm"
+import type { CodeRequest } from "@/lib/AccountStore"
 import { errorMessage } from "@/lib/errorMessage"
 import { useAccount, useAction, useQuery } from "@/lib/react"
-import { listSubscriptions, signOut } from "@/lib/workflows"
+import { listAlerts, signOut } from "@/lib/workflows"
 import { ClassList, ClassListSkeleton } from "./ClassList"
 
 export function App() {
@@ -26,10 +27,10 @@ export function App() {
     <main className="ui-root flex w-90 flex-col">
       {/* Reading the saved sign-in takes a few milliseconds: show nothing rather than a flash. */}
       {account.status === "loading" && <div className="h-24" aria-busy="true" />}
-      {account.status === "signedOut" && <SignedOut afterSigningOut={signedOutHere} />}
-      {account.status === "signedIn" && (
-        <SignedIn email={account.credentials.email} onSignedOut={() => setSignedOutHere(true)} />
+      {account.status === "signedOut" && (
+        <SignedOut email={account.email} codeRequest={account.codeRequest} afterSigningOut={signedOutHere} />
       )}
+      {account.status === "signedIn" && <SignedIn email={account.email} onSignedOut={() => setSignedOutHere(true)} />}
       <Message tone="error" className="m-4">
         {account.status === "failure" ? "Couldn't read your saved sign-in. Close this popup and open it again." : null}
       </Message>
@@ -38,7 +39,12 @@ export function App() {
   )
 }
 
-function SignedOut({ afterSigningOut }: { readonly afterSigningOut: boolean }) {
+function SignedOut({ email, codeRequest, afterSigningOut }: {
+  /** What the sign-in form starts from: the last address, and a code asked for and not used yet. */
+  readonly email: string | undefined
+  readonly codeRequest: CodeRequest | undefined
+  readonly afterSigningOut: boolean
+}) {
   return (
     <section className="flex flex-col gap-4 p-4">
       <Brand />
@@ -47,8 +53,7 @@ function SignedOut({ afterSigningOut }: { readonly afterSigningOut: boolean }) {
           // Signing out only makes this browser forget the account. Say so,
           // or the emails that keep coming would be a surprise.
           <Message>
-            Your alerts keep running: to stop one, sign in again and press Stop, or use the Unsubscribe button in its
-            confirmation email.
+            Your alerts keep running: to stop one, sign in again and press Stop, or use the link in any email about it.
           </Message>
         )
         : (
@@ -56,7 +61,7 @@ function SignedOut({ afterSigningOut }: { readonly afterSigningOut: boolean }) {
             Pick a class at Oregon State and get an email when a seat opens or the class fills up.
           </p>
         )}
-      <SignInForm />
+      <SignInForm email={email} codeRequest={codeRequest} />
     </section>
   )
 }
@@ -66,13 +71,13 @@ const runSignOut = () => signOut
 
 function SignedIn({ email, onSignedOut }: { readonly email: string; readonly onSignedOut: () => void }) {
   // Loads when the popup opens, and again if another account signs in.
-  const { state, reload } = useQuery(() => listSubscriptions, [email])
+  const { state, reload } = useQuery(() => listAlerts, [email])
   const signOutAction = useAction(runSignOut)
 
-  const loadError = state.status === "failure" ? state.error : null
-  // The server no longer accepts the saved email and PIN. Asking for them
-  // again fixes that; "Try again" would only fail the same way.
-  const mustSignInAgain = loadError?._tag === "WrongPin"
+  // `NotSignedIn` is left out: the server no longer accepts the saved sign-in,
+  // so the workflow has signed this browser out, and the sign-in form is about
+  // to take this screen's place.
+  const loadError = state.status === "failure" && state.error._tag !== "NotSignedIn" ? state.error : null
   const signOutError = signOutAction.state.status === "failure" ? signOutAction.state.error : null
 
   return (
@@ -100,17 +105,14 @@ function SignedIn({ email, onSignedOut }: { readonly email: string; readonly onS
         <Message tone="error">{signOutError && errorMessage(signOutError)}</Message>
 
         {state.status === "loading" && <ClassListSkeleton />}
-        {state.status === "success" && <ClassList subscriptions={state.value} />}
+        {state.status === "success" && <ClassList alerts={state.value} />}
 
-        <Message tone="error">{loadError && !mustSignInAgain ? errorMessage(loadError) : null}</Message>
-        {loadError && !mustSignInAgain && (
+        <Message tone="error">{loadError && errorMessage(loadError)}</Message>
+        {loadError && (
           <Button className="self-start" onClick={reload}>
             Try again
           </Button>
         )}
-
-        <Message>{mustSignInAgain ? "Your saved PIN no longer works. Sign in again to see your classes." : null}</Message>
-        {mustSignInAgain && <SignInForm email={email} onSignedIn={reload} />}
       </section>
     </>
   )

@@ -144,6 +144,15 @@ describe("readTerm", () => {
     expect(panel.querySelector(".detail-srcdb")?.textContent).toBe("Winter 2027")
     expect(readTerm(panel)).toEqual(Option.none())
   })
+
+  it("is none for something that is not a term code (six digits)", () => {
+    const panel = loadPage()
+    panel.querySelector(".deep-link")!.remove()
+    for (const srcdb of ["", "2027", "winter", "2027021"]) {
+      panel.querySelector(".course-section--viewing")!.setAttribute("data-srcdb", srcdb)
+      expect(readTerm(panel)).toEqual(Option.none())
+    }
+  })
 })
 
 describe("parseCrn", () => {

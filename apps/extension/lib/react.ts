@@ -7,14 +7,15 @@
  *
  * - `useQuery`    load something when the component appears
  * - `useAction`   do something when the user asks (a click, a form submit)
- * - `useAccount`  who is signed in and what they are watching, kept up to date
+ * - `useAccount`  who is signed in and what they are watching (or, signed
+ *                 out, how far they got with signing in), kept up to date
  *
  * (React has its own, unrelated `useEffect`. In this file "an effect" always
  * means a value from the Effect library, and React's hook is `React.useEffect`.)
  */
 import { Cause, Effect, Exit, Option, Stream } from "effect"
 import * as React from "react"
-import { type Account, AccountStore } from "./AccountStore"
+import { AccountStore, type Saved } from "./AccountStore"
 import { type StorageError, UnexpectedError } from "./domain"
 import { type AppRuntime, type AppServices, runtime as liveRuntime } from "./runtime"
 
@@ -33,8 +34,7 @@ export type ActionState<A, E> = { readonly status: "idle" } | { readonly status:
 
 export type AccountState =
   | { readonly status: "loading" }
-  | { readonly status: "signedOut" }
-  | ({ readonly status: "signedIn" } & Account)
+  | Saved
   | { readonly status: "failure"; readonly error: StorageError | UnexpectedError }
 
 // ---------------------------------------------------------------------------
@@ -76,7 +76,7 @@ async function settle<A, E>(
  * Run an effect when the component mounts, and again whenever `deps` change
  * or `reload()` is called.
  *
- *   const { state, reload } = useQuery(() => listSubscriptions, [])
+ *   const { state, reload } = useQuery(() => listAlerts, [])
  */
 export function useQuery<A, E>(
   makeEffect: () => Effect.Effect<A, E, AppServices>,
@@ -112,7 +112,7 @@ export function useQuery<A, E>(
  * on it straight away.
  *
  *   const { state, run } = useAction(subscribe)
- *   <Button loading={state.status === "loading"} onClick={() => run(crn)}>
+ *   <Button loading={state.status === "loading"} onClick={() => run(classId)}>
  */
 export function useAction<Args extends ReadonlyArray<unknown>, A, E>(
   action: (...args: Args) => Effect.Effect<A, E, AppServices>
@@ -135,8 +135,10 @@ export function useAction<Args extends ReadonlyArray<unknown>, A, E>(
 }
 
 /**
- * Who is signed in, and the classes they are watching. Updates by itself when
- * either changes, here or in another part of the extension.
+ * Everything the browser has saved (see `lib/AccountStore.ts`): who is signed
+ * in and the classes they are watching, or, signed out, the email and code
+ * request the sign-in form starts from. Updates by itself when any of it
+ * changes, here or in another part of the extension.
  */
 export function useAccount(): AccountState {
   const runtime = React.useContext(RuntimeContext)
@@ -147,10 +149,7 @@ export function useAccount(): AccountState {
     const followStore = Effect.gen(function*() {
       const store = yield* AccountStore
       // Runs until aborted: `changes` never ends by itself.
-      yield* Stream.runForEach(store.changes, (saved) =>
-        Effect.sync(() =>
-          setState(Option.isSome(saved) ? { status: "signedIn", ...saved.value } : { status: "signedOut" })
-        ))
+      yield* Stream.runForEach(store.changes, (saved) => Effect.sync(() => setState(saved)))
     })
     void settle(runtime, followStore, controller.signal).then((settled) => {
       if (!controller.signal.aborted && settled.status === "failure") {

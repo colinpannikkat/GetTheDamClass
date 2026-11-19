@@ -7,7 +7,7 @@ import { Schema } from "effect"
 export const FrameMessage = Schema.Union([
   /** Escape was pressed in the form: close the popover. */
   Schema.Struct({ type: Schema.Literal("getthedamclass/close") }),
-  /** This form was used to sign in, and the email and PIN are saved: carry on. */
+  /** This form was used to sign in, and the sign-in is saved: carry on. */
   Schema.Struct({ type: Schema.Literal("getthedamclass/signed-in") }),
   /** The form is this many pixels tall now: make the frame fit. */
   Schema.Struct({ type: Schema.Literal("getthedamclass/resize"), height: Schema.Number })

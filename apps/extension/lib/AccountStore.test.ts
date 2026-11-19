@@ -1,32 +1,56 @@
 import { assert, beforeEach, describe, it } from "@effect/vitest"
-import { Effect, Option, Queue, Stream } from "effect"
-import { vi } from "vitest"
+import { Effect, Queue, Stream } from "effect"
+import { TestClock } from "effect/testing"
 import { fakeBrowser } from "wxt/testing/fake-browser"
-import { type Account, AccountStore } from "./AccountStore"
-
-// The term is part of every watch key. Pin it, so these tests do not change
-// when `lib/term.ts` does.
-vi.mock("./term", () => ({ SUPPORTED_TERM: { code: "202702", label: "Winter 2027" } }))
+import { AccountStore, type CodeRequest, type Saved } from "./AccountStore"
+import type { ClassId } from "./domain"
 
 // In tests, WXT swaps the extension API for `fakeBrowser`, an in-memory copy
 // of it (see vitest.config.ts). So this exercises the real AccountStore
 // against a fake `chrome.storage`.
+//
+// `it.effect` runs on a test clock that starts at 0 (1970), so "now" is 0
+// until a test moves it forward.
 
-const credentials = { email: "student@oregonstate.edu", pin: "1234" }
-const other = { email: "other@oregonstate.edu", pin: "4321" }
+const email = "student@oregonstate.edu"
+const other = "other@oregonstate.edu"
+const token = "token-of-this-browser"
+const intro = { term: "202702", crn: "33940" }
+/** The same CRN in another term: another class. */
+const introInFall = { term: "202701", crn: "33940" }
+const ethics = { term: "202702", crn: "53476" }
 
 /** Run an effect that uses the store. */
 const withStore = <A, E, R>(effect: Effect.Effect<A, E, R | AccountStore>) =>
   effect.pipe(Effect.provide(AccountStore.layer))
 
-/** Put something straight into storage, the way another part of the extension would. */
+/** Put something straight into storage, the way another part of the extension (or an older version) would. */
 const setRaw = (items: Record<string, unknown>) => Effect.promise(() => fakeBrowser.storage.local.set(items))
 const raw = Effect.promise(() => fakeBrowser.storage.local.get())
 
-/** The saved account with its watch list sorted (storage keeps no order). */
-const account = Effect.gen(function*() {
+/** What is saved, with the watch list sorted (storage keeps no order). */
+const saved = Effect.gen(function*() {
   const store = yield* AccountStore
-  return Option.map(yield* store.get, (saved) => ({ ...saved, watching: [...saved.watching].sort() }))
+  const value: Saved = yield* store.get
+  return value.status === "signedIn"
+    ? { ...value, watching: [...value.watching].sort((a, b) => `${a.term}${a.crn}`.localeCompare(`${b.term}${b.crn}`)) }
+    : value
+}).pipe(Effect.map((value): Saved => value))
+
+/** What `get` gives for `student@...` signed in with `token`. */
+const signedIn = (watching: ReadonlyArray<ClassId> = []): Extract<Saved, { status: "signedIn" }> => ({
+  status: "signedIn",
+  email,
+  token,
+  watching,
+  codeRequest: undefined
+})
+
+/** What `get` gives for nobody signed in. */
+const signedOut = (fields: { readonly email?: string; readonly codeRequest?: CodeRequest } = {}): Saved => ({
+  status: "signedOut",
+  email: fields.email,
+  codeRequest: fields.codeRequest
 })
 
 beforeEach(() => {
@@ -34,116 +58,174 @@ beforeEach(() => {
 })
 
 describe("get", () => {
-  it.effect("is none when nothing is saved", () =>
+  it.effect("is signed out, knowing nothing, when nothing is saved", () =>
     withStore(Effect.gen(function*() {
-      assert.deepStrictEqual(yield* account, Option.none())
+      assert.deepStrictEqual(yield* saved, signedOut())
     })))
 
-  it.effect("reads what version 1 of the extension saved (keys `email` and `pin`), watching nothing yet", () =>
-    withStore(Effect.gen(function*() {
-      yield* setRaw({ email: "old@oregonstate.edu", pin: "0420" })
-      assert.deepStrictEqual(
-        yield* account,
-        Option.some({ credentials: { email: "old@oregonstate.edu", pin: "0420" }, watching: [] })
-      )
-    })))
-
-  it.effect("reads the watched classes of the signed-in account, and of no other", () =>
+  it.effect("is signed in with an email and a token, watching the classes of that account and of no other", () =>
     withStore(Effect.gen(function*() {
       yield* setRaw({
-        ...credentials,
+        email,
+        token,
         "watch:202702:student@oregonstate.edu:33940": true,
-        "watch:202702:student@oregonstate.edu:53476": true,
-        "watch:202702:other@oregonstate.edu:39835": true
+        "watch:202701:student@oregonstate.edu:33940": true,
+        "watch:202702:other@oregonstate.edu:53476": true
       })
-      assert.deepStrictEqual(yield* account, Option.some({ credentials, watching: ["33940", "53476"] }))
+      assert.deepStrictEqual(yield* saved, signedIn([introInFall, intro]))
     })))
 
-  it.effect("ignores classes watched in an earlier term: the same CRN can be another class now", () =>
-    withStore(Effect.gen(function*() {
-      yield* setRaw({ ...credentials, "watch:202701:student@oregonstate.edu:33940": true })
-      assert.deepStrictEqual(yield* account, Option.some({ credentials, watching: [] }))
-    })))
-
-  it.effect("skips a watch key that does not end in a CRN, and the list an unreleased build saved", () =>
+  it.effect("skips a watch key that does not end in a CRN or has no term, and one of an email that merely starts the same", () =>
     withStore(Effect.gen(function*() {
       yield* setRaw({
-        ...credentials,
+        email,
+        token,
         "watch:202702:student@oregonstate.edu:33940": true,
         "watch:202702:student@oregonstate.edu:": true,
         "watch:202702:student@oregonstate.edu:abc": true,
-        // An email that merely starts the same is another account.
-        "watch:202702:student@oregonstate.edu:x@y.edu:53476": true,
-        watching: ["39835"]
+        "watch:student@oregonstate.edu:53476": true,
+        "watch:202702:student@oregonstate.edu:x@y.edu:53476": true
       })
-      assert.deepStrictEqual(yield* account, Option.some({ credentials, watching: ["33940"] }))
+      assert.deepStrictEqual(yield* saved, signedIn([intro]))
     })))
 
-  const unusable: ReadonlyArray<{ readonly title: string; readonly saved: Record<string, unknown> }> = [
-    { title: "only an email", saved: { email: "student@oregonstate.edu" } },
-    { title: "only a PIN", saved: { pin: "1234" } },
-    { title: "a PIN that is not 4 digits", saved: { email: "student@oregonstate.edu", pin: "12" } },
-    { title: "a PIN saved as a number", saved: { email: "student@oregonstate.edu", pin: 1234 } },
-    { title: "an email without @", saved: { email: "student", pin: "1234" } },
-    { title: "watched classes but no credentials", saved: { "watch:202702:student@oregonstate.edu:33940": true } }
-  ]
-
-  it.effect.each(unusable
-  )("is none when the saved data is unusable ($title)", ({ saved }) =>
+  it.effect("is signed out, with the email for the form, when there is an email but no token", () =>
     withStore(Effect.gen(function*() {
-      yield* setRaw(saved)
-      assert.deepStrictEqual(yield* account, Option.none())
+      yield* setRaw({ email, "watch:202702:student@oregonstate.edu:33940": true })
+      assert.deepStrictEqual(yield* saved, signedOut({ email }))
+    })))
+
+  it.effect.each([
+    { title: "only a token", raw: { token }, expected: signedOut() },
+    { title: "an empty token", raw: { email, token: "" }, expected: signedOut({ email }) },
+    { title: "a token that is not text", raw: { email, token: 42 }, expected: signedOut({ email }) },
+    { title: "an email without @", raw: { email: "student", token }, expected: signedOut() }
+  ])("is signed out when the saved data is unusable ($title)", ({ raw, expected }) =>
+    withStore(Effect.gen(function*() {
+      yield* setRaw(raw)
+      assert.deepStrictEqual(yield* saved, expected)
+    })))
+
+  it.effect("has the code request for 15 minutes after the code was sent, and not after", () =>
+    withStore(Effect.gen(function*() {
+      const codeRequest = { email: other, sentAt: 1_000 }
+      yield* setRaw({ email, codeRequest })
+      yield* TestClock.setTime(1_000 + 15 * 60_000 - 1)
+      assert.deepStrictEqual(yield* saved, signedOut({ email, codeRequest }))
+      yield* TestClock.setTime(1_000 + 15 * 60_000)
+      assert.deepStrictEqual(yield* saved, signedOut({ email }))
+    })))
+
+  it.effect("ignores a code request that is not what this extension saves", () =>
+    withStore(Effect.gen(function*() {
+      yield* setRaw({ codeRequest: { email: "student", sentAt: 0 } })
+      assert.deepStrictEqual(yield* saved, signedOut())
     })))
 })
 
+describe("updating from a version that signed in with a PIN", () => {
+  it.effect("removes the PIN and the old server's watched classes, keeps the email, and is signed out", () =>
+    Effect.gen(function*() {
+      // What version 2 saved, before the store is first used.
+      yield* setRaw({
+        email,
+        pin: "1234",
+        "watch:202702:student@oregonstate.edu:33940": true,
+        "watch:202702:other@oregonstate.edu:53476": true
+      })
+      yield* withStore(Effect.gen(function*() {
+        assert.deepStrictEqual(yield* raw, { email })
+        assert.deepStrictEqual(yield* saved, signedOut({ email }))
+      }))
+    }))
+
+  it.effect("removes nothing from an install that never had a PIN", () =>
+    Effect.gen(function*() {
+      const before = { email, token, "watch:202702:student@oregonstate.edu:33940": true }
+      yield* setRaw(before)
+      yield* withStore(Effect.gen(function*() {
+        assert.deepStrictEqual(yield* raw, before)
+      }))
+    }))
+})
+
 describe("save", () => {
-  it.effect("stores the email and PIN under the keys `email` and `pin`, and nothing else", () =>
+  it.effect("stores the email and token under `email` and `token`, and forgets the code request", () =>
     withStore(Effect.gen(function*() {
       const store = yield* AccountStore
-      yield* store.save(credentials)
-      assert.deepStrictEqual(yield* raw, { email: "student@oregonstate.edu", pin: "1234" })
+      yield* store.saveCodeRequest(email)
+      yield* store.save(email, token)
+      assert.deepStrictEqual(yield* raw, { email, token })
     })))
 
-  it.effect("keeps the watch list when the same email signs in again (a new PIN)", () =>
+  it.effect("keeps the watch list when the same email signs in again (a new token)", () =>
     withStore(Effect.gen(function*() {
       const store = yield* AccountStore
-      yield* store.save(credentials)
-      yield* store.watch(credentials.email, ["33940"])
-      yield* store.save({ email: credentials.email, pin: "5678" })
-      assert.deepStrictEqual(
-        yield* account,
-        Option.some({ credentials: { email: credentials.email, pin: "5678" }, watching: ["33940"] })
-      )
+      yield* store.save(email, token)
+      yield* store.watch(email, [intro])
+      yield* store.save(email, "a-newer-token")
+      assert.deepStrictEqual(yield* saved, { ...signedIn([intro]), token: "a-newer-token" })
     })))
 
   it.effect("another account sees none of the first one's classes, which are still there when the first comes back", () =>
     withStore(Effect.gen(function*() {
       const store = yield* AccountStore
-      yield* store.save(credentials)
-      yield* store.watch(credentials.email, ["33940"])
+      yield* store.save(email, token)
+      yield* store.watch(email, [intro])
 
-      yield* store.save(other)
-      assert.deepStrictEqual(yield* account, Option.some({ credentials: other, watching: [] }))
+      yield* store.save(other, "other-token")
+      assert.deepStrictEqual(yield* saved, { ...signedIn(), email: other, token: "other-token" })
 
-      yield* store.save(credentials)
-      assert.deepStrictEqual(yield* account, Option.some({ credentials, watching: ["33940"] }))
+      yield* store.save(email, token)
+      assert.deepStrictEqual(yield* saved, signedIn([intro]))
+    })))
+})
+
+describe("forgetToken", () => {
+  it.effect("signs this browser out, and keeps the email for the form", () =>
+    withStore(Effect.gen(function*() {
+      const store = yield* AccountStore
+      yield* store.save(email, token)
+      yield* store.forgetToken(token)
+      assert.deepStrictEqual(yield* saved, signedOut({ email }))
+    })))
+
+  it.effect("leaves a newer token alone: someone signed in again meanwhile", () =>
+    withStore(Effect.gen(function*() {
+      const store = yield* AccountStore
+      yield* store.save(email, "a-newer-token")
+      yield* store.forgetToken(token)
+      assert.deepStrictEqual(yield* saved, { ...signedIn(), token: "a-newer-token" })
+    })))
+})
+
+describe("code requests", () => {
+  it.effect("saveCodeRequest remembers the address and when, and forgetCodeRequest forgets it", () =>
+    withStore(Effect.gen(function*() {
+      const store = yield* AccountStore
+      yield* TestClock.setTime(5_000)
+      yield* store.saveCodeRequest(other)
+      assert.deepStrictEqual(yield* raw, { codeRequest: { email: other, sentAt: 5_000 } })
+      assert.deepStrictEqual(yield* saved, signedOut({ codeRequest: { email: other, sentAt: 5_000 } }))
+
+      yield* store.forgetCodeRequest
+      assert.deepStrictEqual(yield* raw, {})
     })))
 })
 
 describe("clear", () => {
-  it.effect("leaves nothing in storage: no credentials, and no watched class of any account", () =>
+  it.effect("leaves nothing in storage: no sign-in, no code request, and no watched class of any account", () =>
     withStore(Effect.gen(function*() {
       const store = yield* AccountStore
-      yield* store.save(credentials)
-      yield* store.watch(credentials.email, ["33940"])
-      yield* store.watch(other.email, ["39835"])
-      // What an unreleased build of version 2 saved.
-      yield* setRaw({ watching: ["33940"] })
+      yield* store.save(email, token)
+      yield* store.watch(email, [intro])
+      yield* store.watch(other, [ethics])
+      yield* store.saveCodeRequest(other)
 
       yield* store.clear
 
       assert.deepStrictEqual(yield* raw, {})
-      assert.deepStrictEqual(yield* account, Option.none())
+      assert.deepStrictEqual(yield* saved, signedOut())
     })))
 })
 
@@ -151,46 +233,60 @@ describe("watch and unwatch", () => {
   it.effect("save one key per class, named after the term, the account and the CRN", () =>
     withStore(Effect.gen(function*() {
       const store = yield* AccountStore
-      yield* store.save(credentials)
-      yield* store.watch(credentials.email, ["33940", "53476"])
-      yield* store.unwatch(credentials.email, ["33940"])
-      assert.deepStrictEqual(yield* raw, { ...credentials, "watch:202702:student@oregonstate.edu:53476": true })
+      yield* store.save(email, token)
+      yield* store.watch(email, [intro, introInFall, ethics])
+      yield* store.unwatch(email, [ethics])
+      assert.deepStrictEqual(yield* raw, {
+        email,
+        token,
+        "watch:202702:student@oregonstate.edu:33940": true,
+        "watch:202701:student@oregonstate.edu:33940": true
+      })
+    })))
+
+  it.effect("tell the same CRN in two terms apart", () =>
+    withStore(Effect.gen(function*() {
+      const store = yield* AccountStore
+      yield* store.save(email, token)
+      yield* store.watch(email, [intro, introInFall])
+      yield* store.unwatch(email, [introInFall])
+      assert.deepStrictEqual(yield* saved, signedIn([intro]))
     })))
 
   it.effect("change nothing when asked again, or for a class that is not there", () =>
     withStore(Effect.gen(function*() {
       const store = yield* AccountStore
-      yield* store.save(credentials)
-      yield* store.watch(credentials.email, ["33940"])
-      yield* store.watch(credentials.email, ["33940"])
-      yield* store.unwatch(credentials.email, ["53476"])
-      yield* store.watch(credentials.email, [])
-      yield* store.unwatch(credentials.email, [])
-      assert.deepStrictEqual(yield* account, Option.some({ credentials, watching: ["33940"] }))
+      yield* store.save(email, token)
+      yield* store.watch(email, [intro])
+      yield* store.watch(email, [intro])
+      yield* store.unwatch(email, [ethics])
+      yield* store.watch(email, [])
+      yield* store.unwatch(email, [])
+      assert.deepStrictEqual(yield* saved, signedIn([intro]))
     })))
 
   it.effect("write for the account they are given, whoever is signed in", () =>
     withStore(Effect.gen(function*() {
       const store = yield* AccountStore
-      yield* store.save(other)
-      yield* store.watch(credentials.email, ["33940"])
-      assert.deepStrictEqual(yield* account, Option.some({ credentials: other, watching: [] }))
+      yield* store.save(other, "other-token")
+      yield* store.watch(email, [intro])
+      assert.deepStrictEqual(yield* saved, { ...signedIn(), email: other, token: "other-token" })
     })))
 
   it.effect("do not lose a change when several are made at the same moment", () =>
     withStore(Effect.gen(function*() {
       const store = yield* AccountStore
-      yield* store.save(credentials)
-      yield* store.watch(credentials.email, ["33940", "53476"])
+      yield* store.save(email, token)
+      yield* store.watch(email, [intro, ethics])
 
       // The popup stops two alerts while a class page starts a third.
       yield* Effect.all([
-        store.unwatch(credentials.email, ["33940"]),
-        store.unwatch(credentials.email, ["53476"]),
-        store.watch(credentials.email, ["39835"])
+        store.unwatch(email, [intro]),
+        store.unwatch(email, [ethics]),
+        store.watch(email, [introInFall])
       ], { concurrency: "unbounded" })
 
-      assert.deepStrictEqual(yield* account, Option.some({ credentials, watching: ["39835"] }))
+      assert.deepStrictEqual(yield* saved, signedIn([introInFall]))
     })))
 })
 
@@ -201,7 +297,7 @@ describe("changes", () => {
    */
   const startFollowing = Effect.gen(function*() {
     const store = yield* AccountStore
-    const seen = yield* Queue.unbounded<Option.Option<Account>>()
+    const seen = yield* Queue.unbounded<Saved>()
     // `forkScoped`: run in the background until the test ends.
     yield* Effect.forkScoped(Stream.runForEach(store.changes, (value) => Queue.offer(seen, value)))
     return { store, seen }
@@ -209,38 +305,39 @@ describe("changes", () => {
 
   it.effect("starts with the current value", () =>
     withStore(Effect.gen(function*() {
-      yield* setRaw(credentials)
+      yield* setRaw({ email, token })
       const { seen } = yield* startFollowing
-      assert.deepStrictEqual(yield* Queue.take(seen), Option.some({ credentials, watching: [] }))
+      assert.deepStrictEqual(yield* Queue.take(seen), signedIn())
     })))
 
-  it.effect("emits again after save, watch, unwatch and clear", () =>
+  it.effect("emits again after watch, unwatch, forgetToken and clear", () =>
     withStore(Effect.gen(function*() {
+      yield* setRaw({ email, token })
       const { seen, store } = yield* startFollowing
-      assert.deepStrictEqual(yield* Queue.take(seen), Option.none())
+      assert.deepStrictEqual(yield* Queue.take(seen), signedIn())
 
-      yield* store.save(credentials)
-      assert.deepStrictEqual(yield* Queue.take(seen), Option.some({ credentials, watching: [] }))
+      yield* store.watch(email, [intro])
+      assert.deepStrictEqual(yield* Queue.take(seen), signedIn([intro]))
 
-      yield* store.watch(credentials.email, ["33940"])
-      assert.deepStrictEqual(yield* Queue.take(seen), Option.some({ credentials, watching: ["33940"] }))
+      yield* store.unwatch(email, [intro])
+      assert.deepStrictEqual(yield* Queue.take(seen), signedIn())
 
-      yield* store.unwatch(credentials.email, ["33940"])
-      assert.deepStrictEqual(yield* Queue.take(seen), Option.some({ credentials, watching: [] }))
+      yield* store.forgetToken(token)
+      assert.deepStrictEqual(yield* Queue.take(seen), signedOut({ email }))
 
       yield* store.clear
-      assert.deepStrictEqual(yield* Queue.take(seen), Option.none())
+      assert.deepStrictEqual(yield* Queue.take(seen), signedOut())
     })))
 
   it.effect("sees a change made by another part of the extension", () =>
     withStore(Effect.gen(function*() {
       const { seen } = yield* startFollowing
-      assert.deepStrictEqual(yield* Queue.take(seen), Option.none())
+      assert.deepStrictEqual(yield* Queue.take(seen), signedOut())
 
       // Not through this store: what a sign-in in the popup, or in the
       // sign-in frame, looks like from the "Notify me" control.
-      yield* setRaw(credentials)
-      assert.deepStrictEqual(yield* Queue.take(seen), Option.some({ credentials, watching: [] }))
+      yield* setRaw({ email, token })
+      assert.deepStrictEqual(yield* Queue.take(seen), signedIn())
     })))
 
   it.effect("stops listening when nobody follows any more", () =>

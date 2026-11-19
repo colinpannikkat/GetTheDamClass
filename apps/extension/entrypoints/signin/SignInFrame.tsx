@@ -4,9 +4,9 @@
  *
  * Why a frame? Anything drawn straight into the university's page can be read
  * by that page's scripts, key by key. A frame showing a page of the extension
- * is closed to them: the email and PIN are typed here, checked here and saved
- * here, and the class page never sees them. All it is told is that this form
- * was used to sign in (`messages.ts`).
+ * is closed to them: the email and the code are typed here, sent from here,
+ * and the token is saved here, and the class page never sees any of them. All
+ * it is told is that this form was used to sign in (`messages.ts`).
  */
 import { useEffect, useRef } from "react"
 import { SignInForm } from "@/components/SignInForm"
@@ -30,8 +30,9 @@ export function SignInFrame() {
     return () => window.removeEventListener("keydown", closeOnEscape)
   }, [])
 
-  // Nor can it measure us. Report the height whenever it changes (an error
-  // message appeared), so the frame can be made to fit without scrolling.
+  // Nor can it measure us. Report the height whenever it changes (the code
+  // step appeared, or a message), so the frame can be made to fit without
+  // scrolling.
   const loaded = account.status !== "loading"
   useEffect(() => {
     const content = contentRef.current
@@ -46,15 +47,16 @@ export function SignInFrame() {
   }, [loaded])
 
   if (!loaded) {
-    return null // A few milliseconds, until we know whether there is an email to fill in.
+    return null // A few milliseconds, until we know which step to show and what to fill in.
   }
   return (
     // `p-1` leaves room for the focus rings, which the frame's edge would cut off.
     <div ref={contentRef} className="p-1">
       <SignInForm
         autoFocus
-        // Someone whose saved PIN stopped working only has to type the new one.
-        email={account.status === "signedIn" ? account.credentials.email : undefined}
+        email={account.status === "failure" ? undefined : account.email}
+        // Shared with the popup: a code asked for there can be typed here.
+        codeRequest={account.status === "failure" ? undefined : account.codeRequest}
         onSignedIn={() => tellClassPage({ type: "getthedamclass/signed-in" })}
       />
     </div>

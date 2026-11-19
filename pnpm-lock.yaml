@@ -177,6 +177,9 @@ importers:
 
   apps/extension:
     dependencies:
+      '@getthedamclass/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       effect:
         specifier: ^4.1.4
         version: 4.1.4

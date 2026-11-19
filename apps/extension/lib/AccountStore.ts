@@ -1,6 +1,7 @@
 /**
- * What this browser remembers about the signed-in user: the email and PIN, and
- * which classes they are watching.
+ * What this browser remembers: who is signed in (their email and the sign-in
+ * token the server gave this browser), which classes they are watching, and a
+ * sign-in code that was asked for and not used yet.
  *
  * It is kept in the browser's extension storage (`chrome.storage.local`),
  * which every part of the extension shares: the popup, the "Notify me" control
@@ -11,101 +12,206 @@
  * What is stored:
  *
  *   email                                         "student@oregonstate.edu"
- *   pin                                           "1234"
+ *   token                                         "kq3V..."
+ *   codeRequest                                   { "email": "student@oregonstate.edu", "sentAt": 1795075200000 }
  *   watch:202702:student@oregonstate.edu:33940    true
  *
+ * `email` without `token` is someone signed out whose address is still known,
+ * so the sign-in form can start with it: after the server stopped accepting
+ * the token, or after updating from a version that signed in with a PIN.
+ *
  * Every watched class is a key of its own, named after the term, the account
- * and the CRN. That makes three things safe without any locking:
+ * and the CRN. That makes two things safe without any locking:
  *
  * - Adding a class is one write and removing it one delete. Neither reads the
  *   list first, so two changes made at the same moment (in the popup and on a
  *   class page, say) cannot undo each other.
  * - An answer from the server that arrives after someone else signed in is
  *   saved under the account that asked, where the other account never sees it.
- * - When `lib/term.ts` moves to the next term, last term's keys stop matching,
- *   so a CRN the new term reuses for another class does not show as watched.
- *   (The server's own list has no term, so last term's alerts must also be
- *   cleared there: see "Each term" in the README.)
  */
-import { Context, Effect, Layer, Option, Queue, Schema, Stream } from "effect"
+import { EmailAddress } from "@getthedamclass/shared/domain"
+import { Clock, Context, Duration, Effect, Layer, Option, Queue, Schema, Stream } from "effect"
 import { browser } from "wxt/browser"
-import { Credentials, Crn, StorageError } from "./domain"
-import { SUPPORTED_TERM } from "./term"
+import { type ClassId, StorageError } from "./domain"
 
+/** Someone signed in on this browser. */
 export interface Account {
-  readonly credentials: Credentials
+  readonly email: EmailAddress
+  /** The sign-in token the server gave this browser. Sent with every call. */
+  readonly token: string
   /**
-   * The CRNs this user gets alerts for, as far as this browser knows, in no
+   * The classes this user gets alerts for, as far as this browser knows, in no
    * particular order. The server holds the real list; this copy is brought up
    * to date after every call to it (see `lib/workflows.ts`), so the class
    * page can show "Watching" without asking the server.
    */
-  readonly watching: ReadonlyArray<Crn>
+  readonly watching: ReadonlyArray<ClassId>
 }
 
 /**
- * How the storage key of every class watched by one account starts. The CRN
- * follows: "watch:202702:student@oregonstate.edu:33940".
+ * A sign-in code was emailed to this address at `sentAt` (milliseconds since
+ * 1970), and has not been used yet. Remembered so that the sign-in form can
+ * come back at the step where the code is typed: the browser closes the popup
+ * as soon as the student switches to their inbox to read it.
  */
-const watchPrefix = (email: string) => `watch:${SUPPORTED_TERM.code}:${email}:`
+export interface CodeRequest {
+  readonly email: EmailAddress
+  readonly sentAt: number
+}
+
+/** Everything the store holds, as one value. */
+export type Saved =
+  & (
+    | ({ readonly status: "signedIn" } & Account)
+    | {
+      readonly status: "signedOut"
+      /** The address last used on this browser, to start the sign-in form with. */
+      readonly email: EmailAddress | undefined
+    }
+  )
+  & {
+    /**
+     * A code asked for less than 15 minutes ago and not used yet. Usually
+     * only while signed out, but not always: someone can sign in in the popup
+     * while the framed form on a class page waits for a code.
+     */
+    readonly codeRequest: CodeRequest | undefined
+  }
+
+/**
+ * How long a sign-in code works. It is the server's rule (apps/server/src/
+ * signIn.ts); after that the code no longer signs anyone in, so the form no
+ * longer offers to type it.
+ */
+const CODE_LIFETIME = Duration.minutes(15)
+
+/** How the storage key of a watched class starts. Term, email and CRN follow. */
+const WATCH_PREFIX = "watch:"
+
+/** The storage key of one class watched by the account with this email: "watch:202702:student@oregonstate.edu:33940". */
+const watchKey = (email: EmailAddress, { term, crn }: ClassId) => `${WATCH_PREFIX}${term}:${email}:${crn}`
+
+/**
+ * Read a watch key back: the email it belongs to and the class. The term is
+ * six digits and the CRN digits, so whatever lies between them is the email.
+ */
+const parseWatchKey = (key: string): Option.Option<{ readonly email: string; readonly classId: ClassId }> =>
+  Option.map(
+    Option.fromNullishOr(key.match(/^watch:(\d{6}):(.+):(\d+)$/)),
+    ([, term, email, crn]) => ({ email: email!, classId: { term: term!, crn: crn! } })
+  )
 
 export class AccountStore extends Context.Service<AccountStore, {
-  /** The saved account, or `Option.none()` when nobody is signed in. */
-  readonly get: Effect.Effect<Option.Option<Account>, StorageError>
-  /** Remember who is signed in. */
-  save(credentials: Credentials): Effect.Effect<void, StorageError>
+  /** Everything saved. */
+  readonly get: Effect.Effect<Saved, StorageError>
+  /** Remember who signed in, and forget the code they signed in with. */
+  save(email: EmailAddress, token: string): Effect.Effect<void, StorageError>
+  /**
+   * The server no longer accepts this token: forget it, so this browser is
+   * signed out. The email stays, for the sign-in form. A token that is not the
+   * saved one any more (someone signed in again since) is left alone.
+   */
+  forgetToken(token: string): Effect.Effect<void, StorageError>
   /** Forget everything, of every account (sign out on this browser). */
   readonly clear: Effect.Effect<void, StorageError>
+  /** Remember that a code was just emailed to this address. */
+  saveCodeRequest(email: EmailAddress): Effect.Effect<void, StorageError>
+  /** Forget the code that was asked for (the student wants to use another address). */
+  readonly forgetCodeRequest: Effect.Effect<void, StorageError>
   /** Note that the account with this email gets alerts for these classes. */
-  watch(email: string, crns: ReadonlyArray<Crn>): Effect.Effect<void, StorageError>
+  watch(email: EmailAddress, classes: ReadonlyArray<ClassId>): Effect.Effect<void, StorageError>
   /** Note that it no longer gets alerts for these classes. */
-  unwatch(email: string, crns: ReadonlyArray<Crn>): Effect.Effect<void, StorageError>
+  unwatch(email: EmailAddress, classes: ReadonlyArray<ClassId>): Effect.Effect<void, StorageError>
   /**
-   * A stream of the saved account: the current value straight away, then a
-   * new value every time it changes, wherever in the extension that happens.
+   * A stream of what is saved: the current value straight away, then a new
+   * value every time it changes, wherever in the extension that happens.
    */
-  readonly changes: Stream.Stream<Option.Option<Account>, StorageError>
+  readonly changes: Stream.Stream<Saved, StorageError>
 }>()("getthedamclass/AccountStore") {
-  /** The real implementation. Tests use it too, with WXT's in-memory `browser`. */
-  static readonly layer = Layer.succeed(AccountStore, makeAccountStore())
+  /**
+   * The real implementation. Tests use it too, with WXT's in-memory `browser`.
+   *
+   * Building it first removes what versions 1 and 2 of the extension saved
+   * for the old server, which every part of the extension does as soon as it
+   * starts: the PIN, kept as it was typed, and the watched classes, which
+   * were alerts on the old server and are not on the new one. The email
+   * stays, so the student only has to ask for a code. Only an install that
+   * still has a `pin` has any of this, so it happens once.
+   */
+  static readonly layer = Layer.effect(AccountStore, removeOldServersData().pipe(Effect.as(makeAccountStore())))
+}
+
+// The functions below are declarations, not `const`s, so that they can be
+// used above, in `AccountStore`'s static field, which runs while the class is
+// being defined.
+
+/** One call to the storage API, with a rejection turned into a `StorageError`. */
+function storage<A>(call: () => Promise<A>) {
+  return Effect.tryPromise({ try: call, catch: (cause) => new StorageError({ cause }) })
 }
 
 function makeAccountStore(): AccountStore["Service"] {
-  /** One call to the storage API, with a rejection turned into a `StorageError`. */
-  const storage = <A>(call: () => Promise<A>) =>
-    Effect.tryPromise({ try: call, catch: (cause) => new StorageError({ cause }) })
-
-  // Anything that is not a valid email and PIN counts as "not signed in".
-  const decodeCredentials = Schema.decodeUnknownOption(Credentials)
-  const isCrn = Schema.is(Crn)
+  // Anything that does not fit counts as not saved.
+  const decodeEmail = Schema.decodeUnknownOption(EmailAddress)
+  const decodeToken = Schema.decodeUnknownOption(Schema.NonEmptyString)
+  const decodeCodeRequest = Schema.decodeUnknownOption(Schema.Struct({ email: EmailAddress, sentAt: Schema.Number }))
 
   // `get()` without a key reads everything this extension has stored.
-  const get = storage(() => browser.storage.local.get()).pipe(
-    Effect.map((saved) =>
-      Option.map(decodeCredentials(saved), (credentials): Account => {
-        // This account's watch keys, with everything but the CRN cut off.
-        const prefix = watchPrefix(credentials.email)
-        const watching = Object.keys(saved)
-          .filter((key) => key.startsWith(prefix))
-          .map((key) => key.slice(prefix.length))
-          .filter(isCrn)
-        return { credentials, watching }
-      })
+  const get = Effect.gen(function*() {
+    const saved = yield* storage(() => browser.storage.local.get())
+    const now = yield* Clock.currentTimeMillis
+    const email = decodeEmail(saved.email)
+    const token = decodeToken(saved.token)
+    const codeRequest = decodeCodeRequest(saved.codeRequest).pipe(
+      Option.filter((request) => now < request.sentAt + Duration.toMillis(CODE_LIFETIME)),
+      Option.getOrUndefined
     )
-  )
 
-  // Version 1 of the extension saved these same two keys, so people who
-  // update it in place stay signed in. Do not rename them.
-  const save = (credentials: Credentials) =>
-    storage(() => browser.storage.local.set({ email: credentials.email, pin: credentials.pin }))
+    if (Option.isSome(email) && Option.isSome(token)) {
+      const watching = Object.keys(saved).flatMap((key) =>
+        Option.match(parseWatchKey(key), {
+          onNone: () => [],
+          // Only this account's: another account's classes stay saved for it.
+          onSome: (watched) => (watched.email === email.value ? [watched.classId] : [])
+        })
+      )
+      return { status: "signedIn", email: email.value, token: token.value, watching, codeRequest } satisfies Saved
+    }
+    return { status: "signedOut", email: Option.getOrUndefined(email), codeRequest } satisfies Saved
+  })
+
+  const save = (email: EmailAddress, token: string) =>
+    storage(async () => {
+      await browser.storage.local.set({ email, token })
+      await browser.storage.local.remove("codeRequest")
+    })
+
+  const forgetToken = (token: string) =>
+    storage(async () => {
+      // Read, compare, then remove: another part of the extension could sign
+      // in between the two. That window is a few milliseconds, and the worst
+      // it can do is sign out someone who has just signed in.
+      const saved = await browser.storage.local.get("token")
+      if (saved.token === token) {
+        await browser.storage.local.remove("token")
+      }
+    })
 
   const clear = storage(() => browser.storage.local.clear())
 
-  const watch = (email: string, crns: ReadonlyArray<Crn>) =>
-    storage(() => browser.storage.local.set(Object.fromEntries(crns.map((crn) => [watchPrefix(email) + crn, true]))))
+  const saveCodeRequest = (email: EmailAddress) =>
+    Effect.flatMap(
+      Clock.currentTimeMillis,
+      (sentAt) => storage(() => browser.storage.local.set({ codeRequest: { email, sentAt } satisfies CodeRequest }))
+    )
 
-  const unwatch = (email: string, crns: ReadonlyArray<Crn>) =>
-    storage(() => browser.storage.local.remove(crns.map((crn) => watchPrefix(email) + crn)))
+  const forgetCodeRequest = storage(() => browser.storage.local.remove("codeRequest"))
+
+  const watch = (email: EmailAddress, classes: ReadonlyArray<ClassId>) =>
+    storage(() => browser.storage.local.set(Object.fromEntries(classes.map((watched) => [watchKey(email, watched), true]))))
+
+  const unwatch = (email: EmailAddress, classes: ReadonlyArray<ClassId>) =>
+    storage(() => browser.storage.local.remove(classes.map((watched) => watchKey(email, watched))))
 
   // `Stream.callback` turns a listener-style browser API into a stream: we
   // push a "something changed" signal into `queue`, and the stream emits it.
@@ -124,10 +230,22 @@ function makeAccountStore(): AccountStore["Service"] {
     Queue.offerUnsafe(queue, undefined)
   }))
 
-  // For every signal, read the account again.
+  // For every signal, read everything again.
   const changes = changeSignals.pipe(Stream.mapEffect(() => get))
 
-  // A plain object rather than `AccountStore.of(...)`: this function is
-  // called while the class above is still being defined.
-  return { get, save, clear, watch, unwatch, changes }
+  return { get, save, forgetToken, clear, saveCodeRequest, forgetCodeRequest, watch, unwatch, changes }
+}
+
+/**
+ * See `AccountStore.layer`. If storage cannot be read or written, nothing is
+ * removed and the next start tries again: the rest of the extension still
+ * works, and treats such an install as signed out (it has no token).
+ */
+function removeOldServersData() {
+  return storage(async () => {
+    const saved = await browser.storage.local.get()
+    if ("pin" in saved) {
+      await browser.storage.local.remove(["pin", ...Object.keys(saved).filter((key) => key.startsWith(WATCH_PREFIX))])
+    }
+  }).pipe(Effect.ignore)
 }

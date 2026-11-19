@@ -1,28 +1,26 @@
 // @vitest-environment happy-dom
+import { type Alert, InvalidCode, NotSignedIn, NotSubscribed } from "@getthedamclass/shared/domain"
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
-import { Effect, Layer, ManagedRuntime, Option } from "effect"
+import { Effect, Layer, ManagedRuntime } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { fakeBrowser } from "wxt/testing/fake-browser"
-import { Api } from "@/lib/Api"
 import { AccountStore } from "@/lib/AccountStore"
-import {
-  ClassNotFound,
-  type Credentials,
-  NetworkError,
-  NotSubscribed,
-  type Subscription,
-  subscriptionFullLabel,
-  WrongPin
-} from "@/lib/domain"
+import { Api } from "@/lib/Api"
+import { alertLabel, type ClassId, NetworkError } from "@/lib/domain"
 import { RuntimeContext } from "@/lib/react"
 import { App } from "./App"
 
-const student: Credentials = { email: "student@oregonstate.edu", pin: "1234" }
+const email = "student@oregonstate.edu"
+const token = "student-token"
 
-const deepLearning: Subscription = { crn: "39835", name: "INTRO TO DEEP LEARNING" }
-const unnamed: Subscription = { crn: "37429", name: null }
+const deepLearning: Alert = { term: "202702", crn: "39835", title: "INTRO TO DEEP LEARNING" }
+const ethics: Alert = { term: "202702", crn: "37429", title: "ETHICS IN COMPUTING" }
+/** The same CRN as `deepLearning`, in the term before: another class. */
+const fallClass: Alert = { term: "202701", crn: "39835", title: "DATA STRUCTURES" }
 
-/** Render the popup with a fake backend. Storage is WXT's in-memory `browser`. */
+const notSignedIn = new NotSignedIn({ message: "You're not signed in. Sign in with your email to continue." })
+
+/** Render the popup with a fake server. Storage is WXT's in-memory `browser`. */
 function renderPopup(fakeApi: Layer.PartialEffectful<Api["Service"]> = {}) {
   const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.mock(Api, fakeApi), AccountStore.layer))
   return render(
@@ -33,20 +31,22 @@ function renderPopup(fakeApi: Layer.PartialEffectful<Api["Service"]> = {}) {
 }
 
 /** As if the user signed in earlier. */
-const signedIn = () => fakeBrowser.storage.local.set(student)
+const signedIn = () => fakeBrowser.storage.local.set({ email, token })
 
 /** The classes saved as watched, which is what the "Notify me" button on the class page goes by. */
 const savedWatching = () =>
   Effect.runPromise(
     Effect.gen(function*() {
       const store = yield* AccountStore
-      return [...Option.getOrThrow(yield* store.get).watching].sort()
+      const saved = yield* store.get
+      return saved.status === "signedIn" ? saved.watching.map(({ term, crn }) => `${term}/${crn}`).sort() : []
     }).pipe(Effect.provide(AccountStore.layer))
   )
 
 /** The "Stop" button of a class, found by its full name for screen readers. */
-const stopButton = (subscription: Subscription) =>
-  screen.getByRole("button", { name: `Stop alerts for ${subscriptionFullLabel(subscription)}` })
+const stopButton = (alert: Alert) => screen.getByRole("button", { name: `Stop alerts for ${alertLabel(alert)}` })
+
+const emailField = () => screen.getByLabelText("Email") as HTMLInputElement
 
 beforeEach(() => {
   fakeBrowser.reset()
@@ -57,25 +57,59 @@ describe("signed out", () => {
   it("says what the extension does and shows the sign-in form", async () => {
     renderPopup()
     expect(await screen.findByText(/get an email when a seat opens or the class fills up/)).toBeDefined()
-    expect(screen.getByLabelText("Email")).toBeDefined()
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDefined()
+    expect(emailField()).toBeDefined()
+    expect(screen.getByRole("button", { name: "Email me a code" })).toBeDefined()
     expect(screen.queryByText("Sign out")).toBeNull()
     // Nobody signed out just now, so there is nothing to say about that.
     expect(screen.queryByText(/Your alerts keep running/)).toBeNull()
   })
 
-  it("switches to the list after signing in", async () => {
+  it("switches to the list after both steps of signing in", async () => {
+    const asked: Array<string> = []
     renderPopup({
-      signIn: () => Effect.void,
-      listSubscriptions: () => Effect.succeed([deepLearning])
+      sendCode: () => Effect.void,
+      signIn: () => Effect.succeed(token),
+      listAlerts: (token) => Effect.sync(() => (asked.push(token), [deepLearning]))
     })
-    fireEvent.change(await screen.findByLabelText("Email"), { target: { value: student.email } })
-    fireEvent.change(screen.getByLabelText("4-digit PIN"), { target: { value: student.pin } })
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+    fireEvent.change(await screen.findByLabelText("Email"), { target: { value: email } })
+    fireEvent.click(screen.getByRole("button", { name: "Email me a code" }))
+    fireEvent.change(await screen.findByLabelText("6-digit code"), { target: { value: "012345" } })
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }))
 
     expect(await screen.findByText("INTRO TO DEEP LEARNING")).toBeDefined()
-    expect(screen.getByText(student.email)).toBeDefined()
-    expect(screen.queryByLabelText("Email")).toBeNull()
+    expect(screen.getByText(email)).toBeDefined()
+    expect(screen.queryByLabelText("6-digit code")).toBeNull()
+    expect(asked).toEqual([token])
+  })
+
+  it("is at the code step again when opened after switching to the inbox", async () => {
+    const view = renderPopup({ sendCode: () => Effect.void })
+    fireEvent.change(await screen.findByLabelText("Email"), { target: { value: email } })
+    fireEvent.click(screen.getByRole("button", { name: "Email me a code" }))
+    await screen.findByLabelText("6-digit code")
+
+    // The browser closes the popup when the student clicks away from it.
+    view.unmount()
+    renderPopup({ signIn: () => Effect.succeed(token), listAlerts: () => Effect.succeed([]) })
+
+    expect(await screen.findByLabelText("6-digit code")).toBeDefined()
+    expect(screen.getByText(`We sent it to ${email}. It works for 15 minutes.`)).toBeDefined()
+  })
+
+  it("is at the email step when the code asked for has expired", async () => {
+    await fakeBrowser.storage.local.set({ codeRequest: { email, sentAt: Date.now() - 16 * 60_000 } })
+    renderPopup()
+    expect(await screen.findByLabelText("Email")).toBeDefined()
+    expect(screen.queryByLabelText("6-digit code")).toBeNull()
+  })
+
+  it("after an update from the version with PINs: signed out, the PIN gone, the email filled in", async () => {
+    await fakeBrowser.storage.local.set({ email, pin: "1234", "watch:202702:student@oregonstate.edu:39835": true })
+    renderPopup()
+
+    expect(await screen.findByLabelText("Email")).toBeDefined()
+    expect(emailField().value).toBe(email)
+    expect(await fakeBrowser.storage.local.get()).toEqual({ email })
   })
 })
 
@@ -83,28 +117,37 @@ describe("signed in", () => {
   beforeEach(signedIn)
 
   it("shows a placeholder while the list loads", async () => {
-    renderPopup({ listSubscriptions: () => Effect.never })
+    renderPopup({ listAlerts: () => Effect.never })
     expect(await screen.findByText("Loading your classes…")).toBeDefined()
-    expect(screen.getByText(student.email)).toBeDefined()
+    expect(screen.getByText(email)).toBeDefined()
   })
 
-  it("lists the classes with their CRN and a count", async () => {
-    const asked: Array<Credentials> = []
-    renderPopup({
-      listSubscriptions: (credentials) => Effect.sync(() => (asked.push(credentials), [deepLearning, unnamed]))
-    })
+  it("lists the classes with their CRN, term and a count", async () => {
+    const asked: Array<string> = []
+    renderPopup({ listAlerts: (token) => Effect.sync(() => (asked.push(token), [deepLearning, ethics])) })
 
     expect(await screen.findByText("INTRO TO DEEP LEARNING")).toBeDefined()
-    expect(screen.getByText("CRN 39835")).toBeDefined()
-    // A class without a name is shown by its CRN (once, not twice).
-    expect(screen.getAllByText("CRN 37429")).toHaveLength(1)
+    expect(screen.getByText("CRN 39835 · Winter 2027")).toBeDefined()
+    expect(screen.getByText("CRN 37429 · Winter 2027")).toBeDefined()
     expect(screen.getByRole("heading", { name: "Classes you're watching 2" })).toBeDefined()
-    expect(screen.getByText(student.email)).toBeDefined()
-    expect(asked).toEqual([student])
+    expect(asked).toEqual([token])
+  })
+
+  it("tells apart the same CRN in two terms", async () => {
+    renderPopup({ listAlerts: () => Effect.succeed([deepLearning, fallClass]) })
+
+    expect(await screen.findByText("CRN 39835 · Fall 2026")).toBeDefined()
+    expect(screen.getByText("CRN 39835 · Winter 2027")).toBeDefined()
+    expect(stopButton(deepLearning)).not.toBe(stopButton(fallClass))
+  })
+
+  it("shows the CRN alone for a term code it cannot name", async () => {
+    renderPopup({ listAlerts: () => Effect.succeed([{ ...ethics, term: "202709" }]) })
+    expect(await screen.findByText("CRN 37429")).toBeDefined()
   })
 
   it("explains how to add a class when there are none", async () => {
-    renderPopup({ listSubscriptions: () => Effect.succeed([]) })
+    renderPopup({ listAlerts: () => Effect.succeed([]) })
 
     expect(await screen.findByText(/open it on classes.oregonstate.edu and press "Notify me"/)).toBeDefined()
     fireEvent.click(screen.getByRole("button", { name: "Open class search" }))
@@ -115,13 +158,11 @@ describe("signed in", () => {
   it("shows why the list did not load, and loads it on \"Try again\"", async () => {
     let online = false
     renderPopup({
-      listSubscriptions: () =>
-        online ? Effect.succeed([deepLearning]) : Effect.fail(new NetworkError({ cause: "offline" }))
+      listAlerts: () => (online ? Effect.succeed([deepLearning]) : Effect.fail(new NetworkError({ cause: "offline" })))
     })
 
     const message = await screen.findByText(/Couldn't reach the server/)
     expect(message.closest("[role=alert]")).not.toBeNull()
-    expect(screen.queryByLabelText("Email")).toBeNull()
 
     online = true
     fireEvent.click(screen.getByRole("button", { name: "Try again" }))
@@ -131,45 +172,51 @@ describe("signed in", () => {
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull()
   })
 
-  it("asks to sign in again when the saved PIN is no longer accepted", async () => {
-    renderPopup({
-      signIn: () => Effect.void,
-      listSubscriptions: (credentials) =>
-        credentials.pin === "5678"
-          ? Effect.succeed([deepLearning])
-          : Effect.fail(new WrongPin({ message: "User authentication failed" }))
-    })
+  it("goes back to the sign-in form, with the email filled in, when the server no longer accepts the sign-in", async () => {
+    renderPopup({ listAlerts: () => Effect.fail(notSignedIn) })
 
-    expect(await screen.findByText(/Your saved PIN no longer works/)).toBeDefined()
-    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull()
-
-    // We know who they are: only the PIN is left to type.
-    expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe(student.email)
-    fireEvent.change(screen.getByLabelText("4-digit PIN"), { target: { value: "5678" } })
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
-
-    expect(await screen.findByText("INTRO TO DEEP LEARNING")).toBeDefined()
-    expect(screen.queryByText(/Your saved PIN no longer works/)).toBeNull()
+    expect(await screen.findByLabelText("Email")).toBeDefined()
+    expect(emailField().value).toBe(email)
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull()
+    expect(await fakeBrowser.storage.local.get()).toEqual({ email })
   })
 
-  it("signs out, goes back to the sign-in form, and says that the alerts keep running", async () => {
-    renderPopup({ listSubscriptions: () => Effect.succeed([deepLearning]) })
+  it("signs out on the server and here, goes back to the sign-in form, and says that the alerts keep running", async () => {
+    const ended: Array<string> = []
+    renderPopup({
+      listAlerts: () => Effect.succeed([deepLearning]),
+      signOut: (token) => Effect.sync(() => void ended.push(token))
+    })
     await screen.findByText("INTRO TO DEEP LEARNING")
 
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }))
 
     expect(await screen.findByLabelText("Email")).toBeDefined()
     expect(screen.queryByText("INTRO TO DEEP LEARNING")).toBeNull()
+    expect(ended).toEqual([token])
     expect(await fakeBrowser.storage.local.get()).toEqual({})
     const note = await screen.findByText(/Your alerts keep running/)
     expect(note.textContent).toContain("sign in again and press Stop")
-    expect(note.textContent).toContain("Unsubscribe button in its confirmation email")
+    expect(note.textContent).toContain("the link in any email about it")
   })
 
-  it("saves which classes are watched, for the \"Notify me\" button on the class page", async () => {
-    renderPopup({ listSubscriptions: () => Effect.succeed([deepLearning, unnamed]) })
+  it("signs out here even when the server cannot be reached", async () => {
+    renderPopup({
+      listAlerts: () => Effect.succeed([deepLearning]),
+      signOut: () => Effect.fail(new NetworkError({ cause: "offline" }))
+    })
     await screen.findByText("INTRO TO DEEP LEARNING")
-    expect(await savedWatching()).toEqual(["37429", "39835"])
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }))
+
+    expect(await screen.findByLabelText("Email")).toBeDefined()
+    expect(await fakeBrowser.storage.local.get()).toEqual({})
+  })
+
+  it("saves which classes are watched, term and all, for the \"Notify me\" button on the class page", async () => {
+    renderPopup({ listAlerts: () => Effect.succeed([deepLearning, fallClass]) })
+    await screen.findByText("INTRO TO DEEP LEARNING")
+    await expect.poll(savedWatching).toEqual(["202701/39835", "202702/39835"])
   })
 })
 
@@ -177,68 +224,74 @@ describe("stopping a class", () => {
   beforeEach(signedIn)
 
   it("removes the row once the server has confirmed", async () => {
-    const stopped: Array<[string, Credentials]> = []
+    const stopped: Array<[string, ClassId]> = []
     renderPopup({
-      listSubscriptions: () => Effect.succeed([deepLearning, unnamed]),
-      unsubscribe: (crn, credentials) => Effect.sync(() => void stopped.push([crn, credentials]))
+      listAlerts: () => Effect.succeed([deepLearning, ethics]),
+      unsubscribe: (token, classId) => Effect.sync(() => void stopped.push([token, classId]))
     })
     await screen.findByText("INTRO TO DEEP LEARNING")
 
     fireEvent.click(stopButton(deepLearning))
 
     // The message names the class, so stopping the wrong one is noticed.
-    const message = await screen.findByText(/Stopped alerts for INTRO TO DEEP LEARNING/)
+    const message = await screen.findByText(/Stopped alerts for INTRO TO DEEP LEARNING \(CRN 39835, Winter 2027\)/)
     expect(message.closest("[role=status]")).not.toBeNull()
     expect(screen.queryByText("INTRO TO DEEP LEARNING")).toBeNull()
-    expect(screen.getByText("CRN 37429")).toBeDefined()
+    expect(screen.getByText("ETHICS IN COMPUTING")).toBeDefined()
     const heading = screen.getByRole("heading", { name: "Classes you're watching 1" })
     // Keyboard focus moves to the heading instead of vanishing with the row.
     expect(document.activeElement).toBe(heading)
-    expect(stopped).toEqual([["39835", student]])
-    expect(await savedWatching()).toEqual(["37429"])
+    expect(stopped).toEqual([[token, deepLearning]])
+    expect(await savedWatching()).toEqual(["202702/37429"])
   })
 
   it("tells two sections of one course apart by CRN", async () => {
     const stopped: Array<string> = []
     renderPopup({
-      listSubscriptions: () =>
+      listAlerts: () =>
         Effect.succeed([
-          { crn: "51625", name: "INTRODUCTION TO COMPUTER SCIENCE I" },
-          { crn: "53476", name: "INTRODUCTION TO COMPUTER SCIENCE I" }
+          { term: "202702", crn: "51625", title: "INTRODUCTION TO COMPUTER SCIENCE I" },
+          { term: "202702", crn: "53476", title: "INTRODUCTION TO COMPUTER SCIENCE I" }
         ]),
-      unsubscribe: (crn) => Effect.sync(() => void stopped.push(crn))
+      unsubscribe: (_token, classId) => Effect.sync(() => void stopped.push(classId.crn))
     })
-    await screen.findByText("CRN 51625")
+    await screen.findByText("CRN 51625 · Winter 2027")
 
     // Each button has a name of its own (`getByRole` fails when two match).
-    expect(screen.getByRole("button", { name: "Stop alerts for INTRODUCTION TO COMPUTER SCIENCE I (CRN 51625)" }))
-      .toBeDefined()
     fireEvent.click(
-      screen.getByRole("button", { name: "Stop alerts for INTRODUCTION TO COMPUTER SCIENCE I (CRN 53476)" })
+      screen.getByRole("button", { name: "Stop alerts for INTRODUCTION TO COMPUTER SCIENCE I (CRN 53476, Winter 2027)" })
     )
 
     await screen.findByRole("heading", { name: "Classes you're watching 1" })
-    // The confirmation says which of the two it was, too.
-    expect(screen.getByText(/Stopped alerts for INTRODUCTION TO COMPUTER SCIENCE I \(CRN 53476\)/)).toBeDefined()
     expect(stopped).toEqual(["53476"])
-    expect(screen.getByText("CRN 51625")).toBeDefined()
+    expect(screen.getByText("CRN 51625 · Winter 2027")).toBeDefined()
+  })
+
+  it("stops only the term it was pressed for when a CRN is in two terms", async () => {
+    const stopped: Array<ClassId> = []
+    renderPopup({
+      listAlerts: () => Effect.succeed([deepLearning, fallClass]),
+      unsubscribe: (_token, classId) => Effect.sync(() => void stopped.push(classId))
+    })
+    await screen.findByText("DATA STRUCTURES")
+
+    fireEvent.click(stopButton(fallClass))
+
+    await screen.findByRole("heading", { name: "Classes you're watching 1" })
+    expect(stopped).toEqual([fallClass])
+    expect(screen.getByText("INTRO TO DEEP LEARNING")).toBeDefined()
+    expect(await savedWatching()).toEqual(["202702/39835"])
   })
 
   it("shows the empty state after the last class is stopped", async () => {
-    renderPopup({
-      listSubscriptions: () => Effect.succeed([deepLearning]),
-      unsubscribe: () => Effect.void
-    })
-    fireEvent.click(await screen.findByRole("button", { name: "Stop alerts for INTRO TO DEEP LEARNING (CRN 39835)" }))
+    renderPopup({ listAlerts: () => Effect.succeed([deepLearning]), unsubscribe: () => Effect.void })
+    fireEvent.click(await screen.findByRole("button", { name: `Stop alerts for ${alertLabel(deepLearning)}` }))
 
     expect(await screen.findByRole("button", { name: "Open class search" })).toBeDefined()
   })
 
   it("shows a busy button while the request is on its way", async () => {
-    renderPopup({
-      listSubscriptions: () => Effect.succeed([deepLearning, unnamed]),
-      unsubscribe: () => Effect.never
-    })
+    renderPopup({ listAlerts: () => Effect.succeed([deepLearning, ethics]), unsubscribe: () => Effect.never })
     await screen.findByText("INTRO TO DEEP LEARNING")
 
     fireEvent.click(stopButton(deepLearning))
@@ -247,13 +300,12 @@ describe("stopping a class", () => {
     // Busy buttons keep the keyboard: they are not `disabled`.
     expect(stopButton(deepLearning).hasAttribute("disabled")).toBe(false)
     // Only that row is busy.
-    expect(stopButton(unnamed).getAttribute("aria-busy")).toBeNull()
-    expect(screen.getByText("INTRO TO DEEP LEARNING")).toBeDefined()
+    expect(stopButton(ethics).getAttribute("aria-busy")).toBeNull()
   })
 
   it("keeps the row and shows the reason when the request fails", async () => {
     renderPopup({
-      listSubscriptions: () => Effect.succeed([deepLearning, unnamed]),
+      listAlerts: () => Effect.succeed([deepLearning, ethics]),
       unsubscribe: () => Effect.fail(new NetworkError({ cause: "offline" }))
     })
     await screen.findByText("INTRO TO DEEP LEARNING")
@@ -270,30 +322,38 @@ describe("stopping a class", () => {
     expect(stopButton(deepLearning).getAttribute("aria-disabled")).toBeNull()
   })
 
-  it("explains a class from an earlier term that the server will not touch", async () => {
-    renderPopup({
-      listSubscriptions: () => Effect.succeed([deepLearning]),
-      unsubscribe: (crn) => Effect.fail(new ClassNotFound({ crn }))
-    })
-    fireEvent.click(await screen.findByRole("button", { name: "Stop alerts for INTRO TO DEEP LEARNING (CRN 39835)" }))
-
-    expect(await screen.findByText(/isn't in the current term/)).toBeDefined()
-    expect(screen.getByText("INTRO TO DEEP LEARNING")).toBeDefined()
-  })
-
   it("removes the row when the alerts were already stopped somewhere else", async () => {
     renderPopup({
-      listSubscriptions: () => Effect.succeed([deepLearning, unnamed]),
-      unsubscribe: (crn) => Effect.fail(new NotSubscribed({ crn }))
+      listAlerts: () => Effect.succeed([deepLearning, ethics]),
+      unsubscribe: () => Effect.fail(new NotSubscribed({ message: "You don't get alerts for this class." }))
     })
     await screen.findByText("INTRO TO DEEP LEARNING")
 
-    fireEvent.click(stopButton(unnamed))
+    fireEvent.click(stopButton(ethics))
 
     expect(await screen.findByRole("heading", { name: "Classes you're watching 1" })).toBeDefined()
-    expect(screen.queryByRole("button", { name: "Stop alerts for CRN 37429" })).toBeNull()
-    expect(await screen.findByText(/Stopped alerts for CRN 37429/)).toBeDefined()
+    expect(await screen.findByText(/Stopped alerts for ETHICS IN COMPUTING/)).toBeDefined()
     // No error is shown anywhere: the user got what they asked for.
     expect(screen.getAllByRole("alert").map((alert) => alert.textContent).join("")).toBe("")
+  })
+
+  it("goes back to the sign-in form when the server no longer accepts the sign-in", async () => {
+    renderPopup({ listAlerts: () => Effect.succeed([deepLearning]), unsubscribe: () => Effect.fail(notSignedIn) })
+    fireEvent.click(await screen.findByRole("button", { name: `Stop alerts for ${alertLabel(deepLearning)}` }))
+
+    expect(await screen.findByLabelText("Email")).toBeDefined()
+    expect(emailField().value).toBe(email)
+  })
+})
+
+describe("the sign-in form's refusals", () => {
+  it("shows the server's sentence for a wrong code as it is", async () => {
+    await fakeBrowser.storage.local.set({ codeRequest: { email, sentAt: Date.now() } })
+    renderPopup({ signIn: () => Effect.fail(new InvalidCode({ message: "That code isn't right, or it has expired." })) })
+
+    fireEvent.change(await screen.findByLabelText("6-digit code"), { target: { value: "999999" } })
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }))
+
+    expect(await screen.findByText("That code isn't right, or it has expired.")).toBeDefined()
   })
 })

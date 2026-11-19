@@ -1,56 +1,74 @@
 // @vitest-environment happy-dom
+import {
+  AddDeadlinePassed,
+  AlreadySubscribed,
+  NotSignedIn,
+  NotSubscribed,
+  TermNotOpen
+} from "@getthedamclass/shared/domain"
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { fakeBrowser } from "wxt/testing/fake-browser"
 import { AccountStore } from "@/lib/AccountStore"
 import { Api } from "@/lib/Api"
-import { AlreadySubscribed, type Credentials, type Crn, NetworkError, NotSubscribed, WrongPin } from "@/lib/domain"
+import { type ClassId, NetworkError } from "@/lib/domain"
 import { RuntimeContext } from "@/lib/react"
 import { signIn, unsubscribe } from "@/lib/workflows"
-import { NotifyControl, OtherTermNote } from "./NotifyControl"
+import { NotifyControl } from "./NotifyControl"
 
-const student: Credentials = { email: "student@oregonstate.edu", pin: "1234" }
-const CRN: Crn = "33940"
+const email = "student@oregonstate.edu"
+const token = "student-token"
+/** The section the control is for. */
+const INTRO: ClassId = { term: "202702", crn: "33940" }
+/** The same CRN in the term before: another class. */
+const INTRO_IN_FALL: ClassId = { term: "202701", crn: "33940" }
 
-/** One call the fake backend received. */
+/** One call the fake server received. */
 interface Call {
-  readonly crn: Crn
-  readonly credentials: Credentials
+  readonly classId: ClassId
+  readonly token: string
 }
 
+const notSignedIn = new NotSignedIn({ message: "You're not signed in. Sign in with your email to continue." })
+
 /**
- * Render the control with a fake backend. `subscribe` answers each press of
+ * Render the control with a fake server. `subscribe` answers each press of
  * "Notify me" and `unsubscribe` each press of "Stop alerts"; the calls they
  * get are pushed onto the returned `calls` and `stopCalls`. Storage is WXT's
  * in-memory `browser`.
  *
- * The returned `run` executes a workflow against the same fake backend and
+ * The returned `run` executes a workflow against the same fake server and
  * storage. Tests use it to do what the rest of the extension does while the
  * class page is open: sign in (the popup, or the framed sign-in page) or stop
- * an alert (the popup).
+ * an alert (the popup). Signing in there gets the token `signIn` names.
  */
 async function renderControl(options: {
-  readonly subscribe: Api["Service"]["subscribe"]
+  /** Like the Api's `subscribe`, but succeeding with nothing: the alert is made up here. */
+  readonly subscribe: (
+    token: string,
+    classId: ClassId
+  ) => Effect.Effect<void, Effect.Error<ReturnType<Api["Service"]["subscribe"]>>>
   readonly unsubscribe?: Api["Service"]["unsubscribe"]
+  readonly signIn?: string
 }) {
   const calls: Array<Call> = []
   const stopCalls: Array<Call> = []
   const fakeApi = Layer.mock(Api, {
-    signIn: () => Effect.void,
-    unsubscribe: (crn, credentials) => {
-      stopCalls.push({ crn, credentials })
-      return options.unsubscribe?.(crn, credentials) ?? Effect.void
+    signIn: () => Effect.succeed(options.signIn ?? token),
+    unsubscribe: (token, classId) => {
+      stopCalls.push({ classId, token })
+      return options.unsubscribe?.(token, classId) ?? Effect.void
     },
-    subscribe: (crn, credentials) => {
-      calls.push({ crn, credentials })
-      return options.subscribe(crn, credentials)
+    subscribe: (token, classId) => {
+      calls.push({ classId, token })
+      return Effect.as(options.subscribe(token, classId), { ...classId, title: "INTRO TO COMPUTER SCIENCE I" })
     }
   })
   const runtime = ManagedRuntime.make(Layer.mergeAll(fakeApi, AccountStore.layer))
   const view = render(
     <RuntimeContext value={runtime}>
-      <NotifyControl crn={CRN} />
+      <NotifyControl classId={INTRO} />
     </RuntimeContext>
   )
   // The button appears once the control has read the saved account.
@@ -59,12 +77,12 @@ async function renderControl(options: {
 }
 
 /** As if the student signed in earlier and already watches these classes. */
-const signedIn = (watching: ReadonlyArray<Crn> = []) =>
+const signedIn = (watching: ReadonlyArray<ClassId> = []) =>
   Effect.runPromise(
     Effect.gen(function*() {
       const store = yield* AccountStore
-      yield* store.save(student)
-      yield* store.watch(student.email, watching)
+      yield* store.save(email, token)
+      yield* store.watch(email, watching)
     }).pipe(Effect.provide(AccountStore.layer))
   )
 const notifyButton = () => screen.getByRole("button", { name: "Notify me" })
@@ -95,7 +113,7 @@ function postToPage(data: unknown, from: { readonly origin?: string; readonly so
   )
 }
 
-/** What the framed sign-in page posts once the email and PIN are accepted and saved. */
+/** What the framed sign-in page posts once the code is accepted and the sign-in saved. */
 const SIGNED_IN = { type: "getthedamclass/signed-in" }
 
 beforeEach(() => {
@@ -104,7 +122,7 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe("NotifyControl, signed in", () => {
-  it("does not touch the backend until the button is pressed", async () => {
+  it("does not touch the server until the button is pressed", async () => {
     await signedIn()
     const { calls } = await renderControl({ subscribe: () => Effect.void })
     expect(notifyButton()).toBeDefined()
@@ -118,7 +136,7 @@ describe("NotifyControl, signed in", () => {
     fireEvent.click(notifyButton())
 
     const watching = await screen.findByRole("button", { name: "Watching" })
-    expect(calls).toEqual([{ crn: CRN, credentials: student }])
+    expect(calls).toEqual([{ classId: INTRO, token }])
     // The confirmation is announced politely, not as an alert.
     const note = screen.getByText(WATCHING_LINE)
     expect(note.closest("[role=status]")).not.toBeNull()
@@ -151,7 +169,7 @@ describe("NotifyControl, signed in", () => {
 
   it("treats 'already subscribed' as the same Watching state, not as an error", async () => {
     await signedIn()
-    await renderControl({ subscribe: (crn) => Effect.fail(new AlreadySubscribed({ crn })) })
+    await renderControl({ subscribe: () => Effect.fail(new AlreadySubscribed({ message: "Already." })) })
 
     fireEvent.click(notifyButton())
 
@@ -176,11 +194,25 @@ describe("NotifyControl, signed in", () => {
     expect(screen.queryByText(/Couldn't reach the server/)).toBeNull()
     expect(calls).toHaveLength(2)
   })
+
+  it.each([
+    new TermNotOpen({ message: "Seat alerts for Spring 2027 start when registration opens." }),
+    new AddDeadlinePassed({ message: "The last day to add CS 161 (CRN 33940) was Sunday, January 17, 2027." })
+  ])("shows the server's refusal ($_tag) as it is", async (refusal) => {
+    await signedIn()
+    await renderControl({ subscribe: () => Effect.fail(refusal) })
+
+    fireEvent.click(notifyButton())
+
+    const message = await screen.findByText(refusal.message)
+    expect(message.closest("[role=alert]")).not.toBeNull()
+    expect(notifyButton()).toBeDefined()
+  })
 })
 
 describe("NotifyControl, in step with the rest of the extension", () => {
   it("shows Watching straight away for a class the user already watches, without a request", async () => {
-    await signedIn([CRN])
+    await signedIn([INTRO])
     const { calls } = await renderControl({ subscribe: () => Effect.void })
 
     expect(await screen.findByRole("button", { name: "Watching" })).toBeDefined()
@@ -192,7 +224,8 @@ describe("NotifyControl, in step with the rest of the extension", () => {
   })
 
   it("shows Notify me for a class the user does not watch, whatever else they watch", async () => {
-    await signedIn(["53476"])
+    // The same CRN in another term is another class.
+    await signedIn([{ term: "202702", crn: "53476" }, INTRO_IN_FALL])
     await renderControl({ subscribe: () => Effect.void })
     expect(await screen.findByRole("button", { name: "Notify me" })).toBeDefined()
   })
@@ -204,7 +237,7 @@ describe("NotifyControl, in step with the rest of the extension", () => {
     await screen.findByRole("button", { name: "Watching" })
 
     // What "Stop" in the popup runs. The control is not touched or redrawn.
-    await run(unsubscribe(CRN))
+    await run(unsubscribe(INTRO))
 
     const button = await screen.findByRole("button", { name: "Notify me" })
     expect(button.getAttribute("aria-disabled")).toBeNull()
@@ -213,25 +246,24 @@ describe("NotifyControl, in step with the rest of the extension", () => {
 
     fireEvent.click(button)
     expect(await screen.findByRole("button", { name: "Watching" })).toBeDefined()
-    expect(calls.map((call) => call.crn)).toEqual([CRN, CRN])
+    expect(calls.map((call) => call.classId)).toEqual([INTRO, INTRO])
   })
 
   it("goes back to Notify me when another account signs in, and subscribes for that account", async () => {
     await signedIn()
-    const { calls, run } = await renderControl({ subscribe: () => Effect.void })
+    const { calls, run } = await renderControl({ subscribe: () => Effect.void, signIn: "other-token" })
     fireEvent.click(notifyButton())
     await screen.findByRole("button", { name: "Watching" })
 
-    const other: Credentials = { email: "other@oregonstate.edu", pin: "4321" }
-    await run(signIn(other))
+    await run(signIn("other@oregonstate.edu", "012345"))
 
     fireEvent.click(await screen.findByRole("button", { name: "Notify me" }))
     expect(await screen.findByRole("button", { name: "Watching" })).toBeDefined()
-    expect(calls.map((call) => call.credentials)).toEqual([student, other])
+    expect(calls.map((call) => call.token)).toEqual([token, "other-token"])
   })
 
   it("says nothing about an earlier press once the popup has changed things since", async () => {
-    await signedIn([CRN])
+    await signedIn([INTRO])
     let online = false
     const { run } = await renderControl({
       subscribe: () => Effect.void,
@@ -243,7 +275,7 @@ describe("NotifyControl, in step with the rest of the extension", () => {
     await screen.findByText(/Couldn't reach the server/)
     // ...and works in the popup a little later.
     online = true
-    await run(unsubscribe(CRN))
+    await run(unsubscribe(INTRO))
     fireEvent.click(await screen.findByRole("button", { name: "Notify me" }))
 
     // Watching again: the old failure is not shown next to it.
@@ -256,13 +288,13 @@ describe("NotifyControl, in step with the rest of the extension", () => {
     await screen.findByText("Alerts stopped for this class.")
     fireEvent.click(notifyButton())
     await screen.findByText(WATCHING_LINE)
-    await run(unsubscribe(CRN))
+    await run(unsubscribe(INTRO))
     await screen.findByRole("button", { name: "Notify me" })
     expect(screen.queryByRole("status")?.textContent).toBe("")
   })
 
   it("goes back to Notify me when the user signs out", async () => {
-    await signedIn([CRN])
+    await signedIn([INTRO])
     await renderControl({ subscribe: () => Effect.void })
     await screen.findByRole("button", { name: "Watching" })
 
@@ -274,14 +306,14 @@ describe("NotifyControl, in step with the rest of the extension", () => {
 
 describe("NotifyControl, stopping alerts", () => {
   it("offers no way to stop what is not being watched", async () => {
-    await signedIn(["53476"])
+    await signedIn([{ term: "202702", crn: "53476" }])
     await renderControl({ subscribe: () => Effect.void })
     expect(notifyButton()).toBeDefined()
     expect(screen.queryByRole("button", { name: "Stop alerts" })).toBeNull()
   })
 
   it("stops the alert, goes back to Notify me, says so, and keeps the keyboard", async () => {
-    await signedIn([CRN])
+    await signedIn([INTRO])
     const { calls, stopCalls } = await renderControl({ subscribe: () => Effect.void })
     // A real button, so Tab reaches it and Enter or Space presses it.
     expect(stopButton().tagName).toBe("BUTTON")
@@ -291,7 +323,7 @@ describe("NotifyControl, stopping alerts", () => {
     fireEvent.click(stopButton())
 
     const button = await screen.findByRole("button", { name: "Notify me" })
-    expect(stopCalls).toEqual([{ crn: CRN, credentials: student }])
+    expect(stopCalls).toEqual([{ classId: INTRO, token }])
     expect(screen.queryByRole("button", { name: "Stop alerts" })).toBeNull()
     // Announced politely; and focus did not vanish with the button that had it.
     expect(screen.getByText("Alerts stopped for this class.").closest("[role=status]")).not.toBeNull()
@@ -308,10 +340,10 @@ describe("NotifyControl, stopping alerts", () => {
   it("puts a stale Watching right: the alert was already stopped somewhere else", async () => {
     // Stopped with the link in an email, or in another browser. This browser
     // still has it saved, so the page says "Watching".
-    await signedIn([CRN])
+    await signedIn([INTRO])
     await renderControl({
       subscribe: () => Effect.void,
-      unsubscribe: (crn) => Effect.fail(new NotSubscribed({ crn }))
+      unsubscribe: () => Effect.fail(new NotSubscribed({ message: "You don't get alerts for this class." }))
     })
 
     fireEvent.click(stopButton())
@@ -321,7 +353,7 @@ describe("NotifyControl, stopping alerts", () => {
   })
 
   it("is busy while the request is on its way, and ignores more presses", async () => {
-    await signedIn([CRN])
+    await signedIn([INTRO])
     const { stopCalls } = await renderControl({ subscribe: () => Effect.void, unsubscribe: () => Effect.never })
 
     fireEvent.click(stopButton())
@@ -333,7 +365,7 @@ describe("NotifyControl, stopping alerts", () => {
   })
 
   it("stays Watching and says why when stopping fails, and can be tried again", async () => {
-    await signedIn([CRN])
+    await signedIn([INTRO])
     let attempts = 0
     await renderControl({
       subscribe: () => Effect.void,
@@ -350,17 +382,22 @@ describe("NotifyControl, stopping alerts", () => {
     expect(screen.queryByText(/Couldn't reach the server/)).toBeNull()
   })
 
-  it("does not open the sign-in popover when the saved PIN is rejected; it says what to do", async () => {
-    await signedIn([CRN])
-    await renderControl({
-      subscribe: () => Effect.void,
-      unsubscribe: () => Effect.fail(new WrongPin({ message: "User authentication failed" }))
-    })
+  it("says so, without the sign-in popover, when the server no longer accepts the sign-in", async () => {
+    await signedIn([INTRO])
+    const { run } = await renderControl({ subscribe: () => Effect.void, unsubscribe: () => Effect.fail(notSignedIn) })
 
     fireEvent.click(stopButton())
 
-    expect(await screen.findByText(/Your saved PIN no longer works\. Sign out, then sign in again\./)).toBeDefined()
+    // This browser is signed out now, so the class no longer shows as
+    // watched, but the alert is still on: that must not look like success.
+    expect(await screen.findByText(notSignedIn.message)).toBeDefined()
+    expect(notifyButton()).toBeDefined()
+    expect(screen.queryByText("Alerts stopped for this class.")).toBeNull()
     expect(screen.queryByRole("dialog")).toBeNull()
+
+    // Signing in again (in the popup) takes the message away.
+    await run(signIn(email, "012345"))
+    await expect.poll(() => screen.queryByText(notSignedIn.message)).toBeNull()
   })
 })
 
@@ -371,7 +408,7 @@ describe("NotifyControl, sign-in popover", () => {
     const popover = await openPopover()
     expect(popover.textContent).toContain("Sign in to get an email when a seat opens or the class fills up.")
     expect(signInFrame().src).toBe(fakeBrowser.runtime.getURL("/signin.html"))
-    // The email and PIN are typed in that frame. The control itself, which is
+    // The email and code are typed in that frame. The control itself, which is
     // drawn inside the university's page, has no field to type them into.
     expect(document.querySelectorAll("input")).toHaveLength(0)
     expect(calls).toEqual([]) // Signed out: nothing was sent.
@@ -381,51 +418,46 @@ describe("NotifyControl, sign-in popover", () => {
     const { calls, run } = await renderControl({ subscribe: () => Effect.void })
     await openPopover()
 
-    // What the framed page does on "Continue": sign in, save, then say so.
-    await run(signIn(student))
+    // What the framed page does on "Sign in": sign in, save, then say so.
+    await run(signIn(email, "012345"))
     postToPage(SIGNED_IN)
 
     expect(await screen.findByRole("button", { name: "Watching" })).toBeDefined()
     expect(screen.queryByRole("dialog")).toBeNull()
-    expect(calls).toEqual([{ crn: CRN, credentials: student }])
+    expect(calls).toEqual([{ classId: INTRO, token }])
     await expect.poll(() => document.activeElement).toBe(screen.getByRole("button", { name: "Watching" }))
   })
 
-  it("asks again when the saved sign-in is rejected, and continues with the new one", async () => {
-    await fakeBrowser.storage.local.set({ email: student.email, pin: "0000" })
+  it("asks to sign in when the server no longer accepts the saved sign-in, and continues with the new one", async () => {
+    await signedIn()
     const { calls, run } = await renderControl({
-      subscribe: (_crn, credentials) =>
-        credentials.pin === "0000" ? Effect.fail(new WrongPin({ message: "Wrong pin. Try again!" })) : Effect.void
+      subscribe: (token) => (token === "student-token" ? Effect.fail(notSignedIn) : Effect.void),
+      signIn: "new-token"
     })
 
     const popover = await openPopover()
-    expect(popover.textContent).toContain("Your saved PIN no longer works.")
+    expect(popover.textContent).toContain("Sign in to get an email when a seat opens or the class fills up.")
     // It is not shown as an error next to the button as well.
-    expect(screen.queryByText(/PIN doesn't match/)).toBeNull()
+    expect(screen.queryByText(notSignedIn.message)).toBeNull()
 
-    await run(signIn(student))
+    await run(signIn(email, "012345"))
     postToPage(SIGNED_IN)
 
     expect(await screen.findByRole("button", { name: "Watching" })).toBeDefined()
-    expect(calls.map((call) => call.credentials.pin)).toEqual(["0000", "1234"])
+    expect(calls.map((call) => call.token)).toEqual(["student-token", "new-token"])
   })
 
-  it("continues when the email and PIN typed are the ones already saved", async () => {
-    // The server refused the saved sign-in once (a hiccup on its side) and
-    // accepts the very same email and PIN a moment later.
-    await signedIn()
-    let attempts = 0
-    const { calls } = await renderControl({
-      subscribe: () => (++attempts === 1 ? Effect.fail(new WrongPin({ message: "User authentication failed" })) : Effect.void)
-    })
+  it("continues when the sign-in saved by the frame is the one already saved", async () => {
+    const { calls } = await renderControl({ subscribe: () => Effect.void })
     await openPopover()
-
-    // The frame saves what is already saved, which changes nothing: Chrome
+    // Saved before the frame saves it again, which changes nothing: Chrome
     // reports no storage change for that. All this control gets is the message.
+    await signedIn()
+
     postToPage(SIGNED_IN)
 
     expect(await screen.findByRole("button", { name: "Watching" })).toBeDefined()
-    expect(calls).toEqual([{ crn: CRN, credentials: student }, { crn: CRN, credentials: student }])
+    expect(calls).toEqual([{ classId: INTRO, token }])
   })
 
   it("does not subscribe when the user signs in somewhere else while the popover is open", async () => {
@@ -433,7 +465,7 @@ describe("NotifyControl, sign-in popover", () => {
     await openPopover()
 
     // In the toolbar popup, or on another tab: nobody used this form.
-    await run(signIn(student))
+    await run(signIn(email, "012345"))
     await settled()
 
     expect(calls).toEqual([])
@@ -449,7 +481,7 @@ describe("NotifyControl, sign-in popover", () => {
     const frame = signInFrame().contentWindow
 
     unmount()
-    await run(signIn(student))
+    await run(signIn(email, "012345"))
     postToPage(SIGNED_IN, { source: frame })
     await settled()
 
@@ -462,7 +494,7 @@ describe("NotifyControl, sign-in popover", () => {
     const frame = signInFrame().contentWindow
     fireEvent.click(notifyButton()) // closes it
 
-    await run(signIn(student))
+    await run(signIn(email, "012345"))
     postToPage(SIGNED_IN, { source: frame })
     await settled()
 
@@ -545,12 +577,5 @@ describe("NotifyControl, sign-in popover", () => {
     fireEvent.click(notifyButton())
     expect(screen.queryByRole("dialog")).toBeNull()
     expect(calls).toEqual([])
-  })
-})
-
-describe("OtherTermNote", () => {
-  it("says which term the alerts cover", () => {
-    render(<OtherTermNote />)
-    expect(screen.getByText(/^Seat alerts cover .+ classes only\.$/)).toBeDefined()
   })
 })

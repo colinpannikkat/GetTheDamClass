@@ -4,9 +4,9 @@ import { Effect, Layer, ManagedRuntime } from "effect"
 import type { ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { fakeBrowser } from "wxt/testing/fake-browser"
+import { InvalidCode } from "@getthedamclass/shared/domain"
 import { Api } from "./Api"
 import { AccountStore } from "./AccountStore"
-import { WrongPin } from "./domain"
 import { RuntimeContext, useAccount, useAction, useQuery } from "./react"
 
 // Each hook is used by a tiny component that prints its state as text.
@@ -23,7 +23,7 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe("useQuery", () => {
-  function Query({ effect }: { readonly effect: Effect.Effect<string, WrongPin> }) {
+  function Query({ effect }: { readonly effect: Effect.Effect<string, InvalidCode> }) {
     const { state, reload } = useQuery(() => effect, [])
     return (
       <div>
@@ -44,8 +44,8 @@ describe("useQuery", () => {
   })
 
   it("shows a typed error", async () => {
-    renderWithFakeApi(<Query effect={Effect.fail(new WrongPin({ message: "no" }))} />)
-    expect(await screen.findByText("failure: WrongPin")).toBeDefined()
+    renderWithFakeApi(<Query effect={Effect.fail(new InvalidCode({ message: "no" }))} />)
+    expect(await screen.findByText("failure: InvalidCode")).toBeDefined()
   })
 
   it("turns a crash (a bug) into UnexpectedError instead of throwing", async () => {
@@ -65,7 +65,7 @@ describe("useQuery", () => {
 
 describe("useAction", () => {
   const greet = (name: string) =>
-    name === "" ? Effect.fail(new WrongPin({ message: "no" })) : Effect.succeed(`hello ${name}`)
+    name === "" ? Effect.fail(new InvalidCode({ message: "no" })) : Effect.succeed(`hello ${name}`)
 
   function Action({ onDone }: { readonly onDone?: (status: string) => void }) {
     const { state, run } = useAction(greet)
@@ -93,7 +93,7 @@ describe("useAction", () => {
   it("shows a typed error", async () => {
     renderWithFakeApi(<Action />)
     fireEvent.click(screen.getByText("greet nobody"))
-    expect(await screen.findByText("failure: WrongPin")).toBeDefined()
+    expect(await screen.findByText("failure: InvalidCode")).toBeDefined()
   })
 
   it("run resolves with the result", async () => {
@@ -111,7 +111,7 @@ describe("useAccount", () => {
     return (
       <p>
         {account.status === "signedIn"
-          ? `signedIn: ${account.credentials.email}, watching: ${account.watching.join(" ")}`
+          ? `signedIn: ${account.email}, watching: ${account.watching.map((watched) => watched.crn).join(" ")}`
           : account.status}
       </p>
     )
@@ -122,14 +122,14 @@ describe("useAccount", () => {
     expect(await screen.findByText("signedOut")).toBeDefined()
 
     // As if the user signed in somewhere else in the extension...
-    await fakeBrowser.storage.local.set({ email: "student@oregonstate.edu", pin: "1234" })
+    await fakeBrowser.storage.local.set({ email: "student@oregonstate.edu", token: "student-token" })
     expect(await screen.findByText("signedIn: student@oregonstate.edu, watching:")).toBeDefined()
 
     // ...asked for alerts for a class there...
     await Effect.runPromise(
       Effect.gen(function*() {
         const store = yield* AccountStore
-        yield* store.watch("student@oregonstate.edu", ["33940"])
+        yield* store.watch("student@oregonstate.edu", [{ term: "202702", crn: "33940" }])
       }).pipe(Effect.provide(AccountStore.layer))
     )
     expect(await screen.findByText("signedIn: student@oregonstate.edu, watching: 33940")).toBeDefined()

@@ -1,226 +1,197 @@
 /**
- * The backend, as an Effect service.
+ * The server, as an Effect service.
  *
- * Every call is a `POST` with a JSON body. The backend has no sessions, so the
- * email and PIN travel with each request. Its source and documentation live at
- * https://github.com/aj-arts/GetTheDamClass-Backend
+ * The server's API is defined once, in packages/shared (`src/Api.ts` there):
+ * every endpoint, what it takes and what it answers. Effect's `HttpApiClient`
+ * turns that definition into typed functions that build each request and
+ * check each reply, so this file holds no paths, status codes or JSON. It only
+ * adds what the extension needs around those functions:
+ *
+ * - where the server is (`API_BASE_URL`);
+ * - the sign-in token, sent as `Authorization: Bearer <token>`;
+ * - a time limit on every call;
+ * - the extension's own two errors for a call that went wrong without the
+ *   server refusing it: `NetworkError` (no answer) and `ServerError` (an answer
+ *   the API does not describe).
+ *
+ * The server's refusals (`NotSignedIn`, `TermNotOpen`, ...) come through as
+ * the API's own errors, each with a sentence written for the student.
  */
-import { Context, Effect, Layer, Option, Schema } from "effect"
-import {
+import { Api as ServerApi } from "@getthedamclass/shared/Api"
+import type {
+  AddDeadlinePassed,
+  Alert,
   AlreadySubscribed,
   ClassNotFound,
-  type Credentials,
-  Crn,
-  NetworkError,
+  CodeRecentlySent,
+  EmailAddress,
+  EmailNotSent,
+  InvalidCode,
+  NotSignedIn,
   NotSubscribed,
-  RequestRejected,
-  ServerError,
-  type Subscription,
-  WrongPin
-} from "./domain"
+  SignInCode,
+  TermNotOpen,
+  UniversityUnavailable
+} from "@getthedamclass/shared/domain"
+import { Context, Effect, Layer, Schema } from "effect"
+import { FetchHttpClient, HttpClient, HttpClientError, HttpClientRequest } from "effect/http"
+import { HttpApiClient } from "effect/http-api"
+import { type ClassId, NetworkError, ServerError } from "./domain"
 
-export const API_BASE_URL = "https://api.getthedamclass.sarvesh.me"
+/**
+ * Where the server is. A normal build (`pnpm build`, which runs in Vite's
+ * "production" mode) talks to the real one. Every other mode talks to the
+ * server that `pnpm dev` runs on this computer in apps/server: `pnpm dev` here
+ * ("development" mode), `pnpm build:local` ("local-server" mode), and the tests.
+ */
+export const API_BASE_URL = import.meta.env.MODE === "production"
+  ? "https://api.getthedamclass.ajinkya.dev"
+  : "http://localhost:5173"
 
 /** How long a call may take before it fails with a `NetworkError`. */
 const REQUEST_TIMEOUT = "30 seconds"
 
-/** Errors any call can fail with. */
-type CommonError = WrongPin | RequestRejected | NetworkError | ServerError
+/** Errors any call can fail with, besides the server's refusals. */
+type CallError = NetworkError | ServerError
 
 /**
  * The service: its name, and the functions it offers. Each function returns an
  * `Effect<Success, Error>`, a description of the call that runs only when
  * something executes it (see `lib/runtime.ts`).
+ *
+ * `token` is the sign-in token the server gave this browser (`signIn`). The
+ * server answers `NotSignedIn` when it no longer knows it.
  */
 export class Api extends Context.Service<Api, {
-  /** Log in, or create the account if the email is new. */
-  signIn(credentials: Credentials): Effect.Effect<void, CommonError>
+  /** Email a fresh six-digit sign-in code to this address. */
+  sendCode(email: EmailAddress): Effect.Effect<void, CodeRecentlySent | EmailNotSent | CallError>
+  /** Trade the emailed code for a sign-in token, creating the account if the address is new. */
+  signIn(email: EmailAddress, code: SignInCode): Effect.Effect<string, InvalidCode | CallError>
+  /** End this token on the server. */
+  signOut(token: string): Effect.Effect<void, NotSignedIn | CallError>
+  /** Every class the account gets alerts for. */
+  listAlerts(token: string): Effect.Effect<ReadonlyArray<Alert>, NotSignedIn | CallError>
   /** Start vacancy alerts for a class. */
-  subscribe(crn: Crn, credentials: Credentials): Effect.Effect<void, CommonError | AlreadySubscribed | ClassNotFound>
+  subscribe(
+    token: string,
+    classId: ClassId
+  ): Effect.Effect<
+    Alert,
+    | NotSignedIn
+    | AlreadySubscribed
+    | ClassNotFound
+    | TermNotOpen
+    | AddDeadlinePassed
+    | UniversityUnavailable
+    | CallError
+  >
   /** Stop vacancy alerts for a class. */
-  unsubscribe(crn: Crn, credentials: Credentials): Effect.Effect<void, CommonError | NotSubscribed | ClassNotFound>
-  /** Every class the user gets alerts for. */
-  listSubscriptions(credentials: Credentials): Effect.Effect<ReadonlyArray<Subscription>, CommonError>
+  unsubscribe(token: string, classId: ClassId): Effect.Effect<void, NotSignedIn | NotSubscribed | CallError>
 }>()("getthedamclass/Api") {
-  /** The real implementation, used by the extension. */
-  static readonly layer = Layer.succeed(
-    Api,
-    // Look `fetch` up at call time (rather than capturing it once) so a test
-    // or a polyfill can replace the global.
-    makeApi((input, init) => globalThis.fetch(input, init))
-  )
-
   /** The same implementation on top of a `fetch` you supply. For tests. */
-  static readonly layerWithFetch = (fetch: Fetch) => Layer.succeed(Api, makeApi(fetch))
+  static readonly layerWithFetch = (fetch: typeof globalThis.fetch) =>
+    Layer.effect(Api, makeApi()).pipe(Layer.provide(httpClientLayer(fetch)))
+
+  /**
+   * The real implementation, used by the extension. It looks `fetch` up at
+   * call time (rather than capturing it once) so a test or a polyfill can
+   * replace the global.
+   */
+  static readonly layer = Api.layerWithFetch((input, init) => globalThis.fetch(input, init))
 }
 
-// A UI test that needs a fake backend does not need `fetch` at all:
+// A UI test that needs a fake server does not need `fetch` at all:
 //
-//   Layer.mock(Api, { listSubscriptions: () => Effect.succeed([]) })
+//   Layer.mock(Api, { listAlerts: () => Effect.succeed([]) })
 //
 // builds an Api where only the functions you list work.
 
-type Fetch = typeof globalThis.fetch
-
-// ---------------------------------------------------------------------------
-// What the server sends back
-// ---------------------------------------------------------------------------
-
-/** Most responses, successes and errors alike, are `{"message": "..."}`. */
-const MessageBody = Schema.Struct({ message: Schema.String })
-const decodeMessageBody = Schema.decodeUnknownOption(MessageBody)
-
 /**
- * The body of a successful `/getsubs` response. `crn` really is a JSON number
- * there (the database column is an integer), although the rest of the API
- * uses strings. `name` is the course title, but it is not checked here: any
- * value is let through, and whatever is not text is shown as "no name" (see
- * `listSubscriptions` below). So an odd name can never hide the list.
+ * Effect's HTTP client on top of `fetch`, with one setting changed: no
+ * tracing headers. By default every request carries `traceparent` and `b3`
+ * headers, and a browser only sends headers that the server's CORS answer
+ * allows (`Cors` in apps/server/src/server.ts allows `authorization` and
+ * `content-type`). With them, every call would fail before it left the
+ * browser.
  */
-const SubscriptionsBody = Schema.Struct({
-  subs: Schema.Array(
-    Schema.Struct({
-      crn: Schema.Union([Schema.Int, Crn]),
-      name: Schema.optional(Schema.Unknown)
-    })
+function httpClientLayer(fetch: typeof globalThis.fetch) {
+  return FetchHttpClient.layer.pipe(
+    Layer.provide(Layer.succeed(FetchHttpClient.Fetch, fetch)),
+    Layer.provide(Layer.succeed(HttpClient.TracerPropagationEnabled, false))
   )
-})
-const decodeSubscriptionsBody = Schema.decodeUnknownEffect(SubscriptionsBody)
-
-/** The server only tells these two `400` cases apart by their message. */
-const CRN_NOT_FOUND_MESSAGE = "CRN doesn't exist"
-const NOT_SUBSCRIBED_MESSAGE = "Not subscribed to class"
-
-interface JsonResponse {
-  readonly status: number
-  readonly body: unknown
-  /** The server's `message`, or a stand-in when the body has none. */
-  readonly message: string
 }
 
-const unexpectedStatus = (response: JsonResponse) =>
-  new ServerError({ status: response.status, message: response.message })
-
-// ---------------------------------------------------------------------------
-// Implementation
-// ---------------------------------------------------------------------------
-
-function makeApi(fetch: Fetch): Api["Service"] {
-  /**
-   * Send one request and parse the reply as JSON. Succeeds for every HTTP
-   * status; each endpoint below decides what its statuses mean.
-   */
-  const post = Effect.fn("Api.post")(function*(path: string, payload: object) {
-    const response = yield* Effect.tryPromise({
-      // Effect passes a `signal` that aborts the request if the caller stops
-      // waiting: the popup closed, or the time below ran out.
-      try: (signal) =>
-        fetch(`${API_BASE_URL}${path}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-          signal
-        }),
-      catch: (cause) => new NetworkError({ cause })
-    })
-    const text = yield* Effect.tryPromise({
-      try: () => response.text(),
-      catch: (cause) => new NetworkError({ cause })
-    })
-    const body = yield* Effect.try({
-      try: (): unknown => JSON.parse(text),
-      catch: () => new ServerError({ status: response.status, message: "The server's reply was not JSON." })
-    })
-    const message = Option.match(decodeMessageBody(body), {
-      onNone: () => `The server replied with HTTP ${response.status}.`,
-      onSome: (decoded) => decoded.message
-    })
-    return { status: response.status, body, message } satisfies JsonResponse
-  },
-  // A step added to every call: give up after a while, so a server that never
-  // answers cannot leave a spinner on screen forever.
-  Effect.timeoutOrElse({
-    duration: REQUEST_TIMEOUT,
-    orElse: () => Effect.fail(new NetworkError({ cause: `No answer within ${REQUEST_TIMEOUT}.` }))
-  }))
-
-  const signIn = Effect.fn("Api.signIn")(function*(credentials: Credentials) {
-    const response = yield* post("/signup", { email: credentials.email, pin: credentials.pin })
-    switch (response.status) {
-      case 200:
-        return
-      case 401:
-        // `return yield*` on an error stops the function with that error.
-        return yield* new WrongPin({ message: response.message })
-      case 400:
-        return yield* new RequestRejected({ message: response.message })
-      default:
-        return yield* unexpectedStatus(response)
-    }
-  })
-
-  const subscribe = Effect.fn("Api.subscribe")(function*(crn: Crn, credentials: Credentials) {
-    const response = yield* post("/sub", { crn, email: credentials.email, pin: credentials.pin })
-    switch (response.status) {
-      case 200:
-        return
-      case 409:
-        return yield* new AlreadySubscribed({ crn })
-      case 401:
-        return yield* new WrongPin({ message: response.message })
-      case 400:
-        return response.message === CRN_NOT_FOUND_MESSAGE
-          ? yield* new ClassNotFound({ crn })
-          : yield* new RequestRejected({ message: response.message })
-      default:
-        return yield* unexpectedStatus(response)
-    }
-  })
-
-  const unsubscribe = Effect.fn("Api.unsubscribe")(function*(crn: Crn, credentials: Credentials) {
-    const response = yield* post("/unsub", { crn, email: credentials.email, pin: credentials.pin })
-    switch (response.status) {
-      case 200:
-        return
-      case 401:
-        return yield* new WrongPin({ message: response.message })
-      case 400:
-        if (response.message === CRN_NOT_FOUND_MESSAGE) {
-          return yield* new ClassNotFound({ crn })
-        }
-        if (response.message === NOT_SUBSCRIBED_MESSAGE) {
-          return yield* new NotSubscribed({ crn })
-        }
-        return yield* new RequestRejected({ message: response.message })
-      default:
-        return yield* unexpectedStatus(response)
-    }
-  })
-
-  const listSubscriptions = Effect.fn("Api.listSubscriptions")(function*(credentials: Credentials) {
-    const response = yield* post("/getsubs", { email: credentials.email, pin: credentials.pin })
-    switch (response.status) {
-      case 200: {
-        const decoded = yield* decodeSubscriptionsBody(response.body).pipe(
-          Effect.mapError(() =>
-            new ServerError({ status: 200, message: "The list of subscriptions has an unexpected shape." })
-          )
-        )
-        return decoded.subs.map((sub): Subscription => ({
-          crn: String(sub.crn),
-          name: typeof sub.name === "string" && sub.name.trim() !== "" ? sub.name.trim() : null
-        }))
+/**
+ * A step added to every call. The typed client fails with an
+ * `HttpClientError` when no request could be sent or the reply has a status
+ * the API does not list, and with a `SchemaError` when a reply does not match
+ * the API's schemas. Those become the extension's own errors. And a call gives
+ * up after a while, so a server that never answers cannot leave a spinner on
+ * screen forever. (Giving up aborts the request.)
+ */
+const settle = <A, E, R>(
+  call: Effect.Effect<A, E | HttpClientError.HttpClientError | Schema.SchemaError, R>
+): Effect.Effect<A, E | NetworkError | ServerError, R> =>
+  call.pipe(
+    Effect.mapError((error) => {
+      if (HttpClientError.isHttpClientError(error)) {
+        // A "transport" error means `fetch` itself failed: offline, the
+        // server down, or the browser refused to send the request.
+        return error.reason._tag === "TransportError" ? new NetworkError({ cause: error }) : new ServerError({ cause: error })
       }
-      case 401:
-        return yield* new WrongPin({ message: response.message })
-      case 400:
-        return yield* new RequestRejected({ message: response.message })
-      default:
-        return yield* unexpectedStatus(response)
-    }
-  })
+      return error instanceof Schema.SchemaError ? new ServerError({ cause: error }) : error
+    }),
+    Effect.timeoutOrElse({
+      duration: REQUEST_TIMEOUT,
+      orElse: () => Effect.fail(new NetworkError({ cause: `No answer within ${REQUEST_TIMEOUT}.` }))
+    })
+  )
 
-  // A plain object rather than `Api.of(...)`: this function is called while
-  // the `Api` class above is still being defined, so it cannot refer to it.
-  return { signIn, subscribe, unsubscribe, listSubscriptions }
+// A function declaration (unlike `const`) can be used above, in `Api`'s
+// static fields, which run while the class is being defined.
+function makeApi() {
+  return Effect.gen(function*() {
+    const httpClient = yield* HttpClient.HttpClient
+
+    /** The typed client, sending this token with every request (or none, to sign in). */
+    const clientWith = (token?: string) =>
+      HttpApiClient.makeWith(ServerApi, {
+        baseUrl: API_BASE_URL,
+        httpClient: token === undefined
+          ? httpClient
+          : httpClient.pipe(HttpClient.mapRequest(HttpClientRequest.bearerToken(token)))
+      })
+    const signedOutClient = yield* clientWith()
+
+    const sendCode = Effect.fn("Api.sendCode")(function*(email: EmailAddress) {
+      yield* signedOutClient.signIn.sendCode({ payload: { email } })
+    }, settle)
+
+    const signIn = Effect.fn("Api.signIn")(function*(email: EmailAddress, code: SignInCode) {
+      const { token } = yield* signedOutClient.signIn.signIn({ payload: { email, code } })
+      return token
+    }, settle)
+
+    const signOut = Effect.fn("Api.signOut")(function*(token: string) {
+      const client = yield* clientWith(token)
+      yield* client.account.signOut()
+    }, settle)
+
+    const listAlerts = Effect.fn("Api.listAlerts")(function*(token: string) {
+      const client = yield* clientWith(token)
+      return yield* client.alerts.list()
+    }, settle)
+
+    const subscribe = Effect.fn("Api.subscribe")(function*(token: string, { term, crn }: ClassId) {
+      const client = yield* clientWith(token)
+      return yield* client.alerts.subscribe({ payload: { term, crn } })
+    }, settle)
+
+    const unsubscribe = Effect.fn("Api.unsubscribe")(function*(token: string, { term, crn }: ClassId) {
+      const client = yield* clientWith(token)
+      yield* client.alerts.unsubscribe({ params: { term, crn } })
+    }, settle)
+
+    return Api.of({ sendCode, signIn, signOut, listAlerts, subscribe, unsubscribe })
+  })
 }

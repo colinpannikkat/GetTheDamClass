@@ -1,32 +1,41 @@
 // @vitest-environment happy-dom
+import { InvalidCode } from "@getthedamclass/shared/domain"
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { fakeBrowser } from "wxt/testing/fake-browser"
 import { AccountStore } from "@/lib/AccountStore"
 import { Api } from "@/lib/Api"
-import { type Credentials, WrongPin } from "@/lib/domain"
 import { RuntimeContext } from "@/lib/react"
 import { SignInFrame } from "./SignInFrame"
 
-const student: Credentials = { email: "student@oregonstate.edu", pin: "1234" }
+const email = "student@oregonstate.edu"
+const token = "student-token"
 
 /** Everything the frame posted to the page around it: `[message, targetOrigin]`. */
 let posted: Array<[unknown, string]>
 
-/** Render the framed page with a fake backend, and wait for its form. */
-async function renderFrame(signIn: Api["Service"]["signIn"] = () => Effect.void) {
-  const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.mock(Api, { signIn }), AccountStore.layer))
+/** Render the framed page with a fake server, and wait for its form. */
+async function renderFrame(fakeApi: Layer.PartialEffectful<Api["Service"]> = {}) {
+  const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.mock(Api, fakeApi), AccountStore.layer))
   render(
     <RuntimeContext value={runtime}>
       <SignInFrame />
     </RuntimeContext>
   )
-  await screen.findByLabelText("Email")
+  await screen.findByRole("textbox")
 }
 
-const email = () => screen.getByLabelText("Email") as HTMLInputElement
-const pin = () => screen.getByLabelText("4-digit PIN") as HTMLInputElement
+const emailField = () => screen.getByLabelText("Email") as HTMLInputElement
+const codeField = () => screen.getByLabelText("6-digit code") as HTMLInputElement
+
+/** Both steps: ask for a code for `email`, then type `code`. */
+async function signInWith(code: string) {
+  fireEvent.change(emailField(), { target: { value: email } })
+  fireEvent.click(screen.getByRole("button", { name: "Email me a code" }))
+  fireEvent.change(await screen.findByLabelText("6-digit code"), { target: { value: code } })
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }))
+}
 
 beforeEach(() => {
   fakeBrowser.reset()
@@ -47,75 +56,81 @@ describe("SignInFrame", () => {
   const postedEvents = () => posted.filter(([message]) => (message as { type: string }).type !== "getthedamclass/resize")
   const SIGNED_IN = [{ type: "getthedamclass/signed-in" }, "https://classes.oregonstate.edu"]
 
-  it("signs in, saves the account, and then tells the class page that it did (and nothing more)", async () => {
-    const sent: Array<Credentials> = []
-    await renderFrame((credentials) => Effect.sync(() => void sent.push(credentials)))
-    expect(document.activeElement).toBe(email())
+  it("signs in, saves the token, and then tells the class page that it did (and nothing more)", async () => {
+    await renderFrame({ sendCode: () => Effect.void, signIn: () => Effect.succeed(token) })
+    expect(document.activeElement).toBe(emailField())
 
-    fireEvent.change(email(), { target: { value: student.email } })
-    fireEvent.change(pin(), { target: { value: student.pin } })
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+    await signInWith("012345")
 
     await expect.poll(postedEvents).toEqual([SIGNED_IN])
     // Saved before the page was told: it reads the saved sign-in straight away.
-    expect(await fakeBrowser.storage.local.get()).toEqual(student)
-    expect(sent).toEqual([student])
+    expect(await fakeBrowser.storage.local.get()).toEqual({ email, token })
     expect(JSON.stringify(posted)).not.toContain("student")
-    expect(JSON.stringify(posted)).not.toContain(student.pin)
+    expect(JSON.stringify(posted)).not.toContain("012345")
+    expect(JSON.stringify(posted)).not.toContain(token)
   })
 
-  it("tells the class page also when the email and PIN are the ones already saved", async () => {
-    // Saving them again changes nothing in storage, so the page would never
+  it("tells the class page also when the sign-in saved is the one already saved", async () => {
+    // Saving it again changes nothing in storage, so the page would never
     // hear of this sign-in through storage (see vitest.setup.ts).
-    await fakeBrowser.storage.local.set(student)
-    await renderFrame()
+    await fakeBrowser.storage.local.set({ email, token })
+    await renderFrame({ sendCode: () => Effect.void, signIn: () => Effect.succeed(token) })
 
-    fireEvent.change(pin(), { target: { value: student.pin } })
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+    await signInWith("012345")
 
     await expect.poll(postedEvents).toEqual([SIGNED_IN])
   })
 
-  it("tells the class page nothing when the sign-in is refused", async () => {
-    await renderFrame(() => Effect.fail(new WrongPin({ message: "Wrong pin. Try again!" })))
+  it("tells the class page nothing when the code is refused", async () => {
+    await renderFrame({
+      sendCode: () => Effect.void,
+      signIn: () => Effect.fail(new InvalidCode({ message: "That code isn't right." }))
+    })
 
-    fireEvent.change(email(), { target: { value: student.email } })
-    fireEvent.change(pin(), { target: { value: "9876" } })
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
-    await screen.findByText(/PIN doesn't match/)
+    await signInWith("987654")
+    await screen.findByText("That code isn't right.")
 
     expect(postedEvents()).toEqual([])
   })
 
   it("never tells the class page what was typed", async () => {
-    await renderFrame(() => Effect.fail(new WrongPin({ message: "Wrong pin. Try again!" })))
+    await renderFrame({
+      sendCode: () => Effect.void,
+      signIn: () => Effect.fail(new InvalidCode({ message: "That code isn't right." }))
+    })
 
-    fireEvent.change(email(), { target: { value: student.email } })
-    fireEvent.change(pin(), { target: { value: "9876" } })
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
-    await screen.findByText(/PIN doesn't match/)
-    fireEvent.keyDown(pin(), { key: "Escape" })
+    await signInWith("987654")
+    await screen.findByText("That code isn't right.")
+    fireEvent.keyDown(codeField(), { key: "Escape" })
 
     expect(posted.length).toBeGreaterThan(0)
-    expect(JSON.stringify(posted)).not.toContain("9876")
+    expect(JSON.stringify(posted)).not.toContain("987654")
     expect(JSON.stringify(posted)).not.toContain("student")
   })
 
-  it("fills in the saved email when the saved PIN stopped working, and starts in the PIN field", async () => {
-    await fakeBrowser.storage.local.set({ email: student.email, pin: "0000" })
+  it("fills in the email last used here, after the server stopped accepting the sign-in", async () => {
+    // What `forgetToken` leaves behind.
+    await fakeBrowser.storage.local.set({ email })
     await renderFrame()
 
-    expect(email().value).toBe(student.email)
-    expect(pin().value).toBe("")
-    expect(document.activeElement).toBe(pin())
+    expect(emailField().value).toBe(email)
+    expect(document.activeElement).toBe(emailField())
+  })
+
+  it("starts at the code step when a code was asked for in the popup, and the keyboard in its field", async () => {
+    await fakeBrowser.storage.local.set({ codeRequest: { email, sentAt: Date.now() } })
+    await renderFrame()
+
+    expect(codeField()).toBeDefined()
+    expect(document.activeElement).toBe(codeField())
   })
 
   it("passes Escape on to the class page, and only to the class page", async () => {
     await renderFrame()
     posted = []
 
-    fireEvent.keyDown(email(), { key: "Escape" })
-    fireEvent.keyDown(email(), { key: "a" })
+    fireEvent.keyDown(emailField(), { key: "Escape" })
+    fireEvent.keyDown(emailField(), { key: "a" })
 
     expect(posted).toEqual([[{ type: "getthedamclass/close" }, "https://classes.oregonstate.edu"]])
   })

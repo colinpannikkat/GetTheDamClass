@@ -10,17 +10,21 @@ import contentScript from "./index"
 
 // These tests start the content script on a fixture page and then change the
 // page the way the real one does. `NotifyControl.test.tsx` covers what the
-// control itself does.
-
-// The fixtures are Winter and Spring 2027 sections. Pin the supported term to
-// Winter here, so these tests keep passing when `lib/term.ts` moves on.
-vi.mock("@/lib/term", () => ({ SUPPORTED_TERM: { code: "202702", label: "Winter 2027" } }))
+// control itself does. The fixtures are a Winter 2027 and a Spring 2027
+// section.
 
 const HOST = "getthedamclass-notify"
 
 let ctx: ContentScriptContext
-/** Every request the script sent to the backend (answered here with a plain 200). */
-let backendRequests: Array<{ readonly path: string; readonly body: unknown }>
+/** Every request the script sent to the server, with its token and JSON body. */
+let serverRequests: Array<{
+  readonly method: string
+  readonly path: string
+  readonly authorization: string | null
+  readonly body: unknown
+}>
+/** What the fake server answers a subscribe with. Default: the alert. */
+let subscribeReply: (body: { readonly term: string; readonly crn: string }) => Response
 
 /** Load a fixture, start the script, and wait for the first control. */
 async function startOn(pageHtml: string) {
@@ -38,7 +42,7 @@ const shadow = (panel: Element) => panel.querySelector(HOST)?.shadowRoot
 const button = (panel: Element) => shadow(panel)?.querySelector("button") ?? null
 const buttonText = (panel: Element) => button(panel)?.textContent
 const dialog = (panel: Element) => shadow(panel)?.querySelector("[role=dialog]") ?? null
-const noteText = (panel: Element) => shadow(panel)?.querySelector("p")?.textContent
+const messageText = (panel: Element) => shadow(panel)?.querySelector("[role=alert] p")?.textContent
 
 /** Let the observer and React catch up, before checking that something did NOT happen. */
 const settled = () => new Promise((resolve) => setTimeout(resolve, 20))
@@ -73,17 +77,28 @@ function redraw(panel: Element, shown: Shown) {
   panel.querySelector(".panel__content")!.innerHTML = contentHtml(shown)
 }
 
+const student = { email: "student@oregonstate.edu", token: "student-token" }
+
 beforeEach(() => {
   fakeBrowser.reset()
-  backendRequests = []
-  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = new URL(String(input))
-    if (url.origin === API_BASE_URL) {
-      backendRequests.push({ path: url.pathname, body: JSON.parse(String(init?.body)) })
-      return Promise.resolve(new Response(JSON.stringify({ message: "ok" })))
+  serverRequests = []
+  subscribeReply = (body) => Response.json({ ...body, title: "INTRO TO COMPUTER SCIENCE I" })
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    const url = new URL(request.url)
+    if (url.origin !== API_BASE_URL) {
+      // The script loads its stylesheet from the extension; give it an empty one.
+      return new Response("")
     }
-    // The script loads its stylesheet from the extension; give it an empty one.
-    return Promise.resolve(new Response(""))
+    const text = await request.text()
+    const body = text === "" ? undefined : JSON.parse(text)
+    serverRequests.push({
+      method: request.method,
+      path: url.pathname,
+      authorization: request.headers.get("authorization"),
+      body
+    })
+    return request.method === "POST" && url.pathname === "/alerts" ? subscribeReply(body) : new Response(null, { status: 204 })
   })
 })
 afterEach(() => {
@@ -99,7 +114,7 @@ describe("content script", () => {
     await expect.poll(() => buttonText(panel)).toBe("Notify me")
     // The page's own bar is left exactly as it was.
     expect(findButtonBar(panel)!.children).toHaveLength(1)
-    expect(backendRequests).toEqual([])
+    expect(serverRequests).toEqual([])
   })
 
   it("adds the control again, once, each time the page redraws the panel", async () => {
@@ -213,74 +228,92 @@ describe("content script", () => {
 })
 
 describe("content script, terms", () => {
-  it("offers alerts on a section of the term the backend watches", async () => {
-    const panel = await startOn(winterPage)
+  /** Signed in, press "Notify me" on the panel, and wait for "Watching". */
+  async function subscribeOn(panel: Element) {
     await expect.poll(() => buttonText(panel)).toBe("Notify me")
-    expect(shadow(panel)?.textContent).not.toContain("Seat alerts cover")
-  })
+    button(panel)!.click()
+    await expect.poll(() => buttonText(panel)).toBe("Watching")
+  }
 
-  it("shows a note instead of the button on a section of another term", async () => {
+  it("offers alerts on a section of any term, and sends the section's term with its CRN", async () => {
+    await fakeBrowser.storage.local.set(student)
     const panel = await startOn(springPage)
-    await expect.poll(() => noteText(panel)).toBe("Seat alerts cover Winter 2027 classes only.")
-    expect(button(panel)).toBeNull()
-    // In the same spot as the button would be.
-    expect(panel.querySelector(HOST)?.nextElementSibling).toBe(findButtonBar(panel))
+
+    await subscribeOn(panel)
+
+    expect(serverRequests).toEqual([{
+      method: "POST",
+      path: "/alerts",
+      authorization: "Bearer student-token",
+      body: { term: "202703", crn: "53476" }
+    }])
   })
 
-  it("swaps between button and note as the panel moves between terms", async () => {
+  it("shows the server's refusal as it is, and keeps the button", async () => {
+    const sentence = "Seat alerts for Spring 2027 start when registration opens."
+    subscribeReply = () => Response.json({ _tag: "TermNotOpen", message: sentence }, { status: 409 })
+    await fakeBrowser.storage.local.set(student)
+    const panel = await startOn(springPage)
+    await expect.poll(() => buttonText(panel)).toBe("Notify me")
+
+    button(panel)!.click()
+
+    await expect.poll(() => messageText(panel)).toBe(sentence)
+    expect(buttonText(panel)).toBe("Notify me")
+  })
+
+  it("treats the same CRN in another term as another class", async () => {
+    await fakeBrowser.storage.local.set(student)
     const panel = await startOn(winterPage)
-    await expect.poll(() => buttonText(panel)).toBe("Notify me")
+    await subscribeOn(panel)
 
-    redraw(panel, { section: "Section 401, CRN 53476", term: "202703", foot: true })
-    await expect.poll(() => noteText(panel)).toBe("Seat alerts cover Winter 2027 classes only.")
+    // The page moves to the same CRN in Spring.
+    redraw(panel, { section: "Section 400, CRN 33940", term: "202703", foot: true })
 
-    redraw(panel, { section: "Section 400, CRN 33940", term: "202702", foot: true })
     await expect.poll(() => buttonText(panel)).toBe("Notify me")
-    expect(hostCount()).toBe(1)
+    await subscribeOn(panel)
+    expect(serverRequests.map((request) => request.body)).toEqual([
+      { term: "202702", crn: "33940" },
+      { term: "202703", crn: "33940" }
+    ])
   })
 
   it("shows nothing while the panel does not say which term it shows, and the button once it does", async () => {
-    await fakeBrowser.storage.local.set({ email: "student@oregonstate.edu", pin: "1234" })
+    await fakeBrowser.storage.local.set(student)
     const panel = await startOn(winterPage)
 
     // The section and ADD TO CART are there; what names the term is not (yet).
     redraw(panel, { section: "Section 400, CRN 33940", term: null, foot: true })
     await settled()
-    // No button: a press would send a bare CRN, which the server looks up in
-    // its own term, where the same number can be another class.
+    // No button: a CRN alone does not say which class it is.
     expect(hostCount()).toBe(0)
-    expect(backendRequests).toEqual([])
+    expect(serverRequests).toEqual([])
 
     panel.querySelector(".panel__body")!.insertAdjacentHTML("beforeend", sectionRowHtml("202702"))
 
-    await expect.poll(() => buttonText(panel)).toBe("Notify me")
-    expect(panel.querySelector(HOST)?.nextElementSibling).toBe(findButtonBar(panel))
-    button(panel)!.click()
-    await expect.poll(() => buttonText(panel)).toBe("Watching")
-    expect(backendRequests.map((request) => request.path)).toEqual(["/sub"])
+    await expect.poll(() => panel.querySelector(HOST)?.nextElementSibling).toBe(findButtonBar(panel))
+    await subscribeOn(panel)
+    expect(serverRequests.map((request) => request.body)).toEqual([{ term: "202702", crn: "33940" }])
   })
 
-  it("shows the note once a panel that did not say turns out to be of another term", async () => {
+  it("takes the term from the copy-link the page adds to the head, when that is all there is", async () => {
+    await fakeBrowser.storage.local.set(student)
     const panel = await startOn(winterPage)
     redraw(panel, { section: "Section 401, CRN 53476", term: null, foot: true })
     await settled()
     expect(hostCount()).toBe(0)
 
-    // The copy-link the page adds to the head names the term as well.
     panel.querySelector(".panel__head")!.insertAdjacentHTML(
       "beforeend",
       `<a class="deep-link" data-query-string="?details&amp;srcdb=202703&amp;crn=53476" href="#">link</a>`
     )
 
-    await expect.poll(() => noteText(panel)).toBe("Seat alerts cover Winter 2027 classes only.")
-    expect(button(panel)).toBeNull()
-    expect(backendRequests).toEqual([])
+    await subscribeOn(panel)
+    expect(serverRequests.map((request) => request.body)).toEqual([{ term: "202703", crn: "53476" }])
   })
 })
 
 describe("content script, signing in from the page", () => {
-  const student = { email: "student@oregonstate.edu", pin: "1234" }
-
   /** Press "Notify me" while signed out, and wait for the sign-in popover. */
   async function pressSignedOut(panel: Element) {
     await expect.poll(() => buttonText(panel)).toBe("Notify me")
@@ -289,8 +322,8 @@ describe("content script, signing in from the page", () => {
   }
 
   /**
-   * What the framed sign-in page does once the server has accepted the email
-   * and PIN: save them, then tell the page around it (and nothing more).
+   * What the framed sign-in page does once the server has accepted the code:
+   * save the sign-in, then tell the page around it (and nothing more).
    */
   async function finishSignIn(frame: Window | null) {
     await fakeBrowser.storage.local.set(student)
@@ -307,12 +340,17 @@ describe("content script, signing in from the page", () => {
   it("subscribes to the section the user pressed on once they have signed in", async () => {
     const panel = await startOn(winterPage)
     await pressSignedOut(panel)
-    expect(backendRequests).toEqual([])
+    expect(serverRequests).toEqual([])
 
     await finishSignIn(frameOf(panel))
 
     await expect.poll(() => buttonText(panel)).toBe("Watching")
-    expect(backendRequests).toEqual([{ path: "/sub", body: { crn: "33940", ...student } }])
+    expect(serverRequests).toEqual([{
+      method: "POST",
+      path: "/alerts",
+      authorization: "Bearer student-token",
+      body: { term: "202702", crn: "33940" }
+    }])
   })
 
   it("drops the request when the panel has moved on to another section before the sign-in finishes", async () => {
@@ -328,7 +366,7 @@ describe("content script, signing in from the page", () => {
 
     // Nothing was subscribed: not the section left behind, and above all not
     // the one that happens to be on screen now.
-    expect(backendRequests).toEqual([])
+    expect(serverRequests).toEqual([])
     expect(buttonText(panel)).toBe("Notify me")
     expect(dialog(panel)).toBeNull()
   })
@@ -341,7 +379,7 @@ describe("content script, signing in from the page", () => {
     await fakeBrowser.storage.local.set(student)
     await settled()
 
-    expect(backendRequests).toEqual([])
+    expect(serverRequests).toEqual([])
     expect(buttonText(panel)).toBe("Notify me")
   })
 })

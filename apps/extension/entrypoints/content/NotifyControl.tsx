@@ -16,10 +16,12 @@
  * with the link in an email, or in another browser. "Stop alerts" puts that
  * right too, because "it was not on" counts as stopped.
  *
- * If the user is not signed in (or the saved sign-in stopped working), a small
- * sign-in popover opens above the button, and the alert is set up as soon as
- * they have signed in there. Any other failure shows as a message above the
- * button, which can then be pressed again.
+ * If the user is not signed in (or the server no longer accepts the saved
+ * sign-in), a small sign-in popover opens above the button, and the alert is
+ * set up as soon as they have signed in there. Any other failure shows as a
+ * message above the button, which can then be pressed again. When the server
+ * refuses an alert (the term's registration is not open, the add deadline has
+ * passed, ...) that message is the server's own sentence.
  *
  * Nothing here touches the network until a button is pressed.
  */
@@ -29,27 +31,21 @@ import { browser } from "wxt/browser"
 import { Button } from "@/components/Button"
 import { cx } from "@/components/cx"
 import { Message } from "@/components/Message"
-import type { AppError, Crn } from "@/lib/domain"
-import { errorMessage, stopErrorMessage } from "@/lib/errorMessage"
+import { type ClassId, sameClass } from "@/lib/domain"
+import { errorMessage } from "@/lib/errorMessage"
 import { useAccount, useAction } from "@/lib/react"
-import { SUPPORTED_TERM } from "@/lib/term"
 import { subscribe, unsubscribe } from "@/lib/workflows"
 import { FrameMessage } from "../signin/messages"
 
 export interface NotifyControlProps {
   /**
-   * The section this control is for. The content script makes a new control
-   * whenever the panel moves to another section, so everything in here,
-   * including a sign-in that is still open, belongs to this one CRN.
+   * The section this control is for: its term and CRN. The content script
+   * makes a new control whenever the panel moves to another section, so
+   * everything in here, including a sign-in that is still open, belongs to
+   * this one class.
    */
-  readonly crn: Crn
+  readonly classId: ClassId
 }
-
-/** The two errors that are answered with the sign-in popover. */
-type SignInReason = "NotSignedIn" | "WrongPin"
-
-const signInReasonOf = (error: AppError): SignInReason | null =>
-  error._tag === "NotSignedIn" || error._tag === "WrongPin" ? error._tag : null
 
 // ---------------------------------------------------------------------------
 // Fitting into the page
@@ -92,9 +88,9 @@ const QUIET_IN_THE_FOOT = "h-[42px]! rounded-none! px-3! text-ink! underline und
 const MESSAGE_ROW = "mb-2 w-fit max-w-full rounded-none!"
 
 /** The control's one action: turn the alerts for a section on or off. */
-const setAlerts = (crn: Crn, on: boolean) => (on ? subscribe(crn) : unsubscribe(crn))
+const setAlerts = (classId: ClassId, on: boolean) => (on ? subscribe(classId) : unsubscribe(classId))
 
-export function NotifyControl({ crn }: NotifyControlProps) {
+export function NotifyControl({ classId }: NotifyControlProps) {
   const account = useAccount()
   const { state, run } = useAction(setAlerts)
   // What the last press asked for: alerts on ("Notify me") or off ("Stop alerts").
@@ -104,22 +100,28 @@ export function NotifyControl({ crn }: NotifyControlProps) {
   const controlRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
 
-  const watching = account.status === "signedIn" && account.watching.includes(crn)
+  const watching = account.status === "signedIn" && account.watching.some((watched) => sameClass(watched, classId))
   const starting = state.status === "loading" && asked
   const stopping = state.status === "loading" && !asked
   // A press asks for `watching` to become `asked`. It is spoken of only while
   // that explains what is on screen: "done" while it is so, "failed" while it
   // is not. (The popup or another tab can change `watching` at any time.)
+  // One failure is the other way round: a "Stop alerts" that found the server
+  // no longer accepts the sign-in. That signed this browser out, so
+  // "Watching" went away although the alert is still on. It is said for as
+  // long as this browser stays signed out.
   const confirmed = state.status === "success" && watching === asked
-  const error = state.status === "failure" && watching !== asked ? state.error : null
-  const signInReason = error && asked ? signInReasonOf(error) : null
-  const popoverOpen = signInReason !== null && !popoverDismissed
+  const failure = state.status === "failure" ? state.error : null
+  const stopFoundSignedOut = failure?._tag === "NotSignedIn" && !asked
+  const error = failure && (stopFoundSignedOut ? account.status === "signedOut" : watching !== asked) ? failure : null
+  const needsSignIn = error?._tag === "NotSignedIn" && asked
+  const popoverOpen = needsSignIn && !popoverDismissed
 
   /** Ask for alerts for this section ("Notify me"), or stop them ("Stop alerts"). */
   async function press(on: boolean) {
     setAsked(on)
     setPopoverDismissed(false)
-    const result = await run(crn, on)
+    const result = await run(classId, on)
     if (!on && result.status === "success") {
       // "Stop alerts" had the keyboard and is about to disappear.
       buttonRef.current?.focus()
@@ -154,7 +156,7 @@ export function NotifyControl({ crn }: NotifyControlProps) {
         {confirmed && (asked ? "We'll email you when a seat opens or the class fills up." : "Alerts stopped for this class.")}
       </Message>
       <Message tone="error" className={MESSAGE_ROW}>
-        {error && signInReason === null && (asked ? errorMessage(error) : stopErrorMessage(error))}
+        {error && !needsSignIn && errorMessage(error)}
       </Message>
       <div
         ref={controlRef}
@@ -185,7 +187,6 @@ export function NotifyControl({ crn }: NotifyControlProps) {
         )}
         {popoverOpen && (
           <SignInPopover
-            reason={signInReason}
             controlRef={controlRef}
             onClose={closePopover}
             onSignedIn={continueAfterSignIn}
@@ -193,19 +194,6 @@ export function NotifyControl({ crn }: NotifyControlProps) {
         )}
       </div>
     </div>
-  )
-}
-
-/**
- * Shown where the button would be, on a section of a term the backend does
- * not watch (see `lib/term.ts`). As tall as the button, so the foot keeps its
- * shape.
- */
-export function OtherTermNote() {
-  return (
-    <p className={cx("ui-root flex min-h-[42px] items-center", BUTTON_PLACE)}>
-      Seat alerts cover {SUPPORTED_TERM.label} classes only.
-    </p>
   )
 }
 
@@ -219,11 +207,10 @@ const EXTENSION_ORIGIN = new URL(SIGN_IN_PAGE).origin
 
 const decodeFrameMessage = Schema.decodeUnknownOption(FrameMessage)
 
-/** The height of the form with no error showing, used until the frame reports its own. */
-const FRAME_HEIGHT_AT_FIRST = 220
+/** About the height of the form's first step, used until the frame reports its own. */
+const FRAME_HEIGHT_AT_FIRST = 160
 
 interface SignInPopoverProps {
-  readonly reason: SignInReason
   /** The element holding the button and this popover: presses inside it are not "outside". */
   readonly controlRef: RefObject<HTMLElement | null>
   readonly onClose: () => void
@@ -235,14 +222,14 @@ interface SignInPopoverProps {
  * A small box above the button with the sign-in form in it.
  *
  * The form is not drawn by this script. It is a page of the extension shown
- * in a frame, so that the email and PIN are typed where the university's page
+ * in a frame, so that the email and code are typed where the university's page
  * cannot read them (`entrypoints/signin/SignInFrame.tsx` has the details).
  *
  * The box opens upwards because the button sits at the very bottom of the
  * window. The page clips nothing in that direction: the panel's scrolling
  * body is a sibling of the foot, not an ancestor, so the box lies over it.
  */
-function SignInPopover({ reason, controlRef, onClose, onSignedIn }: SignInPopoverProps) {
+function SignInPopover({ controlRef, onClose, onSignedIn }: SignInPopoverProps) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const [frameHeight, setFrameHeight] = useState(FRAME_HEIGHT_AT_FIRST)
   const contextId = useId()
@@ -301,9 +288,7 @@ function SignInPopover({ reason, controlRef, onClose, onSignedIn }: SignInPopove
       )}
     >
       <p id={contextId} className="px-1 pt-1">
-        {reason === "WrongPin"
-          ? "Your saved PIN no longer works. Sign in again to get alerts."
-          : "Sign in to get an email when a seat opens or the class fills up."}
+        Sign in to get an email when a seat opens or the class fills up.
       </p>
       <iframe
         ref={frameRef}

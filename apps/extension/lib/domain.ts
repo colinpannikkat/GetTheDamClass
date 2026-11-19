@@ -1,104 +1,77 @@
 /**
- * The vocabulary of the extension: the data we pass around and every error
- * that can happen. Nothing in this file talks to the network or to storage.
+ * The extension's own vocabulary, on top of the API's (packages/shared):
+ * which class an alert is for, and the errors only the extension can have.
+ * Nothing in this file talks to the network or to storage.
+ *
+ * The data the server sends (`Alert`, `Term`, `Crn`, `EmailAddress`) and the
+ * server's refusals (`NotSignedIn`, `TermNotOpen`, ...) are defined once, in
+ * `@getthedamclass/shared/domain`, and imported from there.
  */
-import { Data, Schema } from "effect"
+import type {
+  AddDeadlinePassed,
+  Alert,
+  ClassNotFound,
+  CodeRecentlySent,
+  Crn,
+  EmailNotSent,
+  InvalidCode,
+  NotSignedIn,
+  Term,
+  TermNotOpen,
+  UniversityUnavailable
+} from "@getthedamclass/shared/domain"
+import { Data, Option } from "effect"
+import { termName } from "./termName"
 
 // ---------------------------------------------------------------------------
 // Data
 // ---------------------------------------------------------------------------
 
-// A convention you will see below: a schema and its type share one name.
-// `Crn` the value checks data at runtime; `Crn` the type is what TypeScript
-// sees. Which one is meant is always clear from where it is used.
-
 /**
- * A Course Reference Number: the digits OSU uses to identify one class
- * section, for example "39835". Always kept as a string of digits.
+ * Which class: a term and a CRN. The university reuses CRNs from term to
+ * term, so the same CRN in two terms is two different classes, and a CRN is
+ * never looked at without its term. (An `Alert` from the server is one too.)
  */
-export const Crn = Schema.String.check(Schema.isPattern(/^\d+$/))
-export type Crn = typeof Crn.Type
-
-/**
- * What identifies a user to the backend. There are no sessions or tokens: the
- * email and PIN are sent with every request. The rules match the backend's
- * (an email contains "@", a PIN is exactly 4 digits).
- */
-export const Credentials = Schema.Struct({
-  email: Schema.String.check(Schema.isPattern(/@/)),
-  pin: Schema.String.check(Schema.isPattern(/^\d{4}$/))
-})
-export type Credentials = typeof Credentials.Type
-
-/** One class the user wants vacancy alerts for. */
-export interface Subscription {
+export interface ClassId {
+  readonly term: Term
   readonly crn: Crn
-  /**
-   * The course title, or `null` when the server sent a blank one or something
-   * that is not text. (A title it cannot look up at all is not a `null` here:
-   * the server answers that whole request with an error, HTTP 500.)
-   */
-  readonly name: string | null
 }
 
-/** The text to show for a subscription: its name, or "CRN 39835" without one. */
-export const subscriptionLabel = (subscription: Subscription): string =>
-  subscription.name ?? `CRN ${subscription.crn}`
+/** Whether two values name the same class. */
+export const sameClass = (a: ClassId, b: ClassId): boolean => a.term === b.term && a.crn === b.crn
 
 /**
- * The same with the CRN always in it, "INTRO TO DEEP LEARNING (CRN 39835)",
- * for where two sections of one course must be told apart.
+ * The text that tells one alert from every other: its title, CRN and term,
+ * "INTRO TO DEEP LEARNING (CRN 39835, Winter 2027)". Two sections of one
+ * course share a title, and one CRN can be in two terms.
  */
-export const subscriptionFullLabel = (subscription: Subscription): string =>
-  subscription.name === null ? `CRN ${subscription.crn}` : `${subscription.name} (CRN ${subscription.crn})`
+export const alertLabel = (alert: Alert): string =>
+  Option.match(termName(alert.term), {
+    onNone: () => `${alert.title} (CRN ${alert.crn})`,
+    onSome: (term) => `${alert.title} (CRN ${alert.crn}, ${term})`
+  })
 
 // ---------------------------------------------------------------------------
 // Errors
 //
 // Each error is a small class with a `_tag` (its name as a string). Code that
 // handles errors switches on `error._tag`, and TypeScript checks that no case
-// is forgotten. `message` is the server's own explanation where there is one.
+// is forgotten. The server's refusals carry a `message` written for the
+// student; the extension's own errors below do not, and `lib/errorMessage.ts`
+// has a sentence for each.
 // ---------------------------------------------------------------------------
 
 /**
- * The server rejected the email and PIN (HTTP 401). When signing in, the PIN is
- * wrong for an existing account. On any other call, the saved credentials no
- * longer work and the user has to sign in again.
- */
-export class WrongPin extends Data.TaggedError("WrongPin")<{ readonly message: string }> {}
-
-/** The user already gets alerts for this class (HTTP 409). */
-export class AlreadySubscribed extends Data.TaggedError("AlreadySubscribed")<{ readonly crn: Crn }> {}
-
-/** The server does not know a class with this CRN in the term it watches. */
-export class ClassNotFound extends Data.TaggedError("ClassNotFound")<{ readonly crn: Crn }> {}
-
-/** The user tried to unsubscribe from a class they are not subscribed to. */
-export class NotSubscribed extends Data.TaggedError("NotSubscribed")<{ readonly crn: Crn }> {}
-
-/**
- * The server refused the request for another reason (HTTP 400), such as an
- * invalid email. `message` says why.
- */
-export class RequestRejected extends Data.TaggedError("RequestRejected")<{ readonly message: string }> {}
-
-/**
- * No answer from the server: offline, DNS failure, blocked, or nothing came
- * back in time.
+ * No answer from the server: offline, DNS failure, blocked by the browser,
+ * or nothing came back in time.
  */
 export class NetworkError extends Data.TaggedError("NetworkError")<{ readonly cause: unknown }> {}
 
 /**
- * The server answered with something we do not understand: an unexpected
- * status code, a body that is not JSON, or JSON of the wrong shape.
+ * The server answered with something the API does not describe: a status it
+ * does not list (a crash is HTTP 500), or a body of the wrong shape.
  */
-export class ServerError extends Data.TaggedError("ServerError")<{
-  readonly status: number
-  readonly message: string
-}> {}
-
-/** An action needs saved credentials and there are none. */
-export class NotSignedIn extends Data.TaggedError("NotSignedIn") {}
+export class ServerError extends Data.TaggedError("ServerError")<{ readonly cause: unknown }> {}
 
 /** Reading from or writing to the browser's extension storage failed. */
 export class StorageError extends Data.TaggedError("StorageError")<{ readonly cause: unknown }> {}
@@ -115,11 +88,15 @@ export class UnexpectedError extends Data.TaggedError("UnexpectedError")<{ reado
  * `NotSubscribed` are missing on purpose: the workflows treat them as "done".)
  */
 export type AppError =
-  | WrongPin
+  | NotSignedIn
+  | CodeRecentlySent
+  | EmailNotSent
+  | InvalidCode
   | ClassNotFound
-  | RequestRejected
+  | TermNotOpen
+  | AddDeadlinePassed
+  | UniversityUnavailable
   | NetworkError
   | ServerError
-  | NotSignedIn
   | StorageError
   | UnexpectedError

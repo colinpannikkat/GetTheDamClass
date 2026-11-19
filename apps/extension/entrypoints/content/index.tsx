@@ -8,15 +8,14 @@
  * showing a page of the extension (`entrypoints/signin`).
  */
 import "@/assets/tailwind.css"
+import type { Crn, Term } from "@getthedamclass/shared/domain"
 import { Option } from "effect"
 import { createRoot, type Root } from "react-dom/client"
 import type { ContentScriptContext } from "wxt/utils/content-script-context"
 import { createShadowRootUi, type ShadowRootContentScriptUi } from "wxt/utils/content-script-ui/shadow-root"
 import { defineContentScript } from "wxt/utils/define-content-script"
-import type { Crn } from "@/lib/domain"
-import { SUPPORTED_TERM } from "@/lib/term"
 import { findButtonBar, findDetailsPanels, findPanelStack, readCrn, readTerm } from "./detailsPanel"
-import { NotifyControl, OtherTermNote } from "./NotifyControl"
+import { NotifyControl } from "./NotifyControl"
 
 export default defineContentScript({
   matches: ["https://classes.oregonstate.edu/*"],
@@ -67,7 +66,7 @@ interface Mounted {
   readonly root: Root
   readonly bar: Element | null
   readonly crn: Crn | undefined
-  readonly term: string | undefined
+  readonly term: Term | undefined
 }
 
 type Control = ShadowRootContentScriptUi<Mounted>
@@ -103,7 +102,7 @@ function createControl(ctx: ContentScriptContext, panel: Element): Promise<Contr
       const root = createRoot(container)
       // (`place` only mounts a control when the panel shows a CRN and a term.)
       if (crn !== undefined && term !== undefined) {
-        root.render(term === SUPPORTED_TERM.code ? <NotifyControl crn={crn} /> : <OtherTermNote />)
+        root.render(<NotifyControl classId={{ term, crn }} />)
       }
       return { root, bar: host.nextElementSibling, crn, term }
     },
@@ -124,9 +123,9 @@ function place(ctx: ContentScriptContext, panel: Element, control: Control): voi
   const term = Option.getOrUndefined(readTerm(panel))
   // No bar means the page offers no actions for this section (a past term).
   // No CRN means the panel shows a whole class rather than one section, and
-  // an alert needs a section. No term means we cannot tell which term the CRN
-  // belongs to, and the server would look it up in its own: the same number
-  // can be another class there. In all three cases we show nothing rather
+  // an alert needs a section. No term means we cannot tell which class the
+  // CRN is: the same number can be another class in another term. In all
+  // three cases we show nothing rather
   // than a button that does the wrong thing. The control appears as soon as
   // the page has drawn what was missing.
   const wanted = ctx.isValid && panel.isConnected && bar !== null && crn !== undefined && term !== undefined

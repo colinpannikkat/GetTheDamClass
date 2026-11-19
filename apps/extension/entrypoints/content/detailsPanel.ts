@@ -34,8 +34,8 @@
  *   be added to a cart: not for past terms, and not on the overview of a
  *   class with several sections (which has no CRN either).
  */
-import { Option } from "effect"
-import type { Crn } from "@/lib/domain"
+import { type Crn, Term } from "@getthedamclass/shared/domain"
+import { Option, Schema } from "effect"
 
 /** The element all panels are direct children of, or `null` on any other page. */
 export const findPanelStack = (root: ParentNode): Element | null => root.querySelector("main.panels")
@@ -71,10 +71,11 @@ export const parseCrn = (text: string): Option.Option<Crn> =>
  * the panel says. Two places carry it (`srcdb` is the page's name for a term):
  * the section's own row in the "All Sections" table, drawn together with the
  * rest of the panel, and the "copy link" in the panel's head, which the page
- * adds a moment later.
+ * adds a moment later. Anything but a term code (six digits) counts as not
+ * saying.
  */
-export const readTerm = (panel: Element): Option.Option<string> =>
+export const readTerm = (panel: Element): Option.Option<Term> =>
   Option.fromNullishOr(
     panel.querySelector(".course-section--viewing")?.getAttribute("data-srcdb")
       ?? new URLSearchParams(panel.querySelector(".deep-link")?.getAttribute("data-query-string") ?? "").get("srcdb")
-  )
+  ).pipe(Option.filter(Schema.is(Term)))

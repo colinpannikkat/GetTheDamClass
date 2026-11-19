@@ -6,28 +6,31 @@
  *   EmptyState         how to add a class
  *   ClassListSkeleton  grey placeholder rows while the list loads
  */
+import type { Alert } from "@getthedamclass/shared/domain"
+import { Option } from "effect"
 import { type Ref, useRef, useState } from "react"
 import { browser } from "wxt/browser"
 import { Button } from "@/components/Button"
 import { Message } from "@/components/Message"
-import { type Subscription, subscriptionFullLabel, subscriptionLabel } from "@/lib/domain"
-import { stopErrorMessage } from "@/lib/errorMessage"
+import { alertLabel } from "@/lib/domain"
+import { errorMessage } from "@/lib/errorMessage"
 import { useAction } from "@/lib/react"
+import { termName } from "@/lib/termName"
 import { unsubscribe } from "@/lib/workflows"
 
 const CLASS_SEARCH_URL = "https://classes.oregonstate.edu/"
 
-export function ClassList({ subscriptions }: { readonly subscriptions: ReadonlyArray<Subscription> }) {
+export function ClassList({ alerts }: { readonly alerts: ReadonlyArray<Alert> }) {
   // The classes stopped since the list was loaded. Hiding them here saves
   // loading the whole list again after every "Stop".
-  const [stopped, setStopped] = useState<ReadonlyArray<Subscription>>([])
+  const [stopped, setStopped] = useState<ReadonlyArray<Alert>>([])
   const headingRef = useRef<HTMLHeadingElement>(null)
 
-  const watching = subscriptions.filter((subscription) => !stopped.includes(subscription))
+  const watching = alerts.filter((alert) => !stopped.includes(alert))
   const lastStopped = stopped.at(-1)
 
-  function handleStopped(subscription: Subscription) {
-    setStopped((earlier) => [...earlier, subscription])
+  function handleStopped(alert: Alert) {
+    setStopped((earlier) => [...earlier, alert])
     // The button that had keyboard focus is about to disappear with its row.
     // Move focus to the heading so the next Tab continues from the list.
     headingRef.current?.focus()
@@ -39,7 +42,7 @@ export function ClassList({ subscriptions }: { readonly subscriptions: ReadonlyA
       {/* Names the class, so a click on the wrong row is noticed and easy to put right. */}
       <Message tone="success">
         {lastStopped &&
-          `Stopped alerts for ${subscriptionFullLabel(lastStopped)}. To watch it again, press "Notify me" on its class page.`}
+          `Stopped alerts for ${alertLabel(lastStopped)}. To watch it again, press "Notify me" on its class page.`}
       </Message>
       {watching.length === 0 ? <EmptyState /> : (
         // The list scrolls when it is long. `max-h-84` (336px) is five and a
@@ -48,26 +51,23 @@ export function ClassList({ subscriptions }: { readonly subscriptions: ReadonlyA
         // and the footer's line: the scrollbar sits at the edge, and focus
         // rings are not cut off.
         <ul className="-mx-4 -mt-1 -mb-4 flex max-h-84 flex-col overflow-y-auto px-4 pb-1">
-          {watching.map((subscription) => (
-            <ClassRow key={subscription.crn} subscription={subscription} onStopped={handleStopped} />
-          ))}
+          {watching.map((alert) => <ClassRow key={`${alert.term}:${alert.crn}`} alert={alert} onStopped={handleStopped} />)}
         </ul>
       )}
     </>
   )
 }
 
-function ClassRow({ subscription, onStopped }: {
-  readonly subscription: Subscription
-  readonly onStopped: (subscription: Subscription) => void
+function ClassRow({ alert, onStopped }: {
+  readonly alert: Alert
+  readonly onStopped: (alert: Alert) => void
 }) {
   const stop = useAction(unsubscribe)
-  const label = subscriptionLabel(subscription)
 
   async function handleStop() {
-    const result = await stop.run(subscription.crn)
+    const result = await stop.run(alert)
     if (result.status === "success") {
-      onStopped(subscription)
+      onStopped(alert)
     }
     // After a failure the row stays, with the reason under it.
   }
@@ -79,9 +79,12 @@ function ClassRow({ subscription, onStopped }: {
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           {/* A long name wraps onto more lines instead of being cut off. */}
-          <p className="font-medium wrap-break-word">{label}</p>
-          {/* Without a name the label already is the CRN. */}
-          {subscription.name !== null && <p className="text-xs text-ink-muted">CRN {subscription.crn}</p>}
+          <p className="font-medium wrap-break-word">{alert.title}</p>
+          {/* The term tells apart alerts of the two terms that are often open at once (Fall and Winter, say). */}
+          <p className="text-xs text-ink-muted">
+            CRN {alert.crn}
+            {Option.match(termName(alert.term), { onNone: () => null, onSome: (term) => ` · ${term}` })}
+          </p>
         </div>
         <Button
           size="sm"
@@ -89,15 +92,16 @@ function ClassRow({ subscription, onStopped }: {
           className="w-19"
           loading={stop.state.status === "loading"}
           // Screen readers hear which class each "Stop" belongs to. The CRN
-          // is part of it because two sections of a course share one name.
-          aria-label={`Stop alerts for ${subscriptionFullLabel(subscription)}`}
+          // and term are part of it because two sections of a course share
+          // one name, and one CRN can be in two terms.
+          aria-label={`Stop alerts for ${alertLabel(alert)}`}
           onClick={handleStop}
         >
           Stop
         </Button>
       </div>
       <Message tone="error" className="text-xs">
-        {error && stopErrorMessage(error)}
+        {error && errorMessage(error)}
       </Message>
     </li>
   )
