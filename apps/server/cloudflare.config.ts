@@ -1,14 +1,14 @@
 /**
  * The Worker's settings for Cloudflare: its name, its code, which version of
- * the Workers runtime it expects, and its bindings (what `env` holds in the
- * code). `cf dev`, `cf build` and `cf deploy` all read this file. (It replaces
+ * the Workers runtime it expects, when its jobs run, and its bindings (what
+ * `env` holds in the code). `cf dev`, `cf build` and `cf deploy` all read this file. (It replaces
  * the `wrangler.toml` older projects have.)
  * See https://developers.cloudflare.com/cf/projects/cloudflare-config/
  *
  * The settings depend on the mode: `cf dev` runs in "development", and
  * `cf build` and `cf deploy` in "production".
  */
-import { bindings, defineConfig } from "cf/config"
+import { bindings, defineConfig, triggers } from "cf/config"
 
 /** The address every email comes from. Cloudflare only sends from addresses listed on the binding. */
 const SENDER = "alerts@getthedamclass.ajinkya.dev"
@@ -30,6 +30,13 @@ export default defineConfig(({ mode }) => {
       // break existing code are switched on by date, and a Worker only gets the
       // ones dated on or before this. Move it forward on purpose, and test.
       compatibilityDate: "2026-11-17",
+      // The check every minute and the daily job, written out as in
+      // src/cron.ts, which says why at these times (scheduled.test.ts checks
+      // that the two agree). They cannot be imported from there: Cloudflare's
+      // Vite plugin keeps every file this config imports away from the
+      // Worker. Locally they do not run by themselves; see "Running the
+      // server" in the README.
+      triggers: [triggers.scheduled({ schedule: "* * * * *" }), triggers.scheduled({ schedule: "0 11 * * *" })],
       env: {
         // TODO(production): the real database's ID goes here instead of
         // `undefined`, once it exists. Without one, `cf deploy` creates a new
