@@ -50,11 +50,16 @@ Run these in `apps/extension/`. `pnpm typecheck`, `pnpm test` and `pnpm build` a
 
 ### Running the server
 
-`apps/server` is a Cloudflare Worker that will replace the backend. For now it only answers `GET /` with a hello. `pnpm dev` runs it with cf.
+`apps/server` is a Cloudflare Worker that will replace the backend. For now it only answers `GET /` with a hello.
 
 ```sh
 cd apps/server
 pnpm dev                       # runs the Worker locally, at http://localhost:5173
+```
+
+`pnpm dev` keeps running. From a second terminal:
+
+```sh
 curl http://localhost:5173/    # {"message":"Hello from GetTheDamClass"}
 ```
 

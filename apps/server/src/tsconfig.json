@@ -1,6 +1,6 @@
 {
-  // Checks the Worker's own code: everything in src/ except the tests.
-  // (Tests and config files run in Node; see tsconfig.node.json.)
+  // Checks the Worker's own code: everything in this folder except the tests.
+  // (Tests and config files run in Node; see ../tsconfig.node.json.)
   // The strict settings are the same ones the extension gets from WXT.
   "compilerOptions": {
     "target": "ES2024",
@@ -21,6 +21,6 @@
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true
   },
-  "include": ["src", ".cloudflare/types"],
-  "exclude": ["src/**/*.test.ts"]
+  "include": [".", "../.cloudflare/types"],
+  "exclude": ["**/*.test.ts"]
 }

@@ -1,8 +1,14 @@
 {
   // The code here runs in two places, and each has its own settings:
-  //   tsconfig.worker.json   the Worker's own code (the Workers runtime)
-  //   tsconfig.node.json     tests and config files (Node)
-  // This file only points editors at the two; `pnpm typecheck` checks both.
+  //   src/tsconfig.json     the Worker's own code (the Workers runtime)
+  //   tsconfig.node.json    tests and config files (Node)
+  // This file only points editors at the two. Running `tsc` on it checks
+  // nothing; `pnpm typecheck` checks both.
+  //
+  // Why the Worker's settings live inside src/: an editor uses the nearest
+  // tsconfig.json that includes a file. A test imports the Worker, so with
+  // both sets of settings up here an editor could check the Worker's code
+  // with the tests' settings, and accept Node-only code there.
   "files": [],
-  "references": [{ "path": "./tsconfig.worker.json" }, { "path": "./tsconfig.node.json" }]
+  "references": [{ "path": "./src" }, { "path": "./tsconfig.node.json" }]
 }

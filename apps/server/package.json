@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "cf dev",
     "build": "cf build",
-    "typecheck": "cf workers types && tsc -p tsconfig.worker.json && tsc -p tsconfig.node.json",
+    "typecheck": "cf workers types && tsc -p src && tsc -p tsconfig.node.json",
     "test": "vitest run",
     "postinstall": "cf workers types"
   },
