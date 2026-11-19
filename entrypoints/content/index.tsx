@@ -3,6 +3,9 @@
  * (`NotifyControl.tsx`) into the foot of every class-details panel, next to
  * the page's own ADD TO CART button, and keeps it there while the page
  * redraws itself. What the page's HTML looks like is in `detailsPanel.ts`.
+ *
+ * Nothing private is ever drawn into the page: signing in happens in a frame
+ * showing a page of the extension (`entrypoints/signin`).
  */
 import "@/assets/tailwind.css"
 import { Option } from "effect"
@@ -11,8 +14,9 @@ import type { ContentScriptContext } from "wxt/utils/content-script-context"
 import { createShadowRootUi, type ShadowRootContentScriptUi } from "wxt/utils/content-script-ui/shadow-root"
 import { defineContentScript } from "wxt/utils/define-content-script"
 import type { Crn } from "@/lib/domain"
-import { findButtonBar, findDetailsPanels, findPanelContent, findPanelStack, readCrn } from "./detailsPanel"
-import { NotifyControl } from "./NotifyControl"
+import { SUPPORTED_TERM } from "@/lib/term"
+import { findButtonBar, findDetailsPanels, findPanelStack, readCrn, readTerm } from "./detailsPanel"
+import { NotifyControl, OtherTermNote } from "./NotifyControl"
 
 export default defineContentScript({
   matches: ["https://classes.oregonstate.edu/*"],
@@ -38,10 +42,6 @@ export default defineContentScript({
         if (!controls.has(panel)) {
           controls.set(panel, createControl(ctx, panel))
         }
-        const content = findPanelContent(panel)
-        if (content !== null) {
-          observer.observe(content, { childList: true })
-        }
       }
       for (const [panel, pendingControl] of controls) {
         void pendingControl.then((control) => place(ctx, panel, control))
@@ -51,18 +51,11 @@ export default defineContentScript({
       }
     }
 
-    // The page never reloads; it adds, redraws and removes panels. We only
-    // need to hear about two kinds of change, both to an element's direct
-    // children:
-    //   - the stack: a panel was added or removed;
-    //   - a details panel's `panel__content`: the page threw away the panel's
-    //     head, body and foot (and our control with them) and built new ones.
-    // So the observer watches just those child lists. No `subtree` and no
-    // `attributes`: typing in the search form, the hundreds of <option>s the
-    // page shuffles on every search, hover and animation classes all happen
-    // without waking this script.
+    // The page never reloads; it adds, redraws and removes panels. `sync`
+    // changes nothing when everything is in place, so it simply runs after
+    // every change to the elements inside the stack.
     const observer = new MutationObserver(sync)
-    observer.observe(stack, { childList: true })
+    observer.observe(stack, { childList: true, subtree: true })
     ctx.onInvalidated(() => observer.disconnect())
 
     sync()
@@ -74,6 +67,7 @@ interface Mounted {
   readonly root: Root
   readonly bar: Element | null
   readonly crn: Crn | undefined
+  readonly term: string | undefined
 }
 
 type Control = ShadowRootContentScriptUi<Mounted>
@@ -100,13 +94,22 @@ function createControl(ctx: ContentScriptContext, panel: Element): Promise<Contr
     // The element that carries the shadow root is an ordinary block. (WXT
     // resets it with `all: initial !important`, hence the `!important` here.)
     css: ":host { display: block !important; }",
-    // Keys typed in the sign-in form stay in our UI and do not reach the
-    // page's keyboard handlers.
+    // Keys pressed on our button stay in our UI: Escape closes our sign-in
+    // popover without the page's own keyboard handlers acting on it too.
     isolateEvents: true,
     onMount(container, _shadow, host) {
+      const crn = Option.getOrUndefined(readCrn(panel))
+      const term = Option.getOrUndefined(readTerm(panel))
       const root = createRoot(container)
-      root.render(<NotifyControl getCrn={() => readCrn(panel)} />)
-      return { root, bar: host.nextElementSibling, crn: Option.getOrUndefined(readCrn(panel)) }
+      // (`place` only mounts a control when the panel shows a CRN.)
+      if (crn !== undefined) {
+        // A panel that does not say which term it shows gets the button: the
+        // page may have changed its markup, and a working button that the
+        // server can still refuse beats no button at all.
+        const alertsWork = term === undefined || term === SUPPORTED_TERM.code
+        root.render(alertsWork ? <NotifyControl crn={crn} /> : <OtherTermNote />)
+      }
+      return { root, bar: host.nextElementSibling, crn, term }
     },
     onRemove(mounted) {
       mounted?.root.unmount()
@@ -122,6 +125,7 @@ function createControl(ctx: ContentScriptContext, panel: Element): Promise<Contr
 function place(ctx: ContentScriptContext, panel: Element, control: Control): void {
   const bar = findButtonBar(panel)
   const crn = Option.getOrUndefined(readCrn(panel))
+  const term = Option.getOrUndefined(readTerm(panel))
   // No bar means the page offers no actions for this section (a past term).
   // No CRN means the panel shows a whole class rather than one section, and
   // an alert needs a section. In both cases we show nothing rather than a
@@ -130,11 +134,12 @@ function place(ctx: ContentScriptContext, panel: Element, control: Control): voi
   const wanted = ctx.isValid && panel.isConnected && bar !== null && crn !== undefined
 
   const mounted = control.mounted
-  if (wanted && mounted !== undefined && mounted.bar === bar && mounted.crn === crn) {
+  if (wanted && mounted !== undefined && mounted.bar === bar && mounted.crn === crn && mounted.term === term) {
     return // Already in place.
   }
-  // Mounting again from scratch (rather than moving the old one) also resets
-  // the control, so "Watching" never carries over to another section.
+  // Mounting again from scratch (rather than moving the old one) also drops
+  // whatever the old control was in the middle of. A sign-in opened for one
+  // section can therefore never end in an alert for another.
   if (mounted !== undefined) {
     control.remove()
   }

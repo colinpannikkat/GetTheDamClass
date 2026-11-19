@@ -1,12 +1,14 @@
 // @vitest-environment happy-dom
 import { Option } from "effect"
 import { beforeEach, describe, expect, it } from "vitest"
-import { findButtonBar, findDetailsPanels, findPanelContent, findPanelStack, readCrn } from "./detailsPanel"
-// `?raw` imports the file's text. It is a trimmed copy of the real page.
-import pageHtml from "./fixtures/details-panel.html?raw"
+import { findButtonBar, findDetailsPanels, findPanelStack, readCrn, readTerm } from "./detailsPanel"
+// `?raw` imports the file's text. Each is a trimmed copy of the real page,
+// showing the same class in two terms.
+import springPage from "./fixtures/spring-2027-section.html?raw"
+import winterPage from "./fixtures/winter-2027-section.html?raw"
 
-/** Put the fixture on the page and return its one details panel. */
-function loadPage(): Element {
+/** Put a fixture on the page and return its one details panel. */
+function loadPage(pageHtml: string = winterPage): Element {
   document.body.innerHTML = pageHtml
   const [panel] = findDetailsPanels(findPanelStack(document)!)
   return panel!
@@ -68,22 +70,10 @@ describe("findButtonBar", () => {
   })
 })
 
-describe("findPanelContent", () => {
-  it("finds the element whose children the page replaces", () => {
-    const panel = loadPage()
-    const content = findPanelContent(panel)
-    expect(content?.parentElement).toBe(panel)
-    expect(Array.from(content!.children, (child) => child.className)).toEqual([
-      "panel__head",
-      "panel__body",
-      "panel__foot"
-    ])
-  })
-})
-
 describe("readCrn", () => {
   it("reads the CRN of the section shown", () => {
-    expect(readCrn(loadPage())).toEqual(Option.some("53476"))
+    expect(readCrn(loadPage(winterPage))).toEqual(Option.some("33940"))
+    expect(readCrn(loadPage(springPage))).toEqual(Option.some("53476"))
   })
 
   it("is none on the overview of a class, which names no section", () => {
@@ -95,13 +85,13 @@ describe("readCrn", () => {
 
   it("is none when the section line has no CRN in it", () => {
     const panel = loadPage()
-    panel.querySelector(".dtl-section")!.textContent = "Section 401"
+    panel.querySelector(".dtl-section")!.textContent = "Section 400"
     expect(readCrn(panel)).toEqual(Option.none())
   })
 
   it("follows the panel when it changes to another section", () => {
     const panel = loadPage()
-    expect(readCrn(panel)).toEqual(Option.some("53476"))
+    expect(readCrn(panel)).toEqual(Option.some("33940"))
     // The page rebuilds the body for the section the user picked.
     panel.querySelector(".dtl-section")!.textContent = "Section 400, CRN 51625"
     expect(readCrn(panel)).toEqual(Option.some("51625"))
@@ -112,7 +102,27 @@ describe("readCrn", () => {
     const second = first.cloneNode(true) as Element
     second.querySelector(".dtl-section")!.textContent = "Section 010, CRN 12345"
     first.after(second)
-    expect(readCrn(first)).toEqual(Option.some("53476"))
+    expect(readCrn(first)).toEqual(Option.some("33940"))
     expect(readCrn(second)).toEqual(Option.some("12345"))
+  })
+})
+
+describe("readTerm", () => {
+  it("reads the term of the section shown", () => {
+    expect(readTerm(loadPage(winterPage))).toEqual(Option.some("202702"))
+    expect(readTerm(loadPage(springPage))).toEqual(Option.some("202703"))
+  })
+
+  it("reads it from the row of the section on screen, not from another section's row", () => {
+    const panel = loadPage(springPage)
+    // The Spring class has two sections; give the other one a different term.
+    panel.querySelector(".course-section:not(.course-section--viewing)")!.setAttribute("data-srcdb", "209901")
+    expect(readTerm(panel)).toEqual(Option.some("202703"))
+  })
+
+  it("is none when the panel does not say", () => {
+    const panel = loadPage()
+    panel.querySelector(".section--all_sections")!.remove()
+    expect(readTerm(panel)).toEqual(Option.none())
   })
 })

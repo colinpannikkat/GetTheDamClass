@@ -3,8 +3,8 @@
  *
  * Everything the content script knows about the page's HTML is in this file,
  * so when the university changes its markup this is the place to fix. The
- * functions only read; `fixtures/details-panel.html` is a copy of the real
- * page they are tested against.
+ * functions only read; the files in `fixtures/` are copies of the real page
+ * they are tested against (the README says how to refresh them).
  *
  * The page is one long-lived document that slides "panels" in and out:
  *
@@ -15,7 +15,8 @@
  *       <div class="panel__content">
  *         <div class="panel__head">
  *         <div class="panel__body">
- *           ... <div class="dtl-section">Section 401, CRN 53476</div> ...
+ *           ... <div class="dtl-section">Section 400, CRN 33940</div> ...
+ *           ... <a class="course-section course-section--viewing" data-srcdb="202702"> ...
  *         <div class="panel__foot">
  *           <div class="cart-controls button-bar button-bar--right-align">
  *             <button class="btn">ADD TO CART</button>
@@ -26,14 +27,13 @@
  *   class from inside a details panel adds a second one and slides the first
  *   aside without removing it. So the CRN is always looked up inside one
  *   panel, never in the whole document.
- * - A details panel and its `panel__content` are kept while the user moves
- *   between sections, but the head, body and foot inside are thrown away and
- *   built again every time.
+ * - A details panel is kept while the user moves between sections, but the
+ *   head, body and foot inside it are thrown away and built again every time.
  * - The foot, and with it the button bar, is only there when the section can
  *   be added to a cart: not for past terms, and not on the overview of a
  *   class with several sections (which has no CRN either).
  */
-import type { Option } from "effect"
+import { Option } from "effect"
 import type { Crn } from "@/lib/domain"
 import { parseCrn } from "@/lib/parseCrn"
 
@@ -43,9 +43,6 @@ export const findPanelStack = (root: ParentNode): Element | null => root.querySe
 /** Every class-details panel currently in the stack. */
 export const findDetailsPanels = (stack: Element): Array<Element> =>
   Array.from(stack.querySelectorAll(".panel--kind-details"))
-
-/** The part of a panel that stays while its head, body and foot are replaced. */
-export const findPanelContent = (panel: Element): Element | null => panel.querySelector(".panel__content")
 
 /**
  * The bar holding the panel's own buttons (ADD TO CART), or `null` when the
@@ -57,3 +54,12 @@ export const findButtonBar = (panel: Element): Element | null => panel.querySele
 /** The CRN of the section a details panel shows right now, if it shows one. */
 export const readCrn = (panel: Element): Option.Option<Crn> =>
   parseCrn(panel.querySelector(".dtl-section")?.textContent ?? "")
+
+/**
+ * The code of the term that section belongs to ("202702" is Winter 2027), if
+ * the panel says. It is read from the section's own row in the "All Sections"
+ * table. That row is drawn together with the rest of the panel; the link in
+ * the panel's head that also carries the code is added a moment later.
+ */
+export const readTerm = (panel: Element): Option.Option<string> =>
+  Option.fromNullishOr(panel.querySelector(".course-section--viewing")?.getAttribute("data-srcdb"))

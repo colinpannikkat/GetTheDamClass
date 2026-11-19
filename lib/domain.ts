@@ -2,7 +2,7 @@
  * The vocabulary of the extension: the data we pass around and every error
  * that can happen. Nothing in this file talks to the network or to storage.
  */
-import { Schema } from "effect"
+import { Data, Schema } from "effect"
 
 // ---------------------------------------------------------------------------
 // Data
@@ -41,8 +41,12 @@ export interface Subscription {
 export const subscriptionLabel = (subscription: Subscription): string =>
   subscription.name ?? `CRN ${subscription.crn}`
 
-/** Signing in also creates the account when the email is new. */
-export type SignInOutcome = "accountCreated" | "loggedIn"
+/**
+ * The same with the CRN always in it, "INTRO TO DEEP LEARNING (CRN 39835)",
+ * for where two sections of one course must be told apart.
+ */
+export const subscriptionFullLabel = (subscription: Subscription): string =>
+  subscription.name === null ? `CRN ${subscription.crn}` : `${subscription.name} (CRN ${subscription.crn})`
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -57,73 +61,58 @@ export type SignInOutcome = "accountCreated" | "loggedIn"
  * wrong for an existing account. On any other call, the saved credentials no
  * longer work and the user has to sign in again.
  */
-export class WrongPin extends Schema.TaggedError<WrongPin>()("WrongPin", {
-  message: Schema.String
-}) {}
+export class WrongPin extends Data.TaggedError("WrongPin")<{ readonly message: string }> {}
 
 /** The user already gets alerts for this class (HTTP 409). */
-export class AlreadySubscribed extends Schema.TaggedError<AlreadySubscribed>()("AlreadySubscribed", {
-  crn: Crn,
-  message: Schema.String
-}) {}
+export class AlreadySubscribed extends Data.TaggedError("AlreadySubscribed")<{ readonly crn: Crn }> {}
 
-/** The server does not know a class with this CRN. */
-export class ClassNotFound extends Schema.TaggedError<ClassNotFound>()("ClassNotFound", {
-  crn: Crn,
-  message: Schema.String
-}) {}
+/** The server does not know a class with this CRN in the term it watches. */
+export class ClassNotFound extends Data.TaggedError("ClassNotFound")<{ readonly crn: Crn }> {}
 
 /** The user tried to unsubscribe from a class they are not subscribed to. */
-export class NotSubscribed extends Schema.TaggedError<NotSubscribed>()("NotSubscribed", {
-  crn: Crn,
-  message: Schema.String
-}) {}
+export class NotSubscribed extends Data.TaggedError("NotSubscribed")<{ readonly crn: Crn }> {}
 
 /**
  * The server refused the request for another reason (HTTP 400), such as an
  * invalid email. `message` says why.
  */
-export class RequestRejected extends Schema.TaggedError<RequestRejected>()("RequestRejected", {
-  message: Schema.String
-}) {}
+export class RequestRejected extends Data.TaggedError("RequestRejected")<{ readonly message: string }> {}
 
-/** The request never reached the server: offline, DNS failure, blocked, ... */
-export class NetworkError extends Schema.TaggedError<NetworkError>()("NetworkError", {
-  cause: Schema.Defect()
-}) {}
+/**
+ * No answer from the server: offline, DNS failure, blocked, or nothing came
+ * back in time.
+ */
+export class NetworkError extends Data.TaggedError("NetworkError")<{ readonly cause: unknown }> {}
 
 /**
  * The server answered with something we do not understand: an unexpected
  * status code, a body that is not JSON, or JSON of the wrong shape.
  */
-export class ServerError extends Schema.TaggedError<ServerError>()("ServerError", {
-  status: Schema.Number,
-  message: Schema.String
-}) {}
+export class ServerError extends Data.TaggedError("ServerError")<{
+  readonly status: number
+  readonly message: string
+}> {}
 
 /** An action needs saved credentials and there are none. */
-export class NotSignedIn extends Schema.TaggedError<NotSignedIn>()("NotSignedIn", {}) {}
+export class NotSignedIn extends Data.TaggedError("NotSignedIn") {}
 
 /** Reading from or writing to the browser's extension storage failed. */
-export class StorageError extends Schema.TaggedError<StorageError>()("StorageError", {
-  cause: Schema.Defect()
-}) {}
+export class StorageError extends Data.TaggedError("StorageError")<{ readonly cause: unknown }> {}
 
 /**
  * A bug: something failed in a way no code path expected. The React bridge
  * (`lib/react.ts`) wraps such failures in this error so a component always has
  * something to show.
  */
-export class UnexpectedError extends Schema.TaggedError<UnexpectedError>()("UnexpectedError", {
-  cause: Schema.Defect()
-}) {}
+export class UnexpectedError extends Data.TaggedError("UnexpectedError")<{ readonly cause: unknown }> {}
 
-/** Every error a user interface may have to show. */
+/**
+ * Every error a user interface may have to show. (`AlreadySubscribed` and
+ * `NotSubscribed` are missing on purpose: the workflows treat them as "done".)
+ */
 export type AppError =
   | WrongPin
-  | AlreadySubscribed
   | ClassNotFound
-  | NotSubscribed
   | RequestRejected
   | NetworkError
   | ServerError

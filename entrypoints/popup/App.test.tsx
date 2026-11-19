@@ -4,8 +4,16 @@ import { Effect, Layer, ManagedRuntime } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { fakeBrowser } from "wxt/testing/fake-browser"
 import { Api } from "@/lib/Api"
-import { CredentialStore } from "@/lib/CredentialStore"
-import { ClassNotFound, type Credentials, NetworkError, NotSubscribed, type Subscription, WrongPin } from "@/lib/domain"
+import { AccountStore } from "@/lib/AccountStore"
+import {
+  ClassNotFound,
+  type Credentials,
+  NetworkError,
+  NotSubscribed,
+  type Subscription,
+  subscriptionFullLabel,
+  WrongPin
+} from "@/lib/domain"
 import { RuntimeContext } from "@/lib/react"
 import { App } from "./App"
 
@@ -16,7 +24,7 @@ const unnamed: Subscription = { crn: "37429", name: null }
 
 /** Render the popup with a fake backend. Storage is WXT's in-memory `browser`. */
 function renderPopup(fakeApi: Layer.PartialEffectful<Api["Service"]> = {}) {
-  const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.mock(Api, fakeApi), CredentialStore.layer))
+  const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.mock(Api, fakeApi), AccountStore.layer))
   return render(
     <RuntimeContext value={runtime}>
       <App />
@@ -27,7 +35,9 @@ function renderPopup(fakeApi: Layer.PartialEffectful<Api["Service"]> = {}) {
 /** As if the user signed in earlier. */
 const signedIn = () => fakeBrowser.storage.local.set(student)
 
-const stopButton = (label: string) => screen.getByRole("button", { name: `Stop alerts for ${label}` })
+/** The "Stop" button of a class, found by its full name for screen readers. */
+const stopButton = (subscription: Subscription) =>
+  screen.getByRole("button", { name: `Stop alerts for ${subscriptionFullLabel(subscription)}` })
 
 beforeEach(() => {
   fakeBrowser.reset()
@@ -41,11 +51,13 @@ describe("signed out", () => {
     expect(screen.getByLabelText("Email")).toBeDefined()
     expect(screen.getByRole("button", { name: "Continue" })).toBeDefined()
     expect(screen.queryByText("Sign out")).toBeNull()
+    // Nobody signed out just now, so there is nothing to say about that.
+    expect(screen.queryByText(/Your alerts keep running/)).toBeNull()
   })
 
   it("switches to the list after signing in", async () => {
     renderPopup({
-      signIn: () => Effect.succeed("loggedIn"),
+      signIn: () => Effect.void,
       listSubscriptions: () => Effect.succeed([deepLearning])
     })
     fireEvent.change(await screen.findByLabelText("Email"), { target: { value: student.email } })
@@ -112,7 +124,7 @@ describe("signed in", () => {
 
   it("asks to sign in again when the saved PIN is no longer accepted", async () => {
     renderPopup({
-      signIn: () => Effect.succeed("loggedIn"),
+      signIn: () => Effect.void,
       listSubscriptions: (credentials) =>
         credentials.pin === "5678"
           ? Effect.succeed([deepLearning])
@@ -122,7 +134,8 @@ describe("signed in", () => {
     expect(await screen.findByText(/Your saved PIN no longer works/)).toBeDefined()
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull()
 
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: student.email } })
+    // We know who they are: only the PIN is left to type.
+    expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe(student.email)
     fireEvent.change(screen.getByLabelText("4-digit PIN"), { target: { value: "5678" } })
     fireEvent.click(screen.getByRole("button", { name: "Continue" }))
 
@@ -130,7 +143,7 @@ describe("signed in", () => {
     expect(screen.queryByText(/Your saved PIN no longer works/)).toBeNull()
   })
 
-  it("signs out and goes back to the sign-in form", async () => {
+  it("signs out, goes back to the sign-in form, and says that the alerts keep running", async () => {
     renderPopup({ listSubscriptions: () => Effect.succeed([deepLearning]) })
     await screen.findByText("INTRO TO DEEP LEARNING")
 
@@ -139,6 +152,15 @@ describe("signed in", () => {
     expect(await screen.findByLabelText("Email")).toBeDefined()
     expect(screen.queryByText("INTRO TO DEEP LEARNING")).toBeNull()
     expect(await fakeBrowser.storage.local.get()).toEqual({})
+    const note = await screen.findByText(/Your alerts keep running/)
+    expect(note.textContent).toContain("sign in again and press Stop")
+    expect(note.textContent).toContain("Unsubscribe button in its confirmation email")
+  })
+
+  it("saves which classes are watched, for the \"Notify me\" button on the class page", async () => {
+    renderPopup({ listSubscriptions: () => Effect.succeed([deepLearning, unnamed]) })
+    await screen.findByText("INTRO TO DEEP LEARNING")
+    expect(await fakeBrowser.storage.local.get("watching")).toEqual({ watching: ["39835", "37429"] })
   })
 })
 
@@ -153,7 +175,7 @@ describe("stopping a class", () => {
     })
     await screen.findByText("INTRO TO DEEP LEARNING")
 
-    fireEvent.click(stopButton("INTRO TO DEEP LEARNING"))
+    fireEvent.click(stopButton(deepLearning))
 
     // The message names the class, so stopping the wrong one is noticed.
     const message = await screen.findByText(/Stopped alerts for INTRO TO DEEP LEARNING/)
@@ -164,6 +186,33 @@ describe("stopping a class", () => {
     // Keyboard focus moves to the heading instead of vanishing with the row.
     expect(document.activeElement).toBe(heading)
     expect(stopped).toEqual([["39835", student]])
+    expect(await fakeBrowser.storage.local.get("watching")).toEqual({ watching: ["37429"] })
+  })
+
+  it("tells two sections of one course apart by CRN", async () => {
+    const stopped: Array<string> = []
+    renderPopup({
+      listSubscriptions: () =>
+        Effect.succeed([
+          { crn: "51625", name: "INTRODUCTION TO COMPUTER SCIENCE I" },
+          { crn: "53476", name: "INTRODUCTION TO COMPUTER SCIENCE I" }
+        ]),
+      unsubscribe: (crn) => Effect.sync(() => void stopped.push(crn))
+    })
+    await screen.findByText("CRN 51625")
+
+    // Each button has a name of its own (`getByRole` fails when two match).
+    expect(screen.getByRole("button", { name: "Stop alerts for INTRODUCTION TO COMPUTER SCIENCE I (CRN 51625)" }))
+      .toBeDefined()
+    fireEvent.click(
+      screen.getByRole("button", { name: "Stop alerts for INTRODUCTION TO COMPUTER SCIENCE I (CRN 53476)" })
+    )
+
+    await screen.findByRole("heading", { name: "Classes you're watching 1" })
+    // The confirmation says which of the two it was, too.
+    expect(screen.getByText(/Stopped alerts for INTRODUCTION TO COMPUTER SCIENCE I \(CRN 53476\)/)).toBeDefined()
+    expect(stopped).toEqual(["53476"])
+    expect(screen.getByText("CRN 51625")).toBeDefined()
   })
 
   it("shows the empty state after the last class is stopped", async () => {
@@ -171,7 +220,7 @@ describe("stopping a class", () => {
       listSubscriptions: () => Effect.succeed([deepLearning]),
       unsubscribe: () => Effect.void
     })
-    fireEvent.click(await screen.findByRole("button", { name: "Stop alerts for INTRO TO DEEP LEARNING" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Stop alerts for INTRO TO DEEP LEARNING (CRN 39835)" }))
 
     expect(await screen.findByRole("button", { name: "Open class search" })).toBeDefined()
   })
@@ -183,11 +232,13 @@ describe("stopping a class", () => {
     })
     await screen.findByText("INTRO TO DEEP LEARNING")
 
-    fireEvent.click(stopButton("INTRO TO DEEP LEARNING"))
+    fireEvent.click(stopButton(deepLearning))
 
-    await expect.poll(() => stopButton("INTRO TO DEEP LEARNING").getAttribute("aria-busy")).toBe("true")
+    await expect.poll(() => stopButton(deepLearning).getAttribute("aria-busy")).toBe("true")
+    // Busy buttons keep the keyboard: they are not `disabled`.
+    expect(stopButton(deepLearning).hasAttribute("disabled")).toBe(false)
     // Only that row is busy.
-    expect(stopButton("CRN 37429").getAttribute("aria-busy")).toBeNull()
+    expect(stopButton(unnamed).getAttribute("aria-busy")).toBeNull()
     expect(screen.getByText("INTRO TO DEEP LEARNING")).toBeDefined()
   })
 
@@ -198,7 +249,7 @@ describe("stopping a class", () => {
     })
     await screen.findByText("INTRO TO DEEP LEARNING")
 
-    fireEvent.click(stopButton("INTRO TO DEEP LEARNING"))
+    fireEvent.click(stopButton(deepLearning))
 
     const message = await screen.findByText(/Couldn't reach the server/)
     expect(message.closest("[role=alert]")).not.toBeNull()
@@ -207,15 +258,15 @@ describe("stopping a class", () => {
     expect(screen.getByRole("heading", { name: "Classes you're watching 2" })).toBeDefined()
     expect(screen.queryByText(/Stopped alerts/)).toBeNull()
     // "Stop" can be pressed again.
-    expect(stopButton("INTRO TO DEEP LEARNING").hasAttribute("disabled")).toBe(false)
+    expect(stopButton(deepLearning).getAttribute("aria-disabled")).toBeNull()
   })
 
   it("explains a class from an earlier term that the server will not touch", async () => {
     renderPopup({
       listSubscriptions: () => Effect.succeed([deepLearning]),
-      unsubscribe: (crn) => Effect.fail(new ClassNotFound({ crn, message: "CRN doesn't exist" }))
+      unsubscribe: (crn) => Effect.fail(new ClassNotFound({ crn }))
     })
-    fireEvent.click(await screen.findByRole("button", { name: "Stop alerts for INTRO TO DEEP LEARNING" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Stop alerts for INTRO TO DEEP LEARNING (CRN 39835)" }))
 
     expect(await screen.findByText(/isn't in the current term/)).toBeDefined()
     expect(screen.getByText("INTRO TO DEEP LEARNING")).toBeDefined()
@@ -224,14 +275,15 @@ describe("stopping a class", () => {
   it("removes the row when the alerts were already stopped somewhere else", async () => {
     renderPopup({
       listSubscriptions: () => Effect.succeed([deepLearning, unnamed]),
-      unsubscribe: (crn) => Effect.fail(new NotSubscribed({ crn, message: "Not subscribed to class" }))
+      unsubscribe: (crn) => Effect.fail(new NotSubscribed({ crn }))
     })
     await screen.findByText("INTRO TO DEEP LEARNING")
 
-    fireEvent.click(stopButton("CRN 37429"))
+    fireEvent.click(stopButton(unnamed))
 
     expect(await screen.findByRole("heading", { name: "Classes you're watching 1" })).toBeDefined()
     expect(screen.queryByRole("button", { name: "Stop alerts for CRN 37429" })).toBeNull()
+    expect(await screen.findByText(/Stopped alerts for CRN 37429/)).toBeDefined()
     // No error is shown anywhere: the user got what they asked for.
     expect(screen.getAllByRole("alert").map((alert) => alert.textContent).join("")).toBe("")
   })

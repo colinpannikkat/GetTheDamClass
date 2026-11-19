@@ -1,15 +1,16 @@
 <!--
   The panels of https://classes.oregonstate.edu as they are after searching for
-  "CS 161" and opening the Spring 2027 section with CRN 53476. Captured from
+  "CS 161" and opening the Winter 2027 section with CRN 33940. Captured from
   the live page in November 2026 and trimmed by hand: the search form, most
   detail rows, and the instructor and contact sections are left out. The
   elements, classes and nesting that are left are exactly the page's own.
+  (`spring-2027-section.html` is the same class in another term.)
 
   What the content script relies on:
     main.panels                      the stack; every panel is a direct child
     .panel.panel--kind-details       a class-details panel (there can be several)
-    .panel__content                  stays; its children are replaced on every re-render
-    .dtl-section                     "Section 401, CRN 53476"
+    .dtl-section                     "Section 400, CRN 33940"
+    .course-section--viewing         the section's row in "All Sections"; `data-srcdb` is its term
     .panel__foot > .button-bar       the bar with ADD TO CART (missing for past terms)
 -->
 <main class="panels">
@@ -30,13 +31,13 @@
       <div class="panel__info-bar"><div class="panel__info-bar-text" aria-live="polite">Found <strong>1</strong> course</div></div>
       <div class="panel__body">
         <div class="result result--group-start">
-          <a href="#" data-group="code:CS 161" data-key="crn:33940" data-matched="crn:33940,51625,53476" data-srcdb="202702" class="result__link" data-action="result-detail">
+          <a href="#" data-group="code:CS 161" data-key="crn:33940" data-matched="crn:33940,51625,53476" data-srcdb="202702" class="result__link result__link--viewing" data-action="result-detail">
             <span class="result__headline"><span class="result__code">CS 161</span> <span class="result__title">INTRODUCTION TO COMPUTER SCIENCE I</span></span>
             <span class="result__part"><span class="result__flex--3"><span class="sr-only">Term:</span> Wi</span><span class="flex-grow">1 online</span></span>
           </a>
         </div>
         <div class="result">
-          <a href="#" data-group="code:CS 161" data-key="" data-matched="crn:33940,51625,53476" data-srcdb="202703" class="result__link result__link--viewing" data-action="result-detail">
+          <a href="#" data-group="code:CS 161" data-key="" data-matched="crn:33940,51625,53476" data-srcdb="202703" class="result__link" data-action="result-detail">
             <span class="result__part"><span class="result__flex--3"><span class="sr-only">Term:</span> Sp</span><span class="flex--grow">2 online</span></span>
           </a>
         </div>
@@ -49,31 +50,24 @@
         <a href="#" class="panel__back icon-link" data-action="panel-back" aria-label="Back"><i class="fa fa-caret-left" aria-hidden="true"></i></a>
         <h2>CS 161 <span class="sr-only">Details</span></h2>
         <a href="#" class="panel__home icon-link icon-link--labelled" data-action="panel-home" aria-label="Home"><i class="fa fa-home" aria-hidden="true"></i><span class="icon-link__label">Reset Search</span></a>
-        <a href="#" class="icon-link icon-link--small deep-link" title="Copy link to clipboard" data-query-string="?details&amp;srcdb=202703&amp;crn=53476" data-action="deep-link-copy"><i class="fa fa-link"><span class="sr-only">Copy link to clipboard</span></i></a>
+        <a href="#" class="icon-link icon-link--small deep-link" title="Copy link to clipboard" data-query-string="?details&amp;srcdb=202702&amp;crn=33940" data-action="deep-link-copy"><i class="fa fa-link"><span class="sr-only">Copy link to clipboard</span></i></a>
       </div>
       <div class="panel__body">
         <div class="cols  noindent pad--tlr-default">
-          <div class="text col-3 detail-courseinfo text--semibold text--huge"><div class="dtl-course-code">CS 161</div><div class="dtl-section">Section 401, CRN 53476</div></div>
+          <div class="text col-3 detail-courseinfo text--semibold text--huge"><div class="dtl-course-code">CS 161</div><div class="dtl-section">Section 400, CRN 33940</div></div>
           <div class="text col-6 detail-title text--huge">INTRODUCTION TO COMPUTER SCIENCE I</div>
         </div>
-        <div class="row  noindent pad--lr-default"><div class="text detail-srcdb">Spring 2027</div></div>
+        <div class="row  noindent pad--lr-default"><div class="text detail-srcdb">Winter 2027</div></div>
         <div class="row  noindent pad--lr-default"><div class="text detail-status"><strong>Status:</strong> Open</div></div>
-        <div class="row  noindent pad--lr-default"><div class="text detail-max_enroll"><strong>Max Enrollment:</strong> 0</div></div>
-        <div class="row  noindent pad--lr-default"><div class="text detail-ssbsect_seats_avail"><strong>Seats Avail:</strong> 0</div></div>
-        <div class="row  noindent">
-          <div class="section">
-            <h4 class="section__title">Important Notes</h4>
-            <div class="section__content"><ul class="course-notes"><li><div class="course-notes--icon"><i class="fa icon--warn"></i></div><div class="course-notes--text">This section is full</div></li></ul></div>
-          </div>
-        </div>
+        <div class="row  noindent pad--lr-default"><div class="text detail-max_enroll"><strong>Max Enrollment:</strong> 60</div></div>
+        <div class="row  noindent pad--lr-default"><div class="text detail-ssbsect_seats_avail"><strong>Seats Avail:</strong> 60</div></div>
         <div class="row  noindent">
           <div class="section section--all_sections">
             <h3 class="section__title">All Sections</h3>
             <div class="section__content">
               <div class="course-sections" role="grid" aria-readonly="true">
                 <div role="row"><div role="columnheader" scope="col">CRN</div><div role="columnheader" scope="col">Section #</div></div>
-                <a role="row" href="#" class="course-section course-section--matched" data-action="result-detail" data-group="code:CS 161" data-srcdb="202703" data-key="crn:51625" data-matched="crn:33940,51625,53476"><div role="rowheader" class="course-section-crn"><span class="header-text">CRN: </span> 51625</div><div role="gridcell" class="course-section-section"><span class="header-text">Section #: </span> 400</div></a>
-                <a role="row" href="#" class="course-section course-section--viewing course-section--matched" data-action="result-detail" data-group="code:CS 161" data-srcdb="202703" data-key="crn:53476" data-matched="crn:33940,51625,53476"><div role="rowheader" class="course-section-crn"><i class="fa fa-fw icon--warn" title="This section is full"><span class="sr-only">This section is full</span></i><span class="header-text">CRN: </span> 53476</div><div role="gridcell" class="course-section-section"><span class="header-text">Section #: </span> 401</div></a>
+                <a role="row" href="#" class="course-section course-section--viewing course-section--matched" data-action="result-detail" data-group="code:CS 161" data-srcdb="202702" data-key="crn:33940" data-matched="crn:33940,51625,53476"><div role="rowheader" class="course-section-crn"><span class="header-text">CRN: </span> 33940</div><div role="gridcell" class="course-section-section"><span class="header-text">Section #: </span> 400</div></a>
               </div>
               <div class="course-sections-calendar text-center margin--huge"><button class="btn btn--inverse" data-action="show-sections-calendar">VIEW CALENDAR</button></div>
             </div>

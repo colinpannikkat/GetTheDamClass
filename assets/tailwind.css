@@ -1,6 +1,7 @@
 /*
- * The one stylesheet of the extension. Both the popup and the content script
- * import it, so the tokens below are the whole visual vocabulary.
+ * The one stylesheet of the extension. The popup, the sign-in frame and the
+ * content script all import it, so the tokens below are the whole visual
+ * vocabulary.
  *
  * Tailwind turns each `--color-*` token into utility classes: `--color-ink`
  * gives `text-ink`, `bg-ink`, `border-ink`, and so on.
@@ -38,10 +39,6 @@
   --text-xs--line-height: 16px;
   --text-sm: 14px;
   --text-sm--line-height: 20px;
-  --text-base: 16px;
-  --text-base--line-height: 24px;
-  --text-lg: 18px;
-  --text-lg--line-height: 26px;
 
   --radius-*: initial;
   --radius-sm: 4px;

@@ -25,7 +25,13 @@ export default defineConfig({
     },
     action: {
       default_title: "GetTheDamClass"
-    }
+    },
+    // The class search may show our sign-in page in a frame (and no other
+    // site may). See entrypoints/signin/SignInFrame.tsx. WXT adds a second
+    // entry by itself, for the stylesheet of the "Notify me" button.
+    web_accessible_resources: [
+      { resources: ["signin.html"], matches: ["https://classes.oregonstate.edu/*"] }
+    ]
   },
 
   vite: () => ({

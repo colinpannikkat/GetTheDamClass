@@ -5,17 +5,17 @@
  * three hooks here run an effect and hand the component a small object with a
  * `status` field to switch on:
  *
- * - `useQuery`       load something when the component appears
- * - `useAction`      do something when the user asks (a click, a form submit)
- * - `useCredentials` who is signed in, kept up to date
+ * - `useQuery`    load something when the component appears
+ * - `useAction`   do something when the user asks (a click, a form submit)
+ * - `useAccount`  who is signed in and what they are watching, kept up to date
  *
  * (React has its own, unrelated `useEffect`. In this file "an effect" always
  * means a value from the Effect library, and React's hook is `React.useEffect`.)
  */
 import { Cause, Effect, Exit, Option, Stream } from "effect"
 import * as React from "react"
-import { CredentialStore } from "./CredentialStore"
-import { type Credentials, type StorageError, UnexpectedError } from "./domain"
+import { type Account, AccountStore } from "./AccountStore"
+import { type StorageError, UnexpectedError } from "./domain"
 import { type AppRuntime, type AppServices, runtime as liveRuntime } from "./runtime"
 
 // ---------------------------------------------------------------------------
@@ -31,10 +31,10 @@ export type QueryState<A, E> = { readonly status: "loading" } | Settled<A, E>
 
 export type ActionState<A, E> = { readonly status: "idle" } | { readonly status: "loading" } | Settled<A, E>
 
-export type CredentialsState =
+export type AccountState =
   | { readonly status: "loading" }
   | { readonly status: "signedOut" }
-  | { readonly status: "signedIn"; readonly credentials: Credentials }
+  | ({ readonly status: "signedIn" } & Account)
   | { readonly status: "failure"; readonly error: StorageError | UnexpectedError }
 
 // ---------------------------------------------------------------------------
@@ -119,8 +119,6 @@ export function useAction<Args extends ReadonlyArray<unknown>, A, E>(
 ): {
   readonly state: ActionState<A, E>
   readonly run: (...args: Args) => Promise<Settled<A, E>>
-  /** Back to "idle", for example to dismiss an error message. */
-  readonly reset: () => void
 } {
   const runtime = React.useContext(RuntimeContext)
   const [state, setState] = React.useState<ActionState<A, E>>({ status: "idle" })
@@ -133,30 +131,25 @@ export function useAction<Args extends ReadonlyArray<unknown>, A, E>(
     setState(settled)
     return settled
   }, [runtime, action])
-  const reset = React.useCallback(() => setState({ status: "idle" }), [])
-  return { state, run, reset }
+  return { state, run }
 }
 
 /**
- * Who is signed in. Updates by itself when the user signs in or out, here or
- * in another part of the extension.
+ * Who is signed in, and the classes they are watching. Updates by itself when
+ * either changes, here or in another part of the extension.
  */
-export function useCredentials(): CredentialsState {
+export function useAccount(): AccountState {
   const runtime = React.useContext(RuntimeContext)
-  const [state, setState] = React.useState<CredentialsState>({ status: "loading" })
+  const [state, setState] = React.useState<AccountState>({ status: "loading" })
 
   React.useEffect(() => {
     const controller = new AbortController()
     const followStore = Effect.gen(function*() {
-      const store = yield* CredentialStore
-      // Runs until aborted: `watch` never ends by itself.
-      yield* Stream.runForEach(store.watch, (saved) =>
+      const store = yield* AccountStore
+      // Runs until aborted: `changes` never ends by itself.
+      yield* Stream.runForEach(store.changes, (saved) =>
         Effect.sync(() =>
-          setState(
-            Option.isSome(saved)
-              ? { status: "signedIn", credentials: saved.value }
-              : { status: "signedOut" }
-          )
+          setState(Option.isSome(saved) ? { status: "signedIn", ...saved.value } : { status: "signedOut" })
         ))
     })
     void settle(runtime, followStore, controller.signal).then((settled) => {

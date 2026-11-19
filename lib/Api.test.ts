@@ -1,7 +1,8 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { Effect, Fiber } from "effect"
+import { TestClock } from "effect/testing"
 import { Api, API_BASE_URL } from "./Api"
-import type { AppError } from "./domain"
+import type { AlreadySubscribed, AppError, NotSubscribed } from "./domain"
 
 // These tests never touch the network: `Api.layerWithFetch` builds the real
 // Api on top of a fake `fetch` that answers with whatever the test says.
@@ -100,23 +101,11 @@ describe("requests", () => {
 })
 
 describe("signIn", () => {
-  it.effect("200 for a new email: the account was created", () =>
-    Effect.gen(function*() {
-      const outcome = yield* callApi(
-        () => jsonResponse(200, { message: "User signed up successfully" }),
-        (api) => api.signIn(credentials)
-      )
-      assert.strictEqual(outcome, "accountCreated")
-    }))
-
-  it.effect("200 for a known email: logged in", () =>
-    Effect.gen(function*() {
-      const outcome = yield* callApi(
-        () => jsonResponse(200, { message: "User logged in" }),
-        (api) => api.signIn(credentials)
-      )
-      assert.strictEqual(outcome, "loggedIn")
-    }))
+  it.effect.each([
+    { title: "a new email, so the account was created", message: "User signed up successfully" },
+    { title: "a known email", message: "User logged in" }
+  ])("200 ($title): succeeds", ({ message }) =>
+    callApi(() => jsonResponse(200, { message }), (api) => api.signIn(credentials)))
 
   it.effect("401: WrongPin, with the server's message", () =>
     Effect.gen(function*() {
@@ -153,7 +142,6 @@ describe("subscribe", () => {
         (api) => api.subscribe(crn, credentials)
       )
       assert.strictEqual(error._tag, "AlreadySubscribed")
-      assert.strictEqual(error.message, "Already subscribed to class")
     }))
 
   it.effect("401: WrongPin", () =>
@@ -315,6 +303,16 @@ describe("listSubscriptions", () => {
 })
 
 describe("problems every call can have", () => {
+  const everyCall: ReadonlyArray<{
+    readonly name: string
+    readonly call: (api: Api["Service"]) => Effect.Effect<unknown, AppError | AlreadySubscribed | NotSubscribed>
+  }> = [
+    { name: "signIn", call: (api) => api.signIn(credentials) },
+    { name: "subscribe", call: (api) => api.subscribe(crn, credentials) },
+    { name: "unsubscribe", call: (api) => api.unsubscribe(crn, credentials) },
+    { name: "listSubscriptions", call: (api) => api.listSubscriptions(credentials) }
+  ]
+
   it.effect("the request cannot be sent (offline): NetworkError", () =>
     Effect.gen(function*() {
       const cause = new TypeError("Failed to fetch")
@@ -326,6 +324,27 @@ describe("problems every call can have", () => {
       )
       assert.strictEqual(error._tag, "NetworkError")
       assert.strictEqual(error._tag === "NetworkError" && error.cause, cause)
+    }))
+
+  it.effect.each(everyCall
+  )("$name: no answer within 30 seconds: NetworkError, and the request is given up", ({ call }) =>
+    Effect.gen(function*() {
+      let signal: AbortSignal | null | undefined
+      const neverAnswers: typeof globalThis.fetch = (_input, init) => {
+        signal = init?.signal
+        return new Promise(() => {})
+      }
+      // Run the call in the background, then move the test's clock forward.
+      const running = yield* Effect.forkChild(
+        Effect.flip(Api.use(call).pipe(Effect.provide(Api.layerWithFetch(neverAnswers))))
+      )
+      yield* TestClock.adjust("29 seconds")
+      assert.isFalse(signal?.aborted)
+      yield* TestClock.adjust("1 second")
+
+      const error = yield* Fiber.join(running)
+      assert.strictEqual(error._tag, "NetworkError")
+      assert.isTrue(signal?.aborted)
     }))
 
   it.effect("the body is not JSON (a proxy's HTML error page): ServerError with the status", () =>
@@ -346,16 +365,6 @@ describe("problems every call can have", () => {
       )
       assert.strictEqual(error._tag, "ServerError")
     }))
-
-  const everyCall: ReadonlyArray<{
-    readonly name: string
-    readonly call: (api: Api["Service"]) => Effect.Effect<unknown, AppError>
-  }> = [
-    { name: "signIn", call: (api) => api.signIn(credentials) },
-    { name: "subscribe", call: (api) => api.subscribe(crn, credentials) },
-    { name: "unsubscribe", call: (api) => api.unsubscribe(crn, credentials) },
-    { name: "listSubscriptions", call: (api) => api.listSubscriptions(credentials) }
-  ]
 
   it.effect.each(everyCall
   )("$name: a status the API does not document (500): ServerError", ({ call }) =>

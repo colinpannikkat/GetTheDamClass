@@ -5,15 +5,15 @@ import type { ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { fakeBrowser } from "wxt/testing/fake-browser"
 import { Api } from "./Api"
-import { CredentialStore } from "./CredentialStore"
+import { AccountStore } from "./AccountStore"
 import { WrongPin } from "./domain"
-import { RuntimeContext, useAction, useCredentials, useQuery } from "./react"
+import { RuntimeContext, useAccount, useAction, useQuery } from "./react"
 
 // Each hook is used by a tiny component that prints its state as text.
 
 /** Render with a runtime whose Api is fake. Storage is WXT's in-memory `browser`. */
 function renderWithFakeApi(ui: ReactNode, fakeApi: Layer.PartialEffectful<Api["Service"]> = {}) {
-  const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.mock(Api, fakeApi), CredentialStore.layer))
+  const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.mock(Api, fakeApi), AccountStore.layer))
   return render(<RuntimeContext value={runtime}>{ui}</RuntimeContext>)
 }
 
@@ -68,7 +68,7 @@ describe("useAction", () => {
     name === "" ? Effect.fail(new WrongPin({ message: "no" })) : Effect.succeed(`hello ${name}`)
 
   function Action({ onDone }: { readonly onDone?: (status: string) => void }) {
-    const { state, run, reset } = useAction(greet)
+    const { state, run } = useAction(greet)
     return (
       <div>
         <p>
@@ -79,7 +79,6 @@ describe("useAction", () => {
         </p>
         <button onClick={() => run("Ada").then((result) => onDone?.(result.status))}>greet Ada</button>
         <button onClick={() => run("")}>greet nobody</button>
-        <button onClick={reset}>reset</button>
       </div>
     )
   }
@@ -91,12 +90,10 @@ describe("useAction", () => {
     expect(await screen.findByText("success: hello Ada")).toBeDefined()
   })
 
-  it("shows a typed error, and reset goes back to idle", async () => {
+  it("shows a typed error", async () => {
     renderWithFakeApi(<Action />)
     fireEvent.click(screen.getByText("greet nobody"))
     expect(await screen.findByText("failure: WrongPin")).toBeDefined()
-    fireEvent.click(screen.getByText("reset"))
-    expect(screen.getByText("idle")).toBeDefined()
   })
 
   it("run resolves with the result", async () => {
@@ -108,26 +105,37 @@ describe("useAction", () => {
   })
 })
 
-describe("useCredentials", () => {
-  function Session() {
-    const session = useCredentials()
-    return <p>{session.status === "signedIn" ? `signedIn: ${session.credentials.email}` : session.status}</p>
+describe("useAccount", () => {
+  function Who() {
+    const account = useAccount()
+    return (
+      <p>
+        {account.status === "signedIn"
+          ? `signedIn: ${account.credentials.email}, watching: ${account.watching.join(" ")}`
+          : account.status}
+      </p>
+    )
   }
 
-  it("follows the saved credentials as they change", async () => {
-    renderWithFakeApi(<Session />)
+  it("follows the saved account as it changes", async () => {
+    renderWithFakeApi(<Who />)
     expect(await screen.findByText("signedOut")).toBeDefined()
 
-    // As if the user signed in somewhere else in the extension.
+    // As if the user signed in somewhere else in the extension...
     await fakeBrowser.storage.local.set({ email: "student@oregonstate.edu", pin: "1234" })
-    expect(await screen.findByText("signedIn: student@oregonstate.edu")).toBeDefined()
+    expect(await screen.findByText("signedIn: student@oregonstate.edu, watching:")).toBeDefined()
 
-    await fakeBrowser.storage.local.remove(["email", "pin"])
+    // ...asked for alerts for a class there...
+    await fakeBrowser.storage.local.set({ watching: ["33940"] })
+    expect(await screen.findByText("signedIn: student@oregonstate.edu, watching: 33940")).toBeDefined()
+
+    // ...and signed out.
+    await fakeBrowser.storage.local.remove(["email", "pin", "watching"])
     expect(await screen.findByText("signedOut")).toBeDefined()
   })
 
   it("stops listening when the component goes away", async () => {
-    const { unmount } = renderWithFakeApi(<Session />)
+    const { unmount } = renderWithFakeApi(<Who />)
     await screen.findByText("signedOut")
     expect(fakeBrowser.storage.local.onChanged.hasListeners()).toBe(true)
     unmount()

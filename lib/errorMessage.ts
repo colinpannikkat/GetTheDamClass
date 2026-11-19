@@ -10,12 +10,8 @@ export function errorMessage(error: AppError): string {
   switch (error._tag) {
     case "WrongPin":
       return "That PIN doesn't match this email. Check it and try again."
-    case "AlreadySubscribed":
-      return "You're already getting alerts for this class."
     case "ClassNotFound":
       return `We couldn't find a class with CRN ${error.crn}.`
-    case "NotSubscribed":
-      return "You aren't getting alerts for this class."
     case "RequestRejected":
       return error.message
     case "NetworkError":

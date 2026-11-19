@@ -8,37 +8,50 @@
  *
  * The list of classes itself is in `ClassList.tsx`.
  */
+import { useState } from "react"
 import { Button } from "@/components/Button"
 import { Message } from "@/components/Message"
 import { SignInForm } from "@/components/SignInForm"
 import { errorMessage } from "@/lib/errorMessage"
-import { useAction, useCredentials, useQuery } from "@/lib/react"
+import { useAccount, useAction, useQuery } from "@/lib/react"
 import { listSubscriptions, signOut } from "@/lib/workflows"
 import { ClassList, ClassListSkeleton } from "./ClassList"
 
 export function App() {
   // Updates by itself, so signing in or out switches the screen.
-  const session = useCredentials()
+  const account = useAccount()
+  const [signedOutHere, setSignedOutHere] = useState(false)
   return (
     // `w-90` is 360px. The height follows the content; Chrome sizes the popup to fit.
     <main className="ui-root flex w-90 flex-col">
       {/* Reading the saved sign-in takes a few milliseconds: show nothing rather than a flash. */}
-      {session.status === "loading" && <div className="h-24" aria-busy="true" />}
-      {session.status === "signedOut" && <SignedOut />}
-      {session.status === "signedIn" && <SignedIn email={session.credentials.email} />}
+      {account.status === "loading" && <div className="h-24" aria-busy="true" />}
+      {account.status === "signedOut" && <SignedOut afterSigningOut={signedOutHere} />}
+      {account.status === "signedIn" && (
+        <SignedIn email={account.credentials.email} onSignedOut={() => setSignedOutHere(true)} />
+      )}
       <Message tone="error" className="m-4">
-        {session.status === "failure" ? "Couldn't read your saved sign-in. Close this popup and open it again." : null}
+        {account.status === "failure" ? "Couldn't read your saved sign-in. Close this popup and open it again." : null}
       </Message>
       <footer className="border-t border-line px-4 py-2 text-center text-xs text-ink-muted">© 2024 Nothing Suspicious</footer>
     </main>
   )
 }
 
-function SignedOut() {
+function SignedOut({ afterSigningOut }: { readonly afterSigningOut: boolean }) {
   return (
     <section className="flex flex-col gap-4 p-4">
       <Brand />
-      <p className="text-ink-muted">Get an email when a seat opens up in a full class at Oregon State.</p>
+      {afterSigningOut
+        ? (
+          // Signing out only makes this browser forget the account. Say so,
+          // or the emails that keep coming would be a surprise.
+          <Message>
+            Your alerts keep running: to stop one, sign in again and press Stop, or use the Unsubscribe button in its
+            confirmation email.
+          </Message>
+        )
+        : <p className="text-ink-muted">Get an email when a seat opens up in a full class at Oregon State.</p>}
       <SignInForm />
     </section>
   )
@@ -47,7 +60,7 @@ function SignedOut() {
 /** `useAction` wants a function; `signOut` is an effect that takes no arguments. */
 const runSignOut = () => signOut
 
-function SignedIn({ email }: { readonly email: string }) {
+function SignedIn({ email, onSignedOut }: { readonly email: string; readonly onSignedOut: () => void }) {
   // Loads when the popup opens, and again if another account signs in.
   const { state, reload } = useQuery(() => listSubscriptions, [email])
   const signOutAction = useAction(runSignOut)
@@ -67,7 +80,12 @@ function SignedIn({ email }: { readonly email: string }) {
           size="sm"
           className="-mr-2"
           loading={signOutAction.state.status === "loading"}
-          onClick={() => signOutAction.run()}
+          onClick={async () => {
+            const result = await signOutAction.run()
+            if (result.status === "success") {
+              onSignedOut()
+            }
+          }}
         >
           Sign out
         </Button>
@@ -88,7 +106,7 @@ function SignedIn({ email }: { readonly email: string }) {
         )}
 
         <Message>{mustSignInAgain ? "Your saved PIN no longer works. Sign in again to see your classes." : null}</Message>
-        {mustSignInAgain && <SignInForm onSignedIn={reload} />}
+        {mustSignInAgain && <SignInForm email={email} onSignedIn={reload} />}
       </section>
     </>
   )

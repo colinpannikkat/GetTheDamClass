@@ -23,7 +23,7 @@ export function TextField({ label, hint, className, ...inputProps }: TextFieldPr
         aria-describedby={hint ? hintId : undefined}
         className={cx(
           "h-10 w-full rounded-md border border-line-strong bg-surface px-3 font-sans text-sm text-ink",
-          "placeholder:text-ink-muted disabled:opacity-50",
+          "placeholder:text-ink-muted",
           "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent-ink",
           className
         )}

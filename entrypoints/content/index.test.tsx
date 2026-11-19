@@ -1,21 +1,29 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { ContentScriptContext } from "wxt/utils/content-script-context"
 import { fakeBrowser } from "wxt/testing/fake-browser"
-import { findButtonBar, findDetailsPanels, findPanelContent, findPanelStack } from "./detailsPanel"
-import pageHtml from "./fixtures/details-panel.html?raw"
+import { ContentScriptContext } from "wxt/utils/content-script-context"
+import { API_BASE_URL } from "@/lib/Api"
+import { findButtonBar, findDetailsPanels, findPanelStack } from "./detailsPanel"
+import springPage from "./fixtures/spring-2027-section.html?raw"
+import winterPage from "./fixtures/winter-2027-section.html?raw"
 import contentScript from "./index"
 
-// These tests start the content script on the fixture page and then change
-// the page the way the real one does. They never press the button, so no
-// backend is involved; `NotifyControl.test.tsx` covers what a press does.
+// These tests start the content script on a fixture page and then change the
+// page the way the real one does. `NotifyControl.test.tsx` covers what the
+// control itself does.
+
+// The fixtures are Winter and Spring 2027 sections. Pin the supported term to
+// Winter here, so these tests keep passing when `lib/term.ts` moves on.
+vi.mock("@/lib/term", () => ({ SUPPORTED_TERM: { code: "202702", label: "Winter 2027" } }))
 
 const HOST = "getthedamclass-notify"
 
 let ctx: ContentScriptContext
+/** Every request the script sent to the backend (answered here with a plain 200). */
+let backendRequests: Array<{ readonly path: string; readonly body: unknown }>
 
-/** Load the fixture, start the script, and wait for the first control. */
-async function startOnFixture() {
+/** Load a fixture, start the script, and wait for the first control. */
+async function startOn(pageHtml: string) {
   document.body.innerHTML = pageHtml
   ctx = new ContentScriptContext("content", { matches: [], cssInjectionMode: "ui" })
   await contentScript.main(ctx)
@@ -25,31 +33,55 @@ async function startOnFixture() {
 
 const hostCount = () => document.querySelectorAll(HOST).length
 
-/** The text of the control's button, read through its shadow root. */
-const buttonText = (panel: Element) => panel.querySelector(HOST)?.shadowRoot?.querySelector("button")?.textContent
+/** What our control shows in a panel, read through its shadow root. */
+const shadow = (panel: Element) => panel.querySelector(HOST)?.shadowRoot
+const button = (panel: Element) => shadow(panel)?.querySelector("button") ?? null
+const buttonText = (panel: Element) => button(panel)?.textContent
+const dialog = (panel: Element) => shadow(panel)?.querySelector("[role=dialog]") ?? null
+const noteText = (panel: Element) => shadow(panel)?.querySelector("p")?.textContent
 
-/**
- * Redraw a details panel the way the page does: throw away the head, body and
- * foot, and build new ones.
- */
-function redraw(panel: Element, options: { readonly section: string | null; readonly foot: boolean }) {
-  findPanelContent(panel)!.innerHTML = `
-    <div class="panel__head"><h2>CS 161</h2></div>
-    <div class="panel__body">
-      <div class="dtl-course-code">CS 161</div>
-      ${options.section === null ? "" : `<div class="dtl-section">${options.section}</div>`}
-    </div>
-    ${
-    options.foot
-      ? `<div class="panel__foot"><div class="cart-controls button-bar button-bar--right-align"><button class="btn">ADD TO CART</button></div></div>`
-      : ""
-  }`
+/** Let the observer and React catch up, before checking that something did NOT happen. */
+const settled = () => new Promise((resolve) => setTimeout(resolve, 20))
+
+interface Shown {
+  /** The section line, or `null` for the overview of a class. */
+  readonly section: string | null
+  /** The term of the section's row in "All Sections". Default: Winter 2027. */
+  readonly term?: string | null
+  readonly foot: boolean
+}
+
+/** The head, body and foot of a details panel, the way the page builds them. */
+const contentHtml = ({ section, term = "202702", foot }: Shown) => `
+  <div class="panel__head"><h2>CS 161</h2></div>
+  <div class="panel__body">
+    <div class="dtl-course-code">CS 161</div>
+    ${section === null ? "" : `<div class="dtl-section">${section}</div>`}
+    ${term === null ? "" : `<a class="course-section course-section--viewing" data-srcdb="${term}"></a>`}
+  </div>
+  ${
+  foot
+    ? `<div class="panel__foot"><div class="cart-controls button-bar button-bar--right-align"><button class="btn">ADD TO CART</button></div></div>`
+    : ""
+}`
+
+/** Redraw a details panel the way the page does: throw away its head, body and foot, and build new ones. */
+function redraw(panel: Element, shown: Shown) {
+  panel.querySelector(".panel__content")!.innerHTML = contentHtml(shown)
 }
 
 beforeEach(() => {
   fakeBrowser.reset()
-  // The script loads its stylesheet from the extension; give it an empty one.
-  vi.stubGlobal("fetch", () => Promise.resolve(new Response("")))
+  backendRequests = []
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input))
+    if (url.origin === API_BASE_URL) {
+      backendRequests.push({ path: url.pathname, body: JSON.parse(String(init?.body)) })
+      return Promise.resolve(new Response(JSON.stringify({ message: "ok" })))
+    }
+    // The script loads its stylesheet from the extension; give it an empty one.
+    return Promise.resolve(new Response(""))
+  })
 })
 afterEach(() => {
   ctx.notifyInvalidated()
@@ -59,15 +91,16 @@ afterEach(() => {
 
 describe("content script", () => {
   it("puts one control just before the details panel's button bar", async () => {
-    const panel = await startOnFixture()
+    const panel = await startOn(winterPage)
     expect(panel.querySelector(HOST)?.nextElementSibling).toBe(findButtonBar(panel))
-    expect(buttonText(panel)).toBe("Notify me")
+    await expect.poll(() => buttonText(panel)).toBe("Notify me")
     // The page's own bar is left exactly as it was.
     expect(findButtonBar(panel)!.children).toHaveLength(1)
+    expect(backendRequests).toEqual([])
   })
 
   it("adds the control again, once, each time the page redraws the panel", async () => {
-    const panel = await startOnFixture()
+    const panel = await startOn(winterPage)
 
     redraw(panel, { section: "Section 400, CRN 51625", foot: true })
     expect(hostCount()).toBe(0) // The page threw ours away with the old foot.
@@ -78,25 +111,35 @@ describe("content script", () => {
     expect(hostCount()).toBe(1)
   })
 
+  it("adds the control again when the page replaces more of the panel than its head, body and foot", async () => {
+    const panel = await startOn(winterPage)
+
+    // Not what the page does today, but nothing here should depend on which
+    // element inside the panel the page chooses to rebuild.
+    panel.innerHTML = `<div class="panel__content">${contentHtml({ section: "Section 400, CRN 51625", foot: true })}</div>`
+    expect(hostCount()).toBe(0)
+
+    await expect.poll(() => panel.querySelector(HOST)?.nextElementSibling).toBe(findButtonBar(panel))
+    expect(hostCount()).toBe(1)
+  })
+
   it("shows nothing when the panel has no button bar or no CRN, and comes back when it has both", async () => {
-    const panel = await startOnFixture()
-    // Let the observer catch up before checking that nothing was added.
-    const settled = () => new Promise((resolve) => setTimeout(resolve, 20))
+    const panel = await startOn(winterPage)
 
-    redraw(panel, { section: "Section 400, CRN 70742", foot: false }) // a past term
+    redraw(panel, { section: "Section 400, CRN 70742", term: "202700", foot: false }) // a past term
     await settled()
     expect(hostCount()).toBe(0)
 
-    redraw(panel, { section: null, foot: true }) // a class overview: no section chosen
+    redraw(panel, { section: null, term: null, foot: true }) // a class overview: no section chosen
     await settled()
     expect(hostCount()).toBe(0)
 
-    redraw(panel, { section: "Section 401, CRN 53476", foot: true })
+    redraw(panel, { section: "Section 400, CRN 33940", foot: true })
     await expect.poll(hostCount).toBe(1)
   })
 
   it("gives every details panel its own control when the page stacks a second one", async () => {
-    const first = await startOnFixture()
+    const first = await startOn(winterPage)
     const second = first.cloneNode(true) as Element
     second.querySelector(HOST)?.remove()
     second.querySelector(".dtl-section")!.textContent = "Section 010, CRN 12345"
@@ -109,25 +152,34 @@ describe("content script", () => {
   })
 
   it("mounts a fresh control when the section changes but the page keeps the button bar", async () => {
-    const panel = await startOnFixture()
-    const hostBefore = panel.querySelector(HOST)!
-    const buttonBefore = hostBefore.shadowRoot!.querySelector("button")
+    const panel = await startOn(winterPage)
+    await expect.poll(() => buttonText(panel)).toBe("Notify me")
+    const buttonBefore = button(panel)
 
     // Not what the page does today (it always rebuilds the foot too), but if
-    // it ever keeps the bar, the control must not carry state across sections.
-    const newBody = document.createElement("div")
-    newBody.className = "panel__body"
-    newBody.innerHTML = `<div class="dtl-section">Section 400, CRN 51625</div>`
-    panel.querySelector(".panel__body")!.replaceWith(newBody)
+    // it ever keeps the bar, the control must not carry over to the new section.
+    panel.querySelector(".dtl-section")!.textContent = "Section 400, CRN 51625"
 
-    const buttonNow = () => panel.querySelector(HOST)?.shadowRoot?.querySelector("button") ?? null
-    await expect.poll(() => buttonNow() !== null && buttonNow() !== buttonBefore).toBe(true)
+    await expect.poll(() => button(panel) !== null && button(panel) !== buttonBefore).toBe(true)
     expect(hostCount()).toBe(1)
     expect(buttonText(panel)).toBe("Notify me")
   })
 
+  it("leaves the control alone when the page changes something else in the panel", async () => {
+    const panel = await startOn(winterPage)
+    await expect.poll(() => buttonText(panel)).toBe("Notify me")
+    const buttonBefore = button(panel)
+
+    // The real page adds its "copy link" button to the head a moment after drawing the panel.
+    panel.querySelector(".panel__head")!.insertAdjacentHTML("beforeend", `<a class="deep-link" href="#">link</a>`)
+    await settled()
+
+    expect(button(panel)).toBe(buttonBefore)
+    expect(hostCount()).toBe(1)
+  })
+
   it("removes the control when the panel goes away", async () => {
-    const panel = await startOnFixture()
+    const panel = await startOn(winterPage)
     const host = panel.querySelector(HOST)!
 
     panel.remove() // the user pressed Back
@@ -138,13 +190,13 @@ describe("content script", () => {
   })
 
   it("removes every control and stops watching when the extension context is invalidated", async () => {
-    const panel = await startOnFixture()
+    const panel = await startOn(winterPage)
 
     ctx.notifyInvalidated()
     expect(hostCount()).toBe(0)
 
     redraw(panel, { section: "Section 400, CRN 51625", foot: true })
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await settled()
     expect(hostCount()).toBe(0)
   })
 
@@ -152,7 +204,83 @@ describe("content script", () => {
     document.body.innerHTML = "<h1>403 Forbidden</h1>"
     ctx = new ContentScriptContext("content", { matches: [], cssInjectionMode: "ui" })
     await contentScript.main(ctx)
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await settled()
     expect(hostCount()).toBe(0)
+  })
+})
+
+describe("content script, terms", () => {
+  it("offers alerts on a section of the term the backend watches", async () => {
+    const panel = await startOn(winterPage)
+    await expect.poll(() => buttonText(panel)).toBe("Notify me")
+    expect(shadow(panel)?.textContent).not.toContain("Seat alerts cover")
+  })
+
+  it("shows a note instead of the button on a section of another term", async () => {
+    const panel = await startOn(springPage)
+    await expect.poll(() => noteText(panel)).toBe("Seat alerts cover Winter 2027 classes only.")
+    expect(button(panel)).toBeNull()
+    // In the same spot as the button would be.
+    expect(panel.querySelector(HOST)?.nextElementSibling).toBe(findButtonBar(panel))
+  })
+
+  it("swaps between button and note as the panel moves between terms", async () => {
+    const panel = await startOn(winterPage)
+    await expect.poll(() => buttonText(panel)).toBe("Notify me")
+
+    redraw(panel, { section: "Section 401, CRN 53476", term: "202703", foot: true })
+    await expect.poll(() => noteText(panel)).toBe("Seat alerts cover Winter 2027 classes only.")
+
+    redraw(panel, { section: "Section 400, CRN 33940", term: "202702", foot: true })
+    await expect.poll(() => buttonText(panel)).toBe("Notify me")
+    expect(hostCount()).toBe(1)
+  })
+
+  it("keeps the button when the panel does not say which term it shows", async () => {
+    const panel = await startOn(winterPage)
+    redraw(panel, { section: "Section 400, CRN 33940", term: null, foot: true })
+    await expect.poll(() => buttonText(panel)).toBe("Notify me")
+  })
+})
+
+describe("content script, signing in from the page", () => {
+  const student = { email: "student@oregonstate.edu", pin: "1234" }
+
+  /** Press "Notify me" while signed out, and wait for the sign-in popover. */
+  async function pressSignedOut(panel: Element) {
+    await expect.poll(() => buttonText(panel)).toBe("Notify me")
+    button(panel)!.click()
+    await expect.poll(() => dialog(panel)).not.toBeNull()
+  }
+
+  /** What the framed sign-in page does once the server has accepted the email and PIN. */
+  const finishSignIn = () => fakeBrowser.storage.local.set({ ...student, watching: [] })
+
+  it("subscribes to the section the user pressed on once they have signed in", async () => {
+    const panel = await startOn(winterPage)
+    await pressSignedOut(panel)
+    expect(backendRequests).toEqual([])
+
+    await finishSignIn()
+
+    await expect.poll(() => buttonText(panel)).toBe("Watching")
+    expect(backendRequests).toEqual([{ path: "/sub", body: { crn: "33940", ...student } }])
+  })
+
+  it("drops the request when the panel has moved on to another section before the sign-in finishes", async () => {
+    const panel = await startOn(winterPage)
+    await pressSignedOut(panel) // for CRN 33940
+
+    // The sign-in is still on its way when the user picks another section.
+    redraw(panel, { section: "Section 010, CRN 12345", foot: true })
+    await expect.poll(() => buttonText(panel)).toBe("Notify me")
+    await finishSignIn()
+    await settled()
+
+    // Nothing was subscribed: not the section left behind, and above all not
+    // the one that happens to be on screen now.
+    expect(backendRequests).toEqual([])
+    expect(buttonText(panel)).toBe("Notify me")
+    expect(dialog(panel)).toBeNull()
   })
 })

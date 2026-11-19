@@ -6,11 +6,11 @@
  *   EmptyState         how to add a class
  *   ClassListSkeleton  grey placeholder rows while the list loads
  */
-import { type Ref, useEffect, useRef, useState } from "react"
+import { type Ref, useRef, useState } from "react"
 import { browser } from "wxt/browser"
 import { Button } from "@/components/Button"
 import { Message } from "@/components/Message"
-import { type AppError, type Subscription, subscriptionLabel } from "@/lib/domain"
+import { type AppError, type Subscription, subscriptionFullLabel, subscriptionLabel } from "@/lib/domain"
 import { errorMessage } from "@/lib/errorMessage"
 import { useAction } from "@/lib/react"
 import { unsubscribe } from "@/lib/workflows"
@@ -39,7 +39,7 @@ export function ClassList({ subscriptions }: { readonly subscriptions: ReadonlyA
       {/* Names the class, so a click on the wrong row is noticed and easy to put right. */}
       <Message tone="success">
         {lastStopped &&
-          `Stopped alerts for ${subscriptionLabel(lastStopped)}. To watch it again, press "Notify me" on its class page.`}
+          `Stopped alerts for ${subscriptionFullLabel(lastStopped)}. To watch it again, press "Notify me" on its class page.`}
       </Message>
       {watching.length === 0 ? <EmptyState /> : (
         // The list scrolls when it is long. `max-h-84` (336px) is five and a
@@ -62,31 +62,17 @@ function ClassRow({ subscription, onStopped }: {
   readonly onStopped: (subscription: Subscription) => void
 }) {
   const stop = useAction(unsubscribe)
-  const stopButton = useRef<HTMLButtonElement>(null)
   const label = subscriptionLabel(subscription)
 
   async function handleStop() {
     const result = await stop.run(subscription.crn)
-    // "Not subscribed" means the alerts were already stopped somewhere else
-    // (on the class page, or in another browser), so the row goes away too.
-    if (result.status === "success" || result.error._tag === "NotSubscribed") {
+    if (result.status === "success") {
       onStopped(subscription)
     }
-    // After any other failure the row stays, with the reason under it.
+    // After a failure the row stays, with the reason under it.
   }
 
-  // ("Not subscribed" was treated as done above, so it is not shown as an error.)
-  const error = stop.state.status === "failure" && stop.state.error._tag !== "NotSubscribed" ? stop.state.error : null
-
-  // A busy button is disabled, and the browser takes keyboard focus away from
-  // a disabled button. After a failure, hand it back so Enter tries again
-  // (unless the user has moved on to something else in the meantime).
-  const failed = error !== null
-  useEffect(() => {
-    if (failed && document.activeElement === document.body) {
-      stopButton.current?.focus()
-    }
-  }, [failed])
+  const error = stop.state.status === "failure" ? stop.state.error : null
 
   return (
     <li className="flex flex-col gap-2 border-b border-line py-3 last:border-b-0">
@@ -98,13 +84,13 @@ function ClassRow({ subscription, onStopped }: {
           {subscription.name !== null && <p className="text-xs text-ink-muted">CRN {subscription.crn}</p>}
         </div>
         <Button
-          ref={stopButton}
           size="sm"
           // A fixed width, so the row does not shift when the spinner appears.
           className="w-19"
           loading={stop.state.status === "loading"}
-          // Screen readers hear which class each "Stop" belongs to.
-          aria-label={`Stop alerts for ${label}`}
+          // Screen readers hear which class each "Stop" belongs to. The CRN
+          // is part of it because two sections of a course share one name.
+          aria-label={`Stop alerts for ${subscriptionFullLabel(subscription)}`}
           onClick={handleStop}
         >
           Stop
