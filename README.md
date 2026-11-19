@@ -4,6 +4,10 @@ Class vacancy notifier Chrome extension for Oregon State University.
 
 On [classes.oregonstate.edu](https://classes.oregonstate.edu), open a class and press **Notify me**: you get an email when a seat opens or the class fills up. **Stop alerts**, next to it, turns that off again. The toolbar popup lists the classes you are watching and lets you stop the alerts there too.
 
+| On the class page | In the toolbar popup |
+| --- | --- |
+| <img src="docs/screenshots/class-page-watching.png" alt="A class panel with the Watching button and a Stop alerts link" width="560"> | <img src="docs/screenshots/popup.png" alt="The popup listing three watched classes, each with a Stop button" width="260"> |
+
 Alerts cover the classes of **one term at a time** (right now Winter 2027), because that is what the backend watches. On a class of any other term the page shows a short note instead of the button. See [Each term](#each-term).
 
 We have a backend server running on a private VPS to track course vacancies and alert students. The backend code can be found [here](https://github.com/aj-arts/GetTheDamClass-Backend).
