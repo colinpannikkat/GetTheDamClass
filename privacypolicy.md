@@ -34,14 +34,16 @@ We do not use your information for advertising or other unrelated purposes.
 ## **Data Sharing and Disclosure**
 
 We do not sell, rent, or share your information with third parties except in the following cases:
-- **Service Providers**: The server runs on Cloudflare (Cloudflare Workers, with its data in a Cloudflare D1 database), and sign-in codes and alert emails are sent through Cloudflare's email service. Cloudflare therefore processes your email address and the data described here on our behalf.
+- **Service Providers**: The server runs on Cloudflare (Cloudflare Workers, with its data in a Cloudflare D1 database), and sign-in codes and alert emails are sent through Cloudflare's email service. Cloudflare therefore processes your email address and the data described here on our behalf. In particular:
+  - Cloudflare's email service keeps a record of each email it sends: the sender, the recipient, the subject, and when and whether it was delivered. A sign-in email's subject contains its code, and an alert's subject names the class. Cloudflare's documentation says these records are kept for 31 days. We have turned off the service's option to also keep a copy of each message.
+  - Cloudflare is the network in front of the server, so it processes the IP address of every request to the server, to deliver it and to protect the server (the limit on sign-in requests counts per IP address). It keeps analytics about these requests for a limited time, which its documentation gives as at least 31 days.
 - **Oregon State University**: To check for open seats, the server asks Oregon State's public class search about the classes being watched, by term and CRN. Nothing about you is sent with these requests.
 - **Legal Compliance**: When required to comply with applicable laws, regulations, or legal proceedings.
 
 ## **Data Storage and Security**
 
 1. **Data Transmission**:
-   - The extension reaches its server only over HTTPS, which encrypts everything sent between your browser and the server. The server reaches Oregon State's class search over HTTPS as well.
+   - The extension reaches its server only over HTTPS, which encrypts everything sent between your browser and the server. A request sent to the server's address over plain HTTP is answered with a redirect to HTTPS before it reaches the server. The server reaches Oregon State's class search over HTTPS as well.
 
 2. **Data Storage**:
    - The server stores your email address and when your account was created, and your alerts: for each, the term, the CRN, the class title, when you started it, and a random key used in the "stop these alerts" link in your emails.
@@ -50,8 +52,9 @@ We do not sell, rent, or share your information with third parties except in the
    - Earlier versions of the extension kept a 4-digit PIN in your browser. The current version deletes it from your browser the first time it runs after the update.
 
 3. **Server Logs**:
-   - For each request, the server logs the method, the path (for example `/alerts/202702/33940`), and the result. These lines do not contain your email address, sign-in code, or token.
+   - For each request, the server logs the method, the path (for example `/alerts/202702/33940`), and the result. Cloudflare stores each line with its time and the request's address, with the part after a `?` removed (so the key in a "stop these alerts" link is not kept). These lines do not contain your email address, sign-in code, token, or IP address. They are kept for 7 days.
    - When something goes wrong, the server logs what happened, such as a class it could not check or an email that could not be sent. When Cloudflare's email service refuses a message, the reason it gives is logged as it is, and we cannot rule out that such a reason names the address the email was for.
+   - The page that a "stop these alerts" link opens sends nothing to analytics: it runs no scripts, and tells your browser not to pass the page's address on to other sites.
 
 4. **Automatic Removal**: A job on the server runs once a day and removes:
    - Sign-in tokens that have not been used for a year, which signs that browser out.

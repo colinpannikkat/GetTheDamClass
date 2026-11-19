@@ -85,7 +85,7 @@ curl 'http://localhost:5173/cdn-cgi/local/scheduled?cron=0+11+*+*+*'    # the da
 
 Each answers `ok` or `exception`; what they log (one line per run, with its counts), and any alert emails, appear in the `pnpm dev` terminal. To look into the local database meanwhile, `POST` SQL as `{"sql":"SELECT * FROM classes"}` to `http://localhost:5173/cdn-cgi/local/explorer/api/d1/database/00000000-0000-4000-8000-000000000000/raw`. Both jobs ask the real university: the check about every watched class, and the cleanup for its term list (one request), so run them sparingly.
 
-To start over, delete `apps/server/.cloudflare/state`; do so too after a change to the tables in `migrations/`. `pnpm typecheck`, `pnpm test` and `pnpm build` work there as they do in the extension; the tests use a SQLite database in Node and never reach the network.
+To start over, delete `apps/server/.cloudflare/state`. Do so too after editing a migration in `migrations/` that has not reached production yet. A migration that has been applied in production is never edited; a change to the tables goes in a new file (see [Applying a new migration](#applying-a-new-migration)). `pnpm typecheck`, `pnpm test` and `pnpm build` work there as they do in the extension; the tests use a SQLite database in Node and never reach the network.
 
 ### Trying the extension against a local server
 
@@ -240,18 +240,35 @@ The server runs on the Cloudflare account that holds the `ajinkya.dev` zone (a f
 | --- | --- | --- |
 | Worker | `getthedamclass`, at `https://api.getthedamclass.ajinkya.dev` (a custom domain), with both cron triggers. Its `workers.dev` address and preview URLs are off, so the API answers at that one address. | `apps/server/cloudflare.config.ts` |
 | D1 database | `getthedamclass`, ID `8ec9fdcd-620b-414f-b468-8278130c41d0`, kept in western North America | its ID in `cloudflare.config.ts`, its tables in `migrations/` |
-| Email sending domain | `getthedamclass.ajinkya.dev`; every email comes from `alerts@getthedamclass.ajinkya.dev` | set up once, below |
+| Email sending domain | `getthedamclass.ajinkya.dev`; every email comes from `alerts@getthedamclass.ajinkya.dev`. Email preview is off. | set up once, below |
 | Rate-limiting rule | "GetTheDamClass: limit sign-in requests per IP", on the zone | set up once, below |
+| Redirect rule | "GetTheDamClass: send plain HTTP to the API to HTTPS", on the zone | set up once, below |
+
+### Before changing anything
+
+`cf` changes whichever account it is logged in to. `pnpm exec cf auth whoami` shows that login and its accounts. The dry run names the database only by its name (`env.DB (getthedamclass)`), so check the ID too: `pnpm exec cf d1 get 8ec9fdcd-620b-414f-b468-8278130c41d0` must find a database called `getthedamclass` on that account. The migration commands below take the ID, so they cannot reach another database by mistake.
 
 ### Deploying a new version
 
 ```sh
 cd apps/server
 pnpm exec cf deploy --dry-run   # builds and lists the bindings: MAILER must be "cloudflare", PUBLIC_URL the real address
-pnpm exec cf deploy
+pnpm exec cf deploy --message "what changed"
 ```
 
-`cf deploy` builds in "production" mode. Never give it `-m development`: that build prints emails instead of sending them, sign-in codes included, into the logs. If the version needs a new migration, apply it first.
+`cf deploy` builds in "production" mode. With `-m development` it would build the local setup (emails printed, the local database), but under the name `getthedamclass-local` and with no address, so a mistaken `-m development` cannot replace the real Worker. If the version needs a new migration, apply it first.
+
+### Going back after a bad deploy
+
+Each deploy keeps the earlier versions. To put one back:
+
+```sh
+pnpm exec cf workers deployments list --worker getthedamclass    # each deploy, with its version ID and message
+pnpm exec cf workers deployments create --worker getthedamclass \
+  --versions '[{"version_id":"<the earlier version ID>","percentage":100}]'
+```
+
+That puts back the version's code and bindings only: the cron triggers, the domain and the log settings stay as the latest deploy set them. Or check out the earlier commit and `cf deploy` it, which puts back its whole configuration. Neither undoes a migration. If a migration or a bug damaged the data, D1 can restore the whole database to any minute of the last 30 days, which undoes every write made since, students' included. That is `pnpm exec cf d1 time-travel restore 8ec9fdcd-620b-414f-b468-8278130c41d0 --timestamp <ISO 8601 time>`. Try it with `--dry-run` first.
 
 ### Applying a new migration
 
@@ -262,7 +279,7 @@ pnpm exec cf d1 migrations list 8ec9fdcd-620b-414f-b468-8278130c41d0    # what h
 pnpm exec cf d1 migrations apply 8ec9fdcd-620b-414f-b468-8278130c41d0
 ```
 
-The version already running keeps using the database until the deploy, so a migration must not break it (add columns and tables; remove things only in a later migration, once no deployed code uses them).
+The version already running keeps using the database until the deploy, so a migration must not break it (add columns and tables; remove things only in a later migration, once no deployed code uses them). A migration that has been applied here is never edited afterwards; a change goes in a new file.
 
 ### Reading the logs
 
@@ -270,26 +287,43 @@ The version already running keeps using the database until the deploy, so a migr
 pnpm exec cf observability tail --worker getthedamclass    # live, one JSON line per log line
 ```
 
-The server writes one line per request (method, path, status), one per check (`Checked the watched classes:`, every minute, with its counts), one per daily cleanup (`Daily cleanup done.`, at 11:00 UTC), and a warning for every email that could not be sent, with Cloudflare's reason. Workers Logs keeps them for 7 days; to look further back than the tail, open the Worker in the Cloudflare dashboard and choose **Logs**.
+The server writes one line per request (method, path, status), one per check (`Checked the watched classes:`, every minute, with its counts), one per daily cleanup (`Daily cleanup done.`, at 11:00 UTC), and a warning for every email that could not be sent, with Cloudflare's reason. Cloudflare stores each line with the request's method and URL, its query string removed (`redactQueryString` in `cloudflare.config.ts`), but not its headers or IP address. Workers Logs keeps them for 7 days. To look further back than the tail, open the Worker in the Cloudflare dashboard and choose **Logs**. Only one live tail runs per login: starting a second one ends the first, with "Live tail ended. Another live tail session may have replaced this one."
+
+**Nobody is told when something breaks.** If the university changes its class search, every check fails: the log shows `"failed"` above zero on every `Checked the watched classes:` line, plus a line per class saying why it could not be checked. No alert goes out, and no one is notified. Look at the log now and then, and whenever students say alerts stopped coming. (See [When the university changes its page](#when-the-university-changes-its-page) for the extension's side.)
 
 ### How many emails it can send
 
-Cloudflare lets a new account send 200 emails a day, counting sign-in codes, confirmations and alerts together, to any address. The limit rises by itself as the account keeps sending mail that is not bounced or reported; Cloudflare's [limits page](https://developers.cloudflare.com/email-service/platform/limits/) links a form for asking sooner. Past the limit a send fails, and the server logs it like any other email that could not be sent.
+Cloudflare lets a new account send 200 emails a day, counting sign-in codes, confirmations and alerts together, to any address. The limit rises by itself as the account keeps sending mail that is not bounced or reported. Cloudflare's [limits page](https://developers.cloudflare.com/email-service/platform/limits/) links a form for asking sooner, which is worth doing before a release. Past the limit a send fails, and the server logs it like any other email that could not be sent. In practice:
+
+- Nobody can sign in until the limit resets: the code never arrives, and the form says it couldn't send the email.
+- A seat alert that fails then is lost, not sent later (`sendAlert` in `src/poll.ts`). The check has already recorded the change, so that student only hears of the next one.
+- Anyone can ask for codes for any addresses (one a minute per address, and the rate limit below per IP), so someone determined can use up the day's emails.
+
+The Workers Paid plan includes 3,000 emails a month. Each one after that costs $0.35 per 1,000 ([pricing](https://developers.cloudflare.com/email-service/platform/pricing/)).
 
 ```sh
-pnpm exec cf email-sending limits get    # the daily limit, and how many were sent since it last reset
+pnpm exec cf email-sending limits get    # the daily limit, how many were sent, and when it resets
 ```
+
+### Addresses Cloudflare has stopped sending to
+
+After a hard bounce (an address that does not exist, say) or a spam complaint, Cloudflare puts the address on a suppression list. A hard bounce stays there for 7 days or for good, depending on the cause, and a complaint for good. Every send to that address then fails, so that student sees "We couldn't send the email with your code" at sign-in and gets no alerts. `pnpm exec cf email-sending suppressions list` shows them (`--email <address>` for one), and `cf email-sending suppressions delete` removes one once the student has fixed the cause (see [Cloudflare's page](https://developers.cloudflare.com/email-service/concepts/suppressions/)).
+
+### The certificate
+
+Setting up the custom domain made Cloudflare issue an advanced certificate for `api.getthedamclass.ajinkya.dev` that also names the zone's apex, `ajinkya.dev`. Cloudflare prefers an advanced certificate to the zone's universal one, so the apex now serves it too. It costs nothing: a custom domain's certificate needs no Advanced Certificate Manager subscription. Removing the custom domain does not delete the certificate ([Cloudflare's page](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/#certificates)). Until someone deletes it under **SSL/TLS** > **Edge Certificates**, it keeps serving the apex. After that the apex goes back to the universal certificate, which covers `ajinkya.dev` and `*.ajinkya.dev`.
 
 ### Setting it up on another account
 
-This was done once, in this order:
+This was done once, in this order. Everything below uses the new account's own resources: its database ID wherever this README prints `8ec9fdcd-...`, and its zone for `<zone>`.
 
-1. **Database.** `pnpm exec cf d1 create --name getthedamclass --primary-location-hint wnam`. Put the ID it prints in `PRODUCTION_DATABASE_ID` in `cloudflare.config.ts`, then apply the migrations as above.
-2. **Email.** `pnpm exec cf email-sending subdomains create -z <zone> --name getthedamclass.<zone>`. It adds six DNS records, all under that name: three MX and an SPF record on `cf-bounce.getthedamclass.<zone>`, the DKIM key on `cf-bounce._domainkey.getthedamclass.<zone>`, and a DMARC policy on `_dmarc.getthedamclass.<zone>`. `pnpm exec cf email-sending subdomains preview -z <zone> --name getthedamclass.<zone>` shows any that are missing. `pnpm exec cf email-sending limits get` must say `"recipient_mode": "arbitrary"`: the account can send to any address (an account with no sending domain can only send to its own verified addresses).
-3. **Worker.** Change the domain in `cloudflare.config.ts` (and `SENDER`, `PUBLIC_URL`), then deploy as above. The first deploy creates the custom domain's DNS record and its certificate, which takes a few minutes: until then HTTPS to it fails with a handshake error. (Here the very first deploy also stopped with "This Worker does not exist on your account" right after uploading; running it again finished it.)
-4. **Rate limit.** Anyone can call `POST /sign-in/code`, which sends an email, and `POST /sign-in`, which tries a code, without signing in. The server already allows one code a minute per address and five tries per code; this rule also stops one client from sending many requests in a row. It lives in the zone, not in this repository:
+1. **Database.** `pnpm exec cf d1 create --name getthedamclass --primary-location-hint wnam`. Put the ID it prints in `PRODUCTION_DATABASE_ID` in `cloudflare.config.ts`, then apply the migrations as above with that ID.
+2. **Email.** `pnpm exec cf email-sending subdomains create -z <zone> --name getthedamclass.<zone>`. It adds six DNS records, all under that name: three MX and an SPF record on `cf-bounce.getthedamclass.<zone>`, the DKIM key on `cf-bounce._domainkey.getthedamclass.<zone>`, and a DMARC policy on `_dmarc.getthedamclass.<zone>`. `pnpm exec cf email-sending subdomains preview -z <zone> --name getthedamclass.<zone>` shows any that are missing. `pnpm exec cf email-sending limits get` must say `"recipient_mode": "arbitrary"`: the account can send to any address (an account with no sending domain can only send to its own verified addresses). Then turn off email preview, which is on for a new sending domain and keeps a copy of every message sent (sign-in codes included) for about seven days. Use the `id` that `pnpm exec cf email-sending subdomains list -z <zone>` prints: `pnpm exec cf email-sending subdomains update <id> -z <zone> --preview-enabled false`. Cloudflare's activity log still keeps sender, recipient, subject and time of each email for about a month; that cannot be turned off.
+3. **Worker.** Change the domain in `cloudflare.config.ts` (and `SENDER`, `PUBLIC_URL`), and the server's address in `apps/extension/lib/Api.ts`, which the extension's normal build calls. Then deploy as above. The first deploy creates the custom domain's DNS record and its certificate, which takes a few minutes: until then HTTPS to it fails with a handshake error. (Here the very first deploy also stopped with "This Worker does not exist on your account" right after uploading; running it again finished it.)
+4. **Rate limit.** Anyone can call `POST /sign-in/code`, which sends an email, and `POST /sign-in`, which tries a code, without signing in. The server already allows one code a minute per address and five tries per code; this rule also stops one client from sending many requests in a row. It lives in the zone, not in this repository. `entrypoint update` replaces every rule in the zone's rate-limiting list, so read the list first, and send back any rule already in it along with this one:
 
    ```sh
+   pnpm exec cf rulesets entrypoint get http_ratelimit -z <zone>    # the rules there now ("could not find entrypoint" means none)
    pnpm exec cf rulesets entrypoint update http_ratelimit -z <zone> --rules '[{
      "description": "GetTheDamClass: limit sign-in requests per IP",
      "expression": "(http.host eq \"api.getthedamclass.<zone>\" and starts_with(http.request.uri.path, \"/sign-in\"))",
@@ -299,7 +333,24 @@ This was done once, in this order:
    }]'
    ```
 
-   That is 10 requests per 10 seconds from one IP address; beyond that, the address gets HTTP 429 on those paths for 10 seconds. A student sends a handful of these requests a minute, so only a script meets it; it then gets about one try a second. A free zone allows one rate-limiting rule, with 10 seconds as its only period and block time. `entrypoint update` replaces every rule in the zone's rate-limiting list, so on a zone that already has one, change that list instead (`pnpm exec cf rulesets entrypoint get http_ratelimit -z <zone>` shows it).
+   That is 10 requests per 10 seconds from one IP address; beyond that, the address gets HTTP 429 on those paths for 10 seconds. A student sends a handful of these requests a minute, so only a script meets it; it then gets about one try a second. It counts per IP address, so many students signing in at once from behind one shared address (a campus network, say) could be blocked for those 10 seconds. A free zone allows one rate-limiting rule, with 10 seconds as its only period and block time.
+5. **HTTPS only.** Without this rule, a request over plain HTTP reaches the Worker, and a client using the wrong scheme would send its token unencrypted. This rule answers HTTP for the API's host with a redirect to HTTPS (308, which keeps the method) before the Worker sees it. It leaves the zone's other hosts alone. The same warning applies: `entrypoint update` replaces every redirect rule in the zone, so read them first and send them all back with this one:
+
+   ```sh
+   pnpm exec cf rulesets entrypoint get http_request_dynamic_redirect -z <zone>
+   pnpm exec cf rulesets entrypoint update http_request_dynamic_redirect -z <zone> --rules '[{
+     "ref": "getthedamclass_api_https",
+     "description": "GetTheDamClass: send plain HTTP to the API to HTTPS",
+     "expression": "(http.host eq \"api.getthedamclass.<zone>\" and not ssl)",
+     "action": "redirect",
+     "action_parameters": { "from_value": {
+       "target_url": { "expression": "concat(\"https://\", http.host, http.request.uri.path)" },
+       "status_code": 308,
+       "preserve_query_string": true
+     } },
+     "enabled": true
+   }]'
+   ```
 
 ## How the Effect code is organised
 

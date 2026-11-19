@@ -13,9 +13,11 @@
  * it for every OSU inbox), and that must not cost a student their alert. Only
  * a person pressing the button sends the POST.
  *
- * The key travels in the query string rather than the path because Effect's
- * request log leaves the query string out, and the key should not end up in
- * logs.
+ * The key travels in the query string rather than the path because the
+ * server's request log leaves the query string out, and so does what
+ * Cloudflare stores with each log line (`redactQueryString` in
+ * cloudflare.config.ts): the key should not end up in logs. The pages'
+ * headers (PAGE_HEADERS below) keep it from leaving the page.
  */
 import type { Crn } from "@getthedamclass/shared/domain"
 import { Context, Effect, Layer } from "effect"
