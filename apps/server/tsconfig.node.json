@@ -1,0 +1,9 @@
+{
+  // Checks what runs in Node rather than in the Worker: the tests (Vitest) and
+  // the config files. Vite and Vitest bring Node's types with them, which is
+  // why these files are kept out of tsconfig.worker.json: there, Node-only
+  // code must not typecheck.
+  "extends": "./tsconfig.worker.json",
+  "include": ["src/**/*.test.ts", "*.config.ts", ".cloudflare/types"],
+  "exclude": []
+}

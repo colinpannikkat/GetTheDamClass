@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "cf dev",
     "build": "cf build",
-    "typecheck": "cf workers types && tsc --noEmit",
-    "test": "vitest run"
+    "typecheck": "cf workers types && tsc -p tsconfig.worker.json && tsc -p tsconfig.node.json",
+    "test": "vitest run",
+    "postinstall": "cf workers types"
   },
   "dependencies": {
     "effect": "^4.1.4"

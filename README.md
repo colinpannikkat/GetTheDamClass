@@ -27,7 +27,7 @@ We will hopefully have it released on the Chrome Web Store soon!
 
 ## Building it yourself
 
-You need [Node.js](https://nodejs.org) 22.12 or newer (developed with 24) and [pnpm](https://pnpm.io/installation).
+You need [Node.js](https://nodejs.org) 22.23, 24.22 or 26.12 (or newer within that line; developed with 24) and [pnpm](https://pnpm.io/installation). Those are the versions [cf](https://developers.cloudflare.com/cf/), Cloudflare's command-line tool, supports; it builds the server.
 
 ```sh
 pnpm install
@@ -50,7 +50,7 @@ Run these in `apps/extension/`. `pnpm typecheck`, `pnpm test` and `pnpm build` a
 
 ### Running the server
 
-`apps/server` is a Cloudflare Worker that will replace the backend. For now it only answers `GET /` with a hello. It runs on [cf](https://developers.cloudflare.com/cf/), Cloudflare's command-line tool, which needs Node.js 22.23, 24.22 or 26.12 (or newer within that line).
+`apps/server` is a Cloudflare Worker that will replace the backend. For now it only answers `GET /` with a hello. `pnpm dev` runs it with cf.
 
 ```sh
 cd apps/server

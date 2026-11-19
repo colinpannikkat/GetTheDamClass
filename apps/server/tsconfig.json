@@ -1,22 +1,8 @@
 {
-  // The same strict settings the extension gets from WXT.
-  "compilerOptions": {
-    "target": "ES2024",
-    "module": "Preserve",
-    "moduleDetection": "force",
-    "moduleResolution": "Bundler",
-    // Only the Workers runtime's own globals (Request, Response, ...), not the
-    // browser's or Node's. They come from `.cloudflare/types`, which
-    // `cf workers types` writes (the typecheck script runs it first).
-    "lib": ["ES2024"],
-    "types": [],
-    "verbatimModuleSyntax": true,
-    "noEmit": true,
-    "strict": true,
-    "skipLibCheck": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true
-  },
-  "include": ["src", "*.config.ts", ".cloudflare/types"]
+  // The code here runs in two places, and each has its own settings:
+  //   tsconfig.worker.json   the Worker's own code (the Workers runtime)
+  //   tsconfig.node.json     tests and config files (Node)
+  // This file only points editors at the two; `pnpm typecheck` checks both.
+  "files": [],
+  "references": [{ "path": "./tsconfig.worker.json" }, { "path": "./tsconfig.node.json" }]
 }

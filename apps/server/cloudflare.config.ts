@@ -10,9 +10,9 @@ export default defineConfig({
   worker: {
     name: "getthedamclass",
     entrypoint: "./src/index.ts",
-    // Cloudflare keeps a Worker on the runtime behaviour of this date, so an
-    // update to the runtime never changes how a deployed Worker behaves.
-    // Move it forward on purpose, and test, when a newer behaviour is wanted.
+    // Cloudflare updates the Workers runtime all the time. Changes that could
+    // break existing code are switched on by date, and a Worker only gets the
+    // ones dated on or before this. Move it forward on purpose, and test.
     compatibilityDate: "2026-11-17"
   }
 })
