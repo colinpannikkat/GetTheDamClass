@@ -8,9 +8,11 @@ On [classes.oregonstate.edu](https://classes.oregonstate.edu), open a class and 
 | --- | --- |
 | <img src="docs/screenshots/class-page-watching.png" alt="A class panel with the Watching button and a Stop alerts link" width="560"> | <img src="docs/screenshots/popup.png" alt="The popup listing three watched classes, each with a Stop button" width="260"> |
 
-Alerts cover the classes of **one term at a time** (right now Winter 2027), because that is what the backend watches. On a class of any other term the page shows a short note instead of the button. See [Each term](#each-term).
+"Notify me" is on every section with an ADD TO CART button, in any term. Whether a class takes alerts is up to the server: its term must be open for registration, and the class's add deadline must not have passed (see `apps/server/src/termRule.ts`). When a class does not, the page says why, in the server's words.
 
-We have a backend server running on a private VPS to track course vacancies and alert students. The backend code can be found [here](https://github.com/aj-arts/GetTheDamClass-Backend).
+There are no passwords. To sign in (or sign up, or get back in after forgetting everything), type your email and then the six-digit code the server emails you.
+
+The extension talks to its own server, `apps/server` in this repository: a [Cloudflare Worker](https://developers.cloudflare.com/workers/) with a D1 database, which checks the watched classes every minute and sends the emails. It replaces the earlier backend ([GetTheDamClass-Backend](https://github.com/aj-arts/GetTheDamClass-Backend)), which ran on a private server and signed in with a PIN. The new server is not deployed yet.
 
 ## Adding the Chrome Extension
 
@@ -21,7 +23,7 @@ We have a backend server running on a private VPS to track course vacancies and 
 5. Click on the "Load unpacked" button and select the extracted folder.
 6. The extension should now be added to Chrome and ready to use.
 
-**Updating from an earlier version** (including version 1): extract the new zip over the old folder and press the reload button on the extension's card. That keeps you signed in. If you extract to a new folder instead, Chrome treats it as a different extension: remove the old GetTheDamClass first (otherwise the class page gets two buttons) and sign in again.
+**Updating from an earlier version**: extract the new zip over the old folder and press the reload button on the extension's card. Versions that signed in with a PIN used the old backend, so you are signed out once (your email is filled in; ask for a code), and alerts made with them are not carried over: press "Notify me" on those classes again. If you extract to a new folder instead, Chrome treats it as a different extension: remove the old GetTheDamClass first (otherwise the class page gets two buttons).
 
 We will hopefully have it released on the Chrome Web Store soon!
 
@@ -42,15 +44,16 @@ Run these in `apps/extension/`. `pnpm typecheck`, `pnpm test` and `pnpm build` a
 
 | Command | What it does |
 | --- | --- |
-| `pnpm dev` | Development build into `.output/chrome-mv3-dev` that rebuilds and reloads as you edit. Load that folder once with "Load unpacked". (It asks for extra permissions that WXT needs for reloading; the real build does not.) |
-| `pnpm build` | Production build into `.output/chrome-mv3`. |
+| `pnpm dev` | Development build into `.output/chrome-mv3-dev` that rebuilds and reloads as you edit, talking to the server on your computer (`http://localhost:5173`). Load that folder once with "Load unpacked". (It asks for extra permissions that WXT needs for reloading; the real build does not.) |
+| `pnpm build` | Production build into `.output/chrome-mv3`, talking to the real server (`https://api.getthedamclass.ajinkya.dev`). |
+| `pnpm build:local` | The same build, but talking to the server on your computer, into `.output/chrome-mv3-local-server`. See [Trying the extension against a local server](#trying-the-extension-against-a-local-server). |
 | `pnpm zip` | Builds, then packs the result into a zip in `.output/` for a release or the Chrome Web Store. |
 | `pnpm typecheck` | Checks the TypeScript types. |
 | `pnpm test` | Runs the unit tests. |
 
 ### Running the server
 
-`apps/server` is the Cloudflare Worker that will replace the backend: sign-in by emailed code; starting, listing and stopping alerts; a check every minute that emails each watcher when a seat opens or the class fills again; and a daily cleanup. The extension does not use it yet.
+`apps/server` is the Cloudflare Worker the extension talks to: sign-in by emailed code; starting, listing and stopping alerts; a check every minute that emails each watcher when a seat opens or the class fills again; and a daily cleanup.
 
 ```sh
 cd apps/server
@@ -82,11 +85,24 @@ Each answers `ok` or `exception`; what they log (one line per run, with its coun
 
 To start over, delete `apps/server/.cloudflare/state`; do so too after a change to the tables in `migrations/`. `pnpm typecheck`, `pnpm test` and `pnpm build` work there as they do in the extension; the tests use a SQLite database in Node and never reach the network.
 
+### Trying the extension against a local server
+
+1. Start the server: `pnpm dev` in `apps/server` (see above). Leave that terminal open; the sign-in codes appear in it.
+2. Build the extension for it: `pnpm build:local` in `apps/extension`. (Or run `pnpm dev` there, which also talks to the local server and rebuilds as you edit.)
+3. In Chrome, open `chrome://extensions`, enable "Developer mode", press "Load unpacked" and pick `apps/extension/.output/chrome-mv3-local-server`. Remove or turn off any other GetTheDamClass first, or the class page gets two buttons.
+4. Open a class on [classes.oregonstate.edu](https://classes.oregonstate.edu) in a term that is open for registration, and pick a section with ADD TO CART.
+5. Press **Notify me**, type any email address, press **Email me a code**, and copy the six digits from the server's terminal into the form. The button turns into **Watching**.
+6. Open the extension's popup: the class is listed with its term. Press **Stop**, then **Sign out**.
+
+Chrome treats `http://localhost` as secure, so a local server over plain HTTP is not blocked as mixed content. But since Chrome 142, a public website may only reach your own computer with your permission ([Local Network Access](https://developer.chrome.com/blog/local-network-access)). The popup and the sign-in form are pages of the extension and are not affected. "Notify me" and "Stop alerts" are: the content script's requests count as coming from https://classes.oregonstate.edu. So the first time you press one of them, Chrome asks whether classes.oregonstate.edu may access devices on your local network (or apps on this device); choose **Allow**. If you block it, or the prompt never shows (Chrome in automation does not show it), the button says "Couldn't reach the server", and the page's console shows *"Permission was denied for this request to access the `loopback` address space"*. Allow it again in the site's settings: the icon left of the address bar, or `chrome://settings/content/siteDetails?site=https%3A%2F%2Fclasses.oregonstate.edu`. A normal build is not affected: its server is on the internet.
+
+Each "Notify me" on a class nobody else watches makes the local server ask the university's class system about it four times (the term list, the title, the seats and the dates). That system is shared by every student, so keep such tries few.
+
 ## How it is built
 
 - [WXT](https://wxt.dev) builds the extension and generates `manifest.json` (from `apps/extension/wxt.config.ts` and the files in `apps/extension/entrypoints/`).
 - [React](https://react.dev) and [Tailwind CSS](https://tailwindcss.com) draw the user interface.
-- [Effect](https://effect.website) runs everything that is not drawing: talking to the backend, storage, and error handling.
+- [Effect](https://effect.website) runs everything that is not drawing: talking to the server, storage, and error handling. The API between the two is defined once, with Effect's `HttpApi`, in `packages/shared`.
 - [Vitest](https://vitest.dev) runs the tests. They sit next to the file they test (`Api.ts` → `Api.test.ts`).
 
 ## Project map
@@ -96,7 +112,8 @@ apps/extension/           The browser extension.
   entrypoints/            What the browser loads. WXT turns each folder into part of the extension.
     popup/                The window that opens from the toolbar icon.
       App.tsx             Picks the screen: signed out, or signed in with the list.
-      ClassList.tsx       The watched classes, each with its "Stop" button.
+      ClassList.tsx       The watched classes, each with its term and its "Stop" button.
+      DeleteAccount.tsx   "Delete my account", and the question it asks first.
     content/              The script added to classes.oregonstate.edu.
       index.tsx           Puts a control into every class-details panel and keeps it there.
       detailsPanel.ts     Everything we know about the page's HTML. START HERE when the
@@ -108,15 +125,16 @@ apps/extension/           The browser extension.
     Button.tsx            A button with variants and a loading state.
     Message.tsx           An inline info, success or error message.
     TextField.tsx         A text input with its label.
-    SignInForm.tsx        Email + PIN form that signs in (or signs up).
+    SignInForm.tsx        Signing in (or up), in two steps: the email, then the emailed code.
     cx.ts                 Tiny helper to join CSS class names.
   lib/                    Everything that is not user interface.
-    domain.ts             The data types (Credentials, Crn, Subscription) and every error.
-    term.ts               The one term alerts work for. Changed every term.
-    Api.ts                Service: the calls to the backend.
-    AccountStore.ts       Service: the saved email and PIN and the list of watched classes,
-                          in the browser's extension storage.
-    workflows.ts          What a user can do: signIn, signOut, subscribe, unsubscribe, listSubscriptions.
+    domain.ts             Which class an alert is for (ClassId), and the errors only the extension has.
+    termName.ts           A term's code in words: "202702" is "Winter 2027".
+    Api.ts                Service: the calls to the server, on the typed client from packages/shared.
+    AccountStore.ts       Service: the saved email and sign-in token, a code that was asked for,
+                          and the watched classes, in the browser's extension storage.
+    workflows.ts          What a user can do: requestCode, signIn, changeEmail, signOut,
+                          deleteAccount, subscribe, unsubscribe, listAlerts.
     runtime.ts            Wires the real services together so effects can run.
     react.ts              Hooks that let React components run effects.
     errorMessage.ts       The sentence shown to the user for each error.
@@ -124,7 +142,7 @@ apps/extension/           The browser extension.
   public/icons/           The extension's icons, copied into the build as they are.
   wxt.config.ts           Extension name, permissions, icons; build plugins.
   vitest.config.ts        Test setup (with vitest.setup.ts).
-apps/server/              The Cloudflare Worker that will replace the backend.
+apps/server/              The Cloudflare Worker the extension talks to.
   src/index.ts            The Worker: plugs the server and the jobs into Cloudflare's bindings.
   src/server.ts           The whole server as one layer: API handlers, unsubscribe page, CORS.
   src/signIn.ts           Sign-in codes, and the sign-in endpoints.
@@ -156,25 +174,32 @@ There is no background script. The extension only needs the `storage` permission
 
 ### How the parts stay in step
 
-The popup, the button on the class page and the sign-in frame all read and write the browser's extension storage (`apps/extension/lib/AccountStore.ts`): who is signed in, and which CRNs they are watching. Each of them follows it as it changes, so stopping an alert in the popup turns "Watching" back into "Notify me" on an open class page, and signing in anywhere signs you in everywhere.
+The popup, the button on the class page and the sign-in frame all read and write the browser's extension storage (`apps/extension/lib/AccountStore.ts`): who is signed in, which classes they are watching, and how far a sign-in has got. Each of them follows it as it changes, so stopping an alert in the popup turns "Watching" back into "Notify me" on an open class page, signing in anywhere signs you in everywhere, and a code asked for in the popup can be typed in the form on the class page.
 
-What is stored, unencrypted, until you sign out (which removes all of it):
+What is stored, unencrypted, until you sign out or delete your account (which removes all of it):
 
 | Key | Value | |
 | --- | --- | --- |
-| `email` | `"student@oregonstate.edu"` | The same two keys version 1 used, so its users stay signed in when the extension is updated in place. |
-| `pin` | `"1234"` | |
+| `email` | `"student@oregonstate.edu"` | Who is signed in. Without a `token`, the address the sign-in form starts with. |
+| `token` | `"kq3V..."` | The sign-in token the server gave this browser, sent with every request as `Authorization: Bearer`. |
+| `codeRequest` | `{ "email": "...", "sentAt": 1795075200000 }` | A code was emailed to this address at this time (milliseconds since 1970), and not used yet. |
 | `watch:202702:student@oregonstate.edu:33940` | `true` | One key per watched class, named after the term, the account and the CRN. |
 
-A watched class is a key of its own so that adding one is a single write and removing one a single delete. Nothing reads a list, changes it and writes it back, so two changes made at the same moment (in the popup and on a class page, say) cannot undo each other. And the account is part of the name so that an answer from the server that arrives after someone else signed in is saved for the account that asked, where the other never sees it. The term is part of the name so that last term's saved classes stop counting as watched when `apps/extension/lib/term.ts` moves on (the next term can reuse a CRN for a different class). That only covers what this browser saved: the server's list carries no term, so the old alerts must also be cleared in the backend (see [Each term](#each-term)).
+`codeRequest` is what lets the form survive being closed: Chrome closes the popup as soon as you click into your inbox to read the code, and when it opens again the form is at the code step for the address you typed. It counts for 15 minutes, as long as the code works, and is removed when you sign in or press "Use a different email".
 
-One known gap: if you sign out while a "Notify me" request is still waiting for the server, its answer is saved after the sign-out, leaving one `watch:` key (email and CRN, no PIN) until the next sign-out.
+A watched class is a key of its own so that adding one is a single write and removing one a single delete. Nothing reads a list, changes it and writes it back, so two changes made at the same moment (in the popup and on a class page, say) cannot undo each other. The account is part of the name so that an answer from the server that arrives after someone else signed in is saved for the account that asked, where the other never sees it. And the term is part of it because the university reuses CRNs from term to term: the same CRN in two terms is two classes, everywhere in the extension.
 
-The page trusts that saved list and does not ask the server when a class is opened. If an alert was stopped elsewhere (the Unsubscribe link in an email, another browser), the page still says "Watching" until the popup is next opened, which fetches the real list, or until "Stop alerts" is pressed, which works either way.
+When the server answers a request with `NotSignedIn` (the token was ended: the account was deleted from another browser, or the token went unused for a year), the extension removes `token` and keeps `email`, so every part of it shows the sign-in form with the address filled in.
+
+Versions that signed in with a PIN also stored a `pin` key, and `watch:` keys for alerts on the old backend. The first time any part of the extension starts after an update in place, it removes both (see `AccountStore.layer`); the email stays.
+
+One known gap: if you sign out while a "Notify me" request is still waiting for the server, its answer is saved after the sign-out, leaving one `watch:` key (term, email and CRN) until the next sign-out.
+
+The page trusts that saved list and does not ask the server when a class is opened. If an alert ended elsewhere (stopped with the link in an email or in another browser, or removed by the server's daily cleanup after the class's add deadline), the page still says "Watching" until the popup is next opened, which fetches the real list, or until "Stop alerts" is pressed, which works either way.
 
 ### Why the sign-in form on the class page is in a frame
 
-Whatever a content script draws into a web page, that page's own scripts can read, including every key typed into a field. So the email and PIN are never typed into the university's page. The popover that "Notify me" opens contains an `<iframe>` showing `signin.html`, a page of the extension itself (`apps/extension/entrypoints/signin/`). The class page cannot look inside it. `apps/extension/wxt.config.ts` lists that one page under `web_accessible_resources`, for classes.oregonstate.edu only, which is what allows it to be framed there.
+Whatever a content script draws into a web page, that page's own scripts can read, including every key typed into a field. So the email and the sign-in code are never typed into the university's page. The popover that "Notify me" opens contains an `<iframe>` showing `signin.html`, a page of the extension itself (`apps/extension/entrypoints/signin/`). The class page cannot look inside it. `apps/extension/wxt.config.ts` lists that one page under `web_accessible_resources`, for classes.oregonstate.edu only, which is what allows it to be framed there.
 
 The frame tells the page around it three things, with `window.postMessage` (`apps/extension/entrypoints/signin/messages.ts`): "close me" (Escape was pressed), "I am this tall now", and "signed in". None of them carries what was typed. "Signed in" is what makes the button carry on and set up the alert, so only the form that was actually submitted does that: signing in through the toolbar popup while a popover is open on a class page subscribes to nothing.
 
@@ -183,20 +208,6 @@ The frame tells the page around it three things, with `window.postMessage` (`app
 The button is only put on the page when the script can read three things from a class's panel: the CRN, the term, and the bar that holds ADD TO CART. If one of them cannot be found the script shows nothing, rather than a button that might sign a student up for the wrong class. So after a change to the university's markup the button simply disappears.
 
 `apps/extension/entrypoints/content/detailsPanel.ts` holds every selector, with a drawing of the page's structure at the top. Its tests run against `apps/extension/entrypoints/content/fixtures/*.html`. To refresh a fixture: open the section on classes.oregonstate.edu, and in the browser's developer tools run `copy(document.querySelector("main.panels").outerHTML)`. Paste that over the fixture and trim it the way the comment at the top of the file describes. Then run `pnpm test` and fix `detailsPanel.ts` until it passes.
-
-## Each term
-
-The backend looks up classes in one hard-coded term (`'term': '202702'` in its `app/loop.py`, three places), and its API cannot tell terms apart: it is sent a bare CRN, and the same number can be a different class in another term. The extension therefore offers alerts only for sections whose term it can read from the page and which is exactly the one named in `apps/extension/lib/term.ts`. When registration for the next term is about to open:
-
-1. In `apps/extension/lib/term.ts`, change `code` (the `srcdb` value the class search uses, for example `202703`) and `label` ("Spring 2027").
-2. Bump `version` in `apps/extension/package.json` and publish the extension (see [Releasing](#releasing)).
-3. Once the new version is out, change the term in the backend and deploy it.
-
-Do step 3 soon after step 2. The two can never switch at the same instant (browsers pick up a new version of an extension over hours or days), and while they disagree a press is looked up in the wrong term. Releasing the extension first, during the quiet days before registration opens, keeps that to a minimum.
-
-People who installed from a release zip ("Load unpacked") do not get updates automatically: until they download the new release, the page keeps telling them alerts cover the old term only. Say so in the release notes.
-
-Alerts set up for the old term stay in the backend's database, and its API does not say which term an alert belongs to. Clearing them out is a required part of step 3, not a tidy-up: until they are gone, their CRNs are looked up in the new term, and opening the popup lists them and marks them as watched, so a new class that reuses one of those numbers shows "Watching".
 
 ## Releasing
 
@@ -215,33 +226,34 @@ Inside `Effect.gen(function*() { ... })`, read `yield*` the way you read `await`
 
 **Services** are the parts that touch the outside world. There are two:
 
-- `Api` (`apps/extension/lib/Api.ts`) sends requests to the backend.
-- `AccountStore` (`apps/extension/lib/AccountStore.ts`) reads and writes the saved email and PIN and the list of watched classes.
+- `Api` (`apps/extension/lib/Api.ts`) sends requests to the server. It is a thin layer over the typed client Effect builds from the API in `packages/shared/src/Api.ts`: that client knows every path, payload and reply, and checks each reply against the schemas.
+- `AccountStore` (`apps/extension/lib/AccountStore.ts`) reads and writes the saved email and token, the code that was asked for, and the list of watched classes.
 
 Each is a class that names the service and lists its functions. Code asks for one with `const api = yield* Api`.
 
-**Layers** are the implementations of a service. `Api.layer` is the real one, built on `fetch`. Tests swap in others: `Api.layerWithFetch(fakeFetch)` to test the Api itself, or `Layer.mock(Api, { ... })` to give other code a fake backend.
+**Layers** are the implementations of a service. `Api.layer` is the real one, built on `fetch`. Tests swap in others: `Api.layerWithFetch(fakeFetch)` to test the Api itself, or `Layer.mock(Api, { ... })` to give other code a fake server.
 
 **The runtime** (`apps/extension/lib/runtime.ts`) is where the real layers are put together, once. Anything that wants to run an effect uses it.
 
-**Errors** are all defined in `apps/extension/lib/domain.ts`. Each has a `_tag`, its name as a string (`"WrongPin"`, `"ClassNotFound"`, `"NetworkError"`, ...), so handling an error is a `switch` on `error._tag`. `apps/extension/lib/errorMessage.ts` holds the sentence shown for each one.
+**Errors** each have a `_tag`, their name as a string (`"TermNotOpen"`, `"NotSignedIn"`, `"NetworkError"`, ...), so handling an error is a `switch` on `error._tag`. The server's refusals are defined once for both sides in `packages/shared/src/domain.ts`, and each carries a `message` written for the student, which the extension shows as it is. The extension's own errors (no answer from the server, an answer the API does not describe, storage failing, a bug) are in `apps/extension/lib/domain.ts`, and `apps/extension/lib/errorMessage.ts` has their sentences.
 
-**Workflows** (`apps/extension/lib/workflows.ts`) combine the services into the things a user does. `subscribe(crn)`, for example, reads the saved credentials (failing with `NotSignedIn` if there are none), calls the backend with them, and saves the class as watched by that account. The user interface calls workflows, never the services directly.
+**Workflows** (`apps/extension/lib/workflows.ts`) combine the services into the things a user does. `subscribe(classId)`, for example, reads the saved token (failing with `NotSignedIn` if there is none), sends the class's term and CRN with it, and saves the class as watched by that account. The user interface calls workflows, never the services directly.
 
 **Components run effects through three hooks** in `apps/extension/lib/react.ts`. They turn an effect into a plain object with a `status` to switch on:
 
 ```tsx
 import { Button } from "@/components/Button"
 import { Message } from "@/components/Message"
+import type { ClassId } from "@/lib/domain"
 import { errorMessage } from "@/lib/errorMessage"
 import { useAction } from "@/lib/react"
 import { subscribe } from "@/lib/workflows"
 
-function NotifyButton({ crn }: { crn: string }) {
+function NotifyButton({ classId }: { classId: ClassId }) {
   const { state, run } = useAction(subscribe)
   return (
     <>
-      <Button variant="primary" loading={state.status === "loading"} onClick={() => run(crn)}>
+      <Button variant="primary" loading={state.status === "loading"} onClick={() => run(classId)}>
         Notify me
       </Button>
       <Message tone="success">{state.status === "success" ? "You're on the list." : null}</Message>
@@ -253,16 +265,18 @@ function NotifyButton({ crn }: { crn: string }) {
 
 - `useAction(workflow)` gives a `run` function for clicks and form submits.
 - `useQuery(() => effect, deps)` runs an effect when the component appears, for loading data.
-- `useAccount()` says who is signed in and which classes they are watching, and updates when that changes anywhere in the extension.
+- `useAccount()` says who is signed in and which classes they are watching (or, signed out, the email and code request the sign-in form starts from), and updates when that changes anywhere in the extension.
 
-**In the tests** you will meet a few more Effect names. `it.effect(...)` runs a test written as an effect. `Layer.mock(Api, { ... })` is a fake backend. In `apps/extension/lib/workflows.test.ts`, `Effect.forkChild` starts a workflow without waiting for it (it returns a `Fiber`, a handle to the running work, which `Fiber.join` waits for), and a `Latch` is a gate the fake server waits at until the test opens it. Together they let a test do something while a request is still unanswered.
+**In the tests** you will meet a few more Effect names. `it.effect(...)` runs a test written as an effect; its clock starts at 0 and only moves when the test says (`TestClock.adjust`, `TestClock.setTime`). `Layer.mock(Api, { ... })` is a fake server. In `apps/extension/lib/workflows.test.ts`, `Effect.forkChild` starts a workflow without waiting for it (it returns a `Fiber`, a handle to the running work, which `Fiber.join` waits for), and a `Latch` is a gate the fake server waits at until the test opens it. Together they let a test do something while a request is still unanswered.
 
-### Adding a backend call
+### Adding a server call
 
-1. Add the function to the `Api` service in `apps/extension/lib/Api.ts`, mapping each HTTP status to a result or an error from `apps/extension/lib/domain.ts`. (Every call already gives up after 30 seconds.)
-2. Cover those statuses in `apps/extension/lib/Api.test.ts`.
-3. Add a workflow in `apps/extension/lib/workflows.ts` if it needs the saved credentials.
-4. Call it from a component with `useAction` or `useQuery`.
+1. Add the endpoint to `packages/shared/src/Api.ts`, with any new refusal in `packages/shared/src/domain.ts`, and implement it in `apps/server`.
+2. Add a function to the `Api` service in `apps/extension/lib/Api.ts` that calls the typed client, with `settle` as its last step like the others: it adds the 30-second time limit and turns failures that are not refusals into `NetworkError` or `ServerError`.
+3. Cover it in `apps/extension/lib/Api.test.ts`: the request it sends, each refusal, and a reply of the wrong shape.
+4. Add a workflow in `apps/extension/lib/workflows.ts`. If it sends the saved token, wrap the call in `withToken` there, so that a `NotSignedIn` answer signs the browser out.
+5. If the call has a new refusal, add it to `AppError` in `apps/extension/lib/domain.ts` and to the list in `apps/extension/lib/errorMessage.ts` that shows the server's sentence.
+6. Call it from a component with `useAction` or `useQuery`.
 
 ---
 &copy; 2024 Nothing Suspicious (Colin Pannikkat, Ajinkya Gokule, David Gesl, Sarvesh Thiruppathi Ahila)
