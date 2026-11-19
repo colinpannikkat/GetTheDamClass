@@ -147,13 +147,13 @@ apps/extension/           The browser extension.
 apps/server/              The Cloudflare Worker the extension talks to.
   src/index.ts            The Worker: plugs the server and the jobs into Cloudflare's bindings.
   src/server.ts           The whole server as one layer: API handlers, unsubscribe page, CORS.
-  src/signIn.ts           Sign-in codes, and the sign-in endpoints.
+  src/signIn.ts           Sign-in codes, the daily cap on code emails, and the sign-in endpoints.
   src/tokens.ts           Sign-in tokens, and the middleware that checks them.
   src/account.ts          Signing out and deleting the account.
   src/alerts.ts           Starting, listing and stopping alerts.
   src/termRule.ts         Which terms and dates take alerts: open terms, and each class's add deadline.
   src/poll.ts             The check every minute: seats, and the emails when a class opens or fills.
-  src/cleanup.ts          The daily job: ended alerts, old classes, expired codes and tokens.
+  src/cleanup.ts          The daily job: ended alerts, old classes, expired codes and tokens, old email counts.
   src/scheduled.ts        When the two jobs run, and which one each cron trigger starts.
   src/unsubscribe.ts      The unsubscribe link in emails, and the page it opens.
   src/University.ts       Service: the university's class search, and reading its pages.
@@ -252,7 +252,8 @@ The server runs on the Cloudflare account that holds the `ajinkya.dev` zone (a f
 
 ```sh
 cd apps/server
-pnpm exec cf deploy --dry-run   # builds and lists the bindings: MAILER must be "cloudflare", PUBLIC_URL the real address
+pnpm exec cf deploy --dry-run   # builds and lists the bindings: MAILER must be "cloudflare", PUBLIC_URL the real address,
+                                # SIGN_IN_EMAILS_PER_DAY the cap below
 pnpm exec cf deploy --message "what changed"
 ```
 
@@ -291,17 +292,20 @@ The version already running keeps using the database until the deploy, so a migr
 pnpm exec cf observability tail --worker getthedamclass    # live, one JSON line per log line
 ```
 
-The server writes one line per request (method, path, status), one per check (`Checked the watched classes:`, every minute, with its counts), one per daily cleanup (`Daily cleanup done.`, at 11:00 UTC), and a warning for every email that could not be sent, with Cloudflare's reason. Cloudflare stores each line with the request's method and URL, its query string removed (`redactQueryString` in `cloudflare.config.ts`), but not its headers or IP address. Workers Logs keeps them for 7 days. To look further back than the tail, open the Worker in the Cloudflare dashboard and choose **Logs**. Only one live tail runs per login: starting a second one ends the first, with "Live tail ended. Another live tail session may have replaced this one."
+The server writes one line per request (method, path, status), one per check (`Checked the watched classes:`, every minute, with its counts), one per daily cleanup (`Daily cleanup done.`, at 11:00 UTC), a warning for every email that could not be sent, with Cloudflare's reason, and a warning when the day's cap on sign-in emails is reached (`Reached the day's cap on sign-in emails`; see below). Cloudflare stores each line with the request's method and URL, its query string removed (`redactQueryString` in `cloudflare.config.ts`), but not its headers or IP address. Workers Logs keeps them for 7 days. To look further back than the tail, open the Worker in the Cloudflare dashboard and choose **Logs**. Only one live tail runs per login: starting a second one ends the first, with "Live tail ended. Another live tail session may have replaced this one."
 
 **Nobody is told when something breaks.** If the university changes its class search, every check fails: the log shows `"failed"` above zero on every `Checked the watched classes:` line, plus a line per class saying why it could not be checked. No alert goes out, and no one is notified. Look at the log now and then, and whenever students say alerts stopped coming. (See [When the university changes its page](#when-the-university-changes-its-page) for the extension's side.)
 
 ### How many emails it can send
 
-This account may send 200 emails a day for now (`limits get` below shows the current number), counting sign-in codes, confirmations and alerts together, to any address. The limit rises by itself as the account keeps sending mail that is not bounced or reported. Cloudflare's [limits page](https://developers.cloudflare.com/email-service/platform/limits/) links a form for asking sooner, which is worth doing before a release. Past the limit a send fails, and the server logs it like any other email that could not be sent. In practice:
+This account may send 200 emails a day for now (`limits get` below shows the current number), counting sign-in codes, confirmations and alerts together, to any address. The limit rises by itself as the account keeps sending mail that is not bounced or reported. Cloudflare's [limits page](https://developers.cloudflare.com/email-service/platform/limits/) links a form for asking sooner, which is worth doing before a release. Past the limit a send fails, and the server logs it like any other email that could not be sent.
 
-- Nobody can sign in until the limit resets: the code never arrives, and the form says it couldn't send the email.
-- A seat alert that fails then is lost, not sent later (`sendAlert` in `src/poll.ts`). The check has already recorded the change, so that student only hears of the next one.
-- Anyone can ask for codes for any addresses (one a minute per address, and the rate limit below per IP), so someone determined can use up the day's emails.
+Anyone can ask for sign-in codes, for any addresses, without signing in (one a minute per address, and the rate limit below per IP). So the server sends at most **100 sign-in code emails a day**, about half the limit, and the rest stays for confirmations and alerts. The day is a calendar day in UTC, which does not line up with Cloudflare's own day (`resets_at` in `limits get`); `src/signIn.ts` says why that is good enough. The count is kept in the `sign_in_emails` table, one row per day, and the daily cleanup removes days more than a week old. In practice:
+
+- Past the cap, asking for a code is refused and nothing is sent: the form says "Too many sign-in emails were sent today. Please try again tomorrow." and goes back to the email step. The log has one warning when the cap is reached. Someone determined can use up the cap and stop new sign-ins until midnight UTC, but students already signed in keep getting their alerts.
+- Past Cloudflare's limit, which alerts and confirmations can still reach on a busy day, nobody can sign in until it resets (the form says it couldn't send the email), and a seat alert that fails then is lost, not sent later (`sendAlert` in `src/poll.ts`). The check has already recorded the change, so that student only hears of the next one.
+
+The cap is `SIGN_IN_EMAILS_PER_DAY` in `apps/server/cloudflare.config.ts`. When Cloudflare raises the account's limit, raise the cap with it, to about half the new limit, and deploy.
 
 The Workers Paid plan includes 3,000 emails a month. Each one after that costs $0.35 per 1,000 ([pricing](https://developers.cloudflare.com/email-service/platform/pricing/)).
 
@@ -323,8 +327,8 @@ This was done once, in this order. Everything below uses the new account's own r
 
 1. **Database.** `pnpm exec cf d1 create --name getthedamclass --primary-location-hint wnam`. Put the ID it prints in `PRODUCTION_DATABASE_ID` in `cloudflare.config.ts`, then apply the migrations as above with that ID.
 2. **Email.** `pnpm exec cf email-sending subdomains create -z <zone> --name getthedamclass.<zone>`. It adds six DNS records, all under that name: three MX and an SPF record on `cf-bounce.getthedamclass.<zone>`, the DKIM key on `cf-bounce._domainkey.getthedamclass.<zone>`, and a DMARC policy on `_dmarc.getthedamclass.<zone>`. `pnpm exec cf email-sending subdomains preview -z <zone> --name getthedamclass.<zone>` shows any that are missing. `pnpm exec cf email-sending limits get` must say `"recipient_mode": "arbitrary"`: the account can send to any address (an account with no sending domain can only send to its own verified addresses). Then turn off email preview, which is on for a new sending domain and keeps a copy of every message sent (sign-in codes included) for about seven days. Use the `id` that `pnpm exec cf email-sending subdomains list -z <zone>` prints: `pnpm exec cf email-sending subdomains update <id> -z <zone> --preview-enabled false`. Cloudflare's activity log still keeps sender, recipient, subject and time of each email for about a month; that cannot be turned off.
-3. **Worker.** Change the domain in `cloudflare.config.ts` (and `SENDER`, `PUBLIC_URL`), and the server's address in `apps/extension/lib/Api.ts`, which the extension's normal build calls. Then deploy as above. The first deploy creates the custom domain's DNS record and its certificate, which takes a few minutes: until then HTTPS to it fails with a handshake error. (Here the very first deploy also stopped with "This Worker does not exist on your account" right after uploading; running it again finished it.)
-4. **Rate limit.** Anyone can call `POST /sign-in/code`, which sends an email, and `POST /sign-in`, which tries a code, without signing in. The server already allows one code a minute per address and five tries per code; this rule also stops one client from sending many requests in a row. It lives in the zone, not in this repository. `entrypoint update` replaces every rule in the zone's rate-limiting list, so read the list first, and send back any rule already in it along with this one:
+3. **Worker.** Change the domain in `cloudflare.config.ts` (and `SENDER`, `PUBLIC_URL`), set `SIGN_IN_EMAILS_PER_DAY` there to about half the new account's daily email limit, and change the server's address in `apps/extension/lib/Api.ts`, which the extension's normal build calls. Then deploy as above. The first deploy creates the custom domain's DNS record and its certificate, which takes a few minutes: until then HTTPS to it fails with a handshake error. (Here the very first deploy also stopped with "This Worker does not exist on your account" right after uploading; running it again finished it.)
+4. **Rate limit.** Anyone can call `POST /sign-in/code`, which sends an email, and `POST /sign-in`, which tries a code, without signing in. The server already allows one code a minute per address, five tries per code and a cap on code emails a day; this rule also stops one client from sending many requests in a row. It lives in the zone, not in this repository. `entrypoint update` replaces every rule in the zone's rate-limiting list, so read the list first, and send back any rule already in it along with this one:
 
    ```sh
    pnpm exec cf rulesets entrypoint get http_ratelimit -z <zone>    # the rules there now ("could not find entrypoint" means none)
