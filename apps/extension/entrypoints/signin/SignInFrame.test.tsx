@@ -37,6 +37,9 @@ async function signInWith(code: string) {
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }))
 }
 
+/** Wait a moment, before checking that something did NOT happen. */
+const settled = () => new Promise((resolve) => setTimeout(resolve, 20))
+
 beforeEach(() => {
   fakeBrowser.reset()
   posted = []
@@ -112,6 +115,34 @@ describe("SignInFrame", () => {
     await expect.poll(postedEvents).toEqual([CLOSE])
   })
 
+  it("asks to be closed, and does not say it signed in, when its own code is refused after a sign-in elsewhere", async () => {
+    // While the code typed here is with the server, a sign-in that shows up
+    // in storage looks like this form's own.
+    let asked = () => {}
+    const serverAsked = new Promise<void>((resolve) => (asked = resolve))
+    let refuse = () => {}
+    const refused = new Promise<void>((resolve) => (refuse = resolve))
+    await renderFrame({
+      sendCode: () => Effect.void,
+      signIn: () =>
+        Effect.sync(asked).pipe(
+          Effect.andThen(Effect.promise(() => refused)),
+          Effect.andThen(Effect.fail(new InvalidCode({ message: "That code isn't right." })))
+        )
+    })
+    await signInWith("987654")
+    await serverAsked
+
+    // The toolbar popup signs in meanwhile.
+    await fakeBrowser.storage.local.set({ email, token })
+    await settled()
+    expect(postedEvents()).toEqual([])
+
+    refuse()
+
+    await expect.poll(postedEvents).toEqual([CLOSE])
+  })
+
   it("tells the class page nothing when the code is refused", async () => {
     await renderFrame({
       sendCode: () => Effect.void,
@@ -149,7 +180,7 @@ describe("SignInFrame", () => {
   })
 
   it("starts at the code step when a code was asked for in the popup, and the keyboard in its field", async () => {
-    await fakeBrowser.storage.local.set({ codeRequest: { email, sentAt: Date.now() } })
+    await fakeBrowser.storage.local.set({ codeRequest: { email, requestedAt: Date.now() } })
     await renderFrame()
 
     expect(codeField()).toBeDefined()

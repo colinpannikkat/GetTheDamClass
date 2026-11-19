@@ -99,7 +99,7 @@ describe("signed out", () => {
   })
 
   it("is at the email step when the code asked for has expired", async () => {
-    await fakeBrowser.storage.local.set({ codeRequest: { email, sentAt: Date.now() - 16 * 60_000 } })
+    await fakeBrowser.storage.local.set({ codeRequest: { email, requestedAt: Date.now() - 16 * 60_000 } })
     renderPopup()
     expect(await screen.findByLabelText("Email")).toBeDefined()
     expect(screen.queryByLabelText("6-digit code")).toBeNull()
@@ -426,7 +426,7 @@ describe("deleting the account", () => {
 
 describe("the sign-in form's refusals", () => {
   it("shows the server's sentence for a wrong code as it is", async () => {
-    await fakeBrowser.storage.local.set({ codeRequest: { email, sentAt: Date.now() } })
+    await fakeBrowser.storage.local.set({ codeRequest: { email, requestedAt: Date.now() } })
     renderPopup({ signIn: () => Effect.fail(new InvalidCode({ message: "That code isn't right, or it has expired." })) })
 
     fireEvent.change(await screen.findByLabelText("6-digit code"), { target: { value: "999999" } })

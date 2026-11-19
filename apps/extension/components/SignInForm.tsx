@@ -47,13 +47,10 @@ export interface SignInFormProps {
   readonly onSignedIn?: () => void
 }
 
-/**
- * A sentence under the form about the last thing the student did, and the
- * step it is about: the code step for this address, or the email step
- * (`undefined`).
- */
+/** A sentence under the form about the last thing the student did. */
 interface Notice {
-  readonly step: EmailAddress | undefined
+  /** The step it is about: the code step for this address, or the email step (`undefined`). */
+  readonly codeStepFor: EmailAddress | undefined
   readonly tone: "error" | "success"
   readonly text: string
 }
@@ -66,14 +63,15 @@ const decodeEmail = Schema.decodeUnknownOption(EmailAddress)
 const decodeCode = Schema.decodeUnknownOption(SignInCode)
 
 export function SignInForm({ email, codeRequest, autoFocus = false, onSigningIn, onSignedIn }: SignInFormProps) {
-  const step = codeRequest?.email
+  // The address of the code step showing, or `undefined` at the email step.
+  const codeStepFor = codeRequest?.email
   // The address the email step starts with: the last one used here, and then
   // the one a code was last asked for, so a typo is quick to fix after "Use a
   // different email". (Setting state while rendering is React's way to follow
   // a prop; React renders again straight away.)
   const [startWith, setStartWith] = useState(email ?? "")
-  if (step !== undefined && step !== startWith) {
-    setStartWith(step)
+  if (codeStepFor !== undefined && codeStepFor !== startWith) {
+    setStartWith(codeStepFor)
   }
   // Once the student has used the form, the keyboard follows it to the email
   // step when it goes back there. (The code step always takes it.)
@@ -83,35 +81,43 @@ export function SignInForm({ email, codeRequest, autoFocus = false, onSigningIn,
   // extension asks for a code for another address, what was said here about
   // the old one goes away.
   const [notice, setNotice] = useState<Notice | null>(null)
-  const shownNotice = notice?.step === step ? notice : null
+  const shownNotice = notice?.codeStepFor === codeStepFor ? notice : null
   // Both steps ask for codes: the email step its first, the code step a new one.
   const request = useAction(requestCode)
   const sending = request.state.status === "loading"
 
-  async function askForCode(to: EmailAddress) {
-    const stepBefore = step
+  /** Ask for a code for this address, and resolve with whether it was sent. */
+  async function askForCode(to: EmailAddress): Promise<boolean> {
+    const codeStepBefore = codeStepFor
     setNotice(null)
     const result = await request.run(to)
     if (result.status === "success") {
-      if (stepBefore === to) {
-        setNotice({ step: to, tone: "success", text: `We sent a new code to ${to}.` })
+      // From the code step this was "Send a new code". From the email step,
+      // the code step that now shows says where the code went.
+      if (codeStepBefore === to) {
+        setNotice({ codeStepFor: to, tone: "success", text: `We sent a new code to ${to}.` })
       }
-      return
+      return true
     }
-    // A failure takes the form back to where it was (see `requestCode`),
-    // except "a code went to this address less than a minute ago", which
-    // leaves it at that address's code step. Say why on that step.
-    setNotice({
-      step: result.error._tag === "CodeRecentlySent" ? to : stepBefore,
-      tone: "error",
-      text: errorMessage(result.error)
-    })
+    const { error } = result
+    if (error._tag === "CodeNotSent") {
+      // `requestCode` says which step the form is back at: say why there.
+      setNotice({ codeStepFor: error.codeStepFor, tone: "error", text: errorMessage(error.reason) })
+    } else if (error._tag !== "CodeRequestOvertaken") {
+      // Storage could not be read or written, or a bug.
+      setNotice({ codeStepFor: codeStepBefore, tone: "error", text: errorMessage(error) })
+    }
+    return false
   }
 
   function submitEmail(typed: string) {
     const decoded = decodeEmail(typed)
     if (Option.isNone(decoded)) {
-      return setNotice({ step: undefined, tone: "error", text: "Enter your whole email address, like you@example.com." })
+      return setNotice({
+        codeStepFor: undefined,
+        tone: "error",
+        text: "Enter your whole email address, like you@example.com."
+      })
     }
     setMoved(true)
     void askForCode(decoded.value)
@@ -134,8 +140,8 @@ export function SignInForm({ email, codeRequest, autoFocus = false, onSigningIn,
         email={codeRequest.email}
         notice={shownNotice}
         sending={sending}
-        onNotice={(tone, text) => setNotice({ step: codeRequest.email, tone, text })}
-        onResend={() => void askForCode(codeRequest.email)}
+        onNotice={(tone, text) => setNotice({ codeStepFor: codeRequest.email, tone, text })}
+        onResend={() => askForCode(codeRequest.email)}
         onChangeEmail={() => setMoved(true)}
         onSigningIn={onSigningIn}
         onSignedIn={onSignedIn}
@@ -188,8 +194,8 @@ function CodeStep({ email, notice, sending, onNotice, onResend, onChangeEmail, o
   /** A code is being asked for: the first one, or a new one. */
   readonly sending: boolean
   readonly onNotice: (tone: Notice["tone"], text: string) => void
-  /** "Send a new code" was pressed. */
-  readonly onResend: () => void
+  /** "Send a new code" was pressed. Resolves with whether a new code was sent. */
+  readonly onResend: () => Promise<boolean>
   /** The student is going back to the email step. */
   readonly onChangeEmail: () => void
   readonly onSigningIn?: (signingIn: boolean) => void
@@ -212,6 +218,13 @@ function CodeStep({ email, notice, sending, onNotice, onResend, onChangeEmail, o
     } else {
       onSigningIn?.(false)
       onNotice("error", errorMessage(result.error))
+    }
+  }
+
+  async function handleResend() {
+    if (await onResend()) {
+      // The server has just replaced the code these digits were typed from.
+      setTyped("")
     }
   }
 
@@ -249,7 +262,7 @@ function CodeStep({ email, notice, sending, onNotice, onResend, onChangeEmail, o
         Sign in
       </Button>
       <div className="flex flex-wrap justify-center gap-1">
-        <Button variant="quiet" size="sm" loading={sending} onClick={onResend}>
+        <Button variant="quiet" size="sm" loading={sending} onClick={() => void handleResend()}>
           Send a new code
         </Button>
         <Button variant="quiet" size="sm" onClick={handleChangeEmail}>

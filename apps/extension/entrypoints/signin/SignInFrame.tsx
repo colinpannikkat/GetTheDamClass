@@ -14,7 +14,7 @@
  * look the same in storage, and the class page must carry on (subscribe)
  * after this form's sign-in only.
  */
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { SignInForm } from "@/components/SignInForm"
 import { useAccount } from "@/lib/react"
 import { CLASS_SEARCH_ORIGIN, type FrameMessage } from "./messages"
@@ -25,16 +25,18 @@ export function SignInFrame() {
   const account = useAccount()
   const contentRef = useRef<HTMLDivElement>(null)
   // Whether the form here is trading a code for a sign-in. While it is, a
-  // sign-in that shows up in storage is its own: "signed-in" follows, once
-  // it is saved. (The storage change can arrive first.)
-  const signingInHere = useRef(false)
+  // sign-in that shows up in storage is taken to be its own: "signed-in"
+  // follows, once it is saved. (The storage change can arrive first.) If the
+  // form's attempt then fails, the sign-in was made elsewhere after all, and
+  // the effect below runs again and asks to be closed.
+  const [signingInHere, setSigningInHere] = useState(false)
   const signedIn = account.status === "signedIn"
 
   useEffect(() => {
-    if (signedIn && !signingInHere.current) {
+    if (signedIn && !signingInHere) {
       tellClassPage({ type: "getthedamclass/close" })
     }
-  }, [signedIn])
+  }, [signedIn, signingInHere])
 
   useEffect(() => {
     // The class page cannot hear keys pressed in here, so pass Escape on.
@@ -74,7 +76,7 @@ export function SignInFrame() {
         email={account.status === "failure" ? undefined : account.email}
         // Shared with the popup: a code asked for there can be typed here.
         codeRequest={account.status === "failure" ? undefined : account.codeRequest}
-        onSigningIn={(signingIn) => (signingInHere.current = signingIn)}
+        onSigningIn={setSigningInHere}
         onSignedIn={() => tellClassPage({ type: "getthedamclass/signed-in" })}
       />
     </div>

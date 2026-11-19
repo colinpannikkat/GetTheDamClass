@@ -13,7 +13,7 @@
  *
  *   email                                         "student@oregonstate.edu"
  *   token                                         "kq3V..."
- *   codeRequest                                   { "email": "student@oregonstate.edu", "sentAt": 1795075200000 }
+ *   codeRequest                                   { "email": "student@oregonstate.edu", "requestedAt": 1795075200000 }
  *   watch:202702:student@oregonstate.edu:33940    true
  *
  * `email` without `token` is someone signed out whose address is still known,
@@ -24,8 +24,8 @@
  * and the CRN. That makes two things safe without any locking:
  *
  * - Adding a class is one write and removing it one delete. Neither reads the
- *   list first, so two changes made at the same moment (in the popup and on a
- *   class page, say) cannot undo each other.
+ *   list first, so changes to two different classes made at the same moment
+ *   (in the popup and on a class page, say) cannot undo each other.
  * - An answer from the server that arrives after someone else signed in is
  *   saved under the account that asked, where the other account never sees it.
  */
@@ -53,14 +53,17 @@ export interface Account {
 }
 
 /**
- * A sign-in code was emailed to this address at `sentAt` (milliseconds since
- * 1970), and has not been used yet. Remembered so that the sign-in form can
- * come back at the step where the code is typed: the browser closes the popup
- * as soon as the student switches to their inbox to read it.
+ * A sign-in code for this address was asked for at `requestedAt`
+ * (milliseconds since 1970), and has not been used yet. Remembered so that
+ * the sign-in form can come back at the step where the code is typed: the
+ * browser closes the popup as soon as the student switches to their inbox to
+ * read it. It is saved before the server answers (see `requestCode` in
+ * `lib/workflows.ts`), so the email may still be on its way, or may never
+ * come.
  */
 export interface CodeRequest {
   readonly email: EmailAddress
-  readonly sentAt: number
+  readonly requestedAt: number
 }
 
 /** Everything the store holds, as one value. */
@@ -75,17 +78,20 @@ export type Saved =
   )
   & {
     /**
-     * A code asked for less than 15 minutes ago and not used yet. Usually
-     * only while signed out, but not always: someone can sign in in the popup
-     * while the framed form on a class page waits for a code.
+     * A code asked for less than 15 minutes ago and not used yet. Signing in
+     * removes it, so it is almost always signed out. Not quite always: a form
+     * that has not yet seen a sign-in made elsewhere a moment ago can still
+     * ask for a code, and that request then stays until its 15 minutes are
+     * over or the next sign-in or sign-out.
      */
     readonly codeRequest: CodeRequest | undefined
   }
 
 /**
  * How long a sign-in code works. It is the server's rule (apps/server/src/
- * signIn.ts); after that the code no longer signs anyone in, so the form no
- * longer offers to type it.
+ * signIn.ts, counted from when the server stored the code, a moment after it
+ * was asked for); after that the code no longer signs anyone in, so the form
+ * no longer offers to type it.
  */
 const CODE_LIFETIME = Duration.minutes(15)
 
@@ -106,7 +112,10 @@ const parseWatchKey = (key: string): Option.Option<{ readonly email: string; rea
   )
 
 export class AccountStore extends Context.Service<AccountStore, {
-  /** Everything saved. */
+  /**
+   * Everything saved. Reading also removes a code request whose 15 minutes
+   * are over, so every part of the extension stops offering its code step.
+   */
   readonly get: Effect.Effect<Saved, StorageError>
   /** Remember who signed in, and forget the code they signed in with. */
   save(email: EmailAddress, token: string): Effect.Effect<void, StorageError>
@@ -125,8 +134,16 @@ export class AccountStore extends Context.Service<AccountStore, {
   forgetToken(token: string): Effect.Effect<void, StorageError>
   /** Forget everything, of every account (sign out on this browser). */
   readonly clear: Effect.Effect<void, StorageError>
-  /** Remember that a code was emailed to this address at this time. */
+  /** Remember that a code for this address was asked for at this time. */
   saveCodeRequest(request: CodeRequest): Effect.Effect<void, StorageError>
+  /**
+   * Replace the saved code request with `next` (`undefined` forgets it), but
+   * only while the saved one is still `expected`, and say whether it was.
+   * That is how a request whose code did not go out is undone without
+   * undoing what the student did meanwhile ("Use a different email", a code
+   * asked for in another part of the extension, a sign-in or a sign-out).
+   */
+  replaceCodeRequest(expected: CodeRequest, next: CodeRequest | undefined): Effect.Effect<boolean, StorageError>
   /** Forget the code that was asked for (the student wants to use another address). */
   readonly forgetCodeRequest: Effect.Effect<void, StorageError>
   /** Note that the account with this email gets alerts for these classes. */
@@ -165,7 +182,9 @@ function makeAccountStore(): AccountStore["Service"] {
   // Anything that does not fit counts as not saved.
   const decodeEmail = Schema.decodeUnknownOption(EmailAddress)
   const decodeToken = Schema.decodeUnknownOption(Schema.NonEmptyString)
-  const decodeCodeRequest = Schema.decodeUnknownOption(Schema.Struct({ email: EmailAddress, sentAt: Schema.Number }))
+  const decodeCodeRequest = Schema.decodeUnknownOption(
+    Schema.Struct({ email: EmailAddress, requestedAt: Schema.Number })
+  )
 
   const forgetCodeRequest = storage(() => browser.storage.local.remove("codeRequest"))
 
@@ -176,7 +195,7 @@ function makeAccountStore(): AccountStore["Service"] {
     const email = decodeEmail(saved.email)
     const token = decodeToken(saved.token)
     const request = decodeCodeRequest(saved.codeRequest)
-    const expired = Option.filter(request, (request) => now >= request.sentAt + Duration.toMillis(CODE_LIFETIME))
+    const expired = Option.filter(request, (request) => now >= request.requestedAt + Duration.toMillis(CODE_LIFETIME))
     if (Option.isSome(expired)) {
       // The code no longer works, so the address it went to (perhaps
       // mistyped, by someone who gave up) is not kept either. Like
@@ -221,8 +240,23 @@ function makeAccountStore(): AccountStore["Service"] {
 
   const clear = storage(() => browser.storage.local.clear())
 
-  const saveCodeRequest = ({ email, sentAt }: CodeRequest) =>
-    storage(() => browser.storage.local.set({ codeRequest: { email, sentAt } satisfies CodeRequest }))
+  const saveCodeRequest = ({ email, requestedAt }: CodeRequest) =>
+    storage(() => browser.storage.local.set({ codeRequest: { email, requestedAt } satisfies CodeRequest }))
+
+  const replaceCodeRequest = (expected: CodeRequest, next: CodeRequest | undefined) =>
+    Effect.gen(function*() {
+      // Read, compare, then write, like `forgetToken`: a change made in the
+      // few milliseconds between the two would be overwritten.
+      const saved = yield* storage(() => browser.storage.local.get("codeRequest"))
+      const stillExpected = Option.exists(
+        decodeCodeRequest(saved.codeRequest),
+        (request) => request.email === expected.email && request.requestedAt === expected.requestedAt
+      )
+      if (stillExpected) {
+        yield* next === undefined ? forgetCodeRequest : saveCodeRequest(next)
+      }
+      return stillExpected
+    })
 
   const watch = (email: EmailAddress, classes: ReadonlyArray<ClassId>) =>
     storage(() => browser.storage.local.set(Object.fromEntries(classes.map((watched) => [watchKey(email, watched), true]))))
@@ -250,7 +284,18 @@ function makeAccountStore(): AccountStore["Service"] {
   // For every signal, read everything again.
   const changes = changeSignals.pipe(Stream.mapEffect(() => get))
 
-  return { get, save, forgetToken, clear, saveCodeRequest, forgetCodeRequest, watch, unwatch, changes }
+  return {
+    get,
+    save,
+    forgetToken,
+    clear,
+    saveCodeRequest,
+    replaceCodeRequest,
+    forgetCodeRequest,
+    watch,
+    unwatch,
+    changes
+  }
 }
 
 /**

@@ -16,6 +16,7 @@ import { Api } from "./Api"
 import { type ClassId, NetworkError } from "./domain"
 import {
   changeEmail,
+  type CodeNotSent,
   deleteAccount,
   listAlerts,
   requestCode,
@@ -89,7 +90,23 @@ describe("requestCode", () => {
     sent = 0
   })
 
-  it.effect("asks the server for a code, then remembers where it went and when", () => {
+  const recentlySent = new CodeRecentlySent({ message: "Wait a minute." })
+  const emailNotSent = new EmailNotSent({ message: "We couldn't send it." })
+  const noAnswer = new NetworkError({ cause: "offline" })
+
+  /**
+   * How a failed `requestCode` ended: why, and which step the form is back
+   * at. (`assert.deepStrictEqual` compares errors by their message only.)
+   */
+  const whyNotSent = (error: Effect.Error<ReturnType<typeof requestCode>>) =>
+    error._tag === "CodeNotSent" ? [error.reason._tag, error.codeStepFor] : [error._tag]
+
+  /** The fake server: the first code goes out, and every later one fails with `error`. */
+  const firstSentThen = (error: CodeNotSent["reason"]) => ({
+    sendCode: () => (sent++ === 0 ? Effect.void : Effect.fail(error))
+  })
+
+  it.effect("remembers where the code was asked for and when, and asks the server for it", () => {
     const asked: Array<string> = []
     return Effect.gen(function*() {
       yield* TestClock.setTime(60_000)
@@ -98,7 +115,7 @@ describe("requestCode", () => {
       assert.deepStrictEqual(yield* saved, {
         status: "signedOut",
         email: undefined,
-        codeRequest: { email, sentAt: 60_000 }
+        codeRequest: { email, requestedAt: 60_000 }
       })
     }).pipe(withFakeApi({ sendCode: (email) => Effect.sync(() => void asked.push(email)) }))
   })
@@ -109,39 +126,91 @@ describe("requestCode", () => {
       yield* TestClock.setTime(60_000)
       yield* Effect.forkChild(requestCode(email))
       yield* Latch.await(asked)
-      assert.deepStrictEqual(yield* raw, { codeRequest: { email, sentAt: 60_000 } })
+      assert.deepStrictEqual(yield* raw, { codeRequest: { email, requestedAt: 60_000 } })
     }).pipe(withFakeApi({ sendCode: () => Effect.andThen(Latch.open(asked), Effect.never) }))
   })
 
-  it.effect("remembers it too when a code went there less than a minute ago, and passes the refusal on", () =>
+  it.effect("stays at the code step when a code went there less than a minute ago, and passes the refusal on", () =>
     Effect.gen(function*() {
-      const error = yield* Effect.flip(requestCode(email))
-      assert.strictEqual(error._tag, "CodeRecentlySent")
-      const now = yield* saved
-      assert.strictEqual(now.status === "signedOut" && now.codeRequest?.email, email)
-    }).pipe(withFakeApi({ sendCode: () => Effect.fail(new CodeRecentlySent({ message: "Wait a minute." })) })))
+      yield* TestClock.setTime(60_000)
+      assert.deepStrictEqual(whyNotSent(yield* Effect.flip(requestCode(email))), ["CodeRecentlySent", email])
+      assert.deepStrictEqual(yield* raw, { codeRequest: { email, requestedAt: 60_000 } })
+    }).pipe(withFakeApi({ sendCode: () => Effect.fail(recentlySent) })))
 
   it.effect.each([
-    { title: "the email could not be sent", error: new EmailNotSent({ message: "We couldn't send it." }) },
-    { title: "no answer", error: new NetworkError({ cause: "offline" }) }
-  ])("remembers nothing when $title", ({ error }) =>
+    { title: "the email could not be sent", error: emailNotSent },
+    { title: "no answer", error: noAnswer }
+  ])("remembers nothing, and is back at the email step, when $title", ({ error }) =>
     Effect.gen(function*() {
-      assert.strictEqual((yield* Effect.flip(requestCode(email)))._tag, error._tag)
+      assert.deepStrictEqual(whyNotSent(yield* Effect.flip(requestCode(email))), [error._tag, undefined])
       assert.deepStrictEqual(yield* raw, {})
     }).pipe(withFakeApi({ sendCode: () => Effect.fail(error) })))
 
   it.effect.each([
-    { title: "a code went there less than a minute ago", error: new CodeRecentlySent({ message: "Wait a minute." }) },
-    { title: "the email could not be sent", error: new EmailNotSent({ message: "We couldn't send it." }) },
-    { title: "no answer", error: new NetworkError({ cause: "offline" }) }
-  ])("a new code that fails ($title) keeps the time of the code really sent", ({ error }) =>
+    { title: "a code went there less than a minute ago", error: recentlySent },
+    { title: "no answer", error: noAnswer }
+  ])("a new code that fails ($title) keeps the earlier code's request, and its time", ({ error }) =>
     Effect.gen(function*() {
       yield* TestClock.setTime(60_000)
       yield* requestCode(email)
       yield* TestClock.setTime(90_000)
-      assert.strictEqual((yield* Effect.flip(requestCode(email)))._tag, error._tag)
-      assert.deepStrictEqual(yield* raw, { codeRequest: { email, sentAt: 60_000 } })
-    }).pipe(withFakeApi({ sendCode: () => (sent++ === 0 ? Effect.void : Effect.fail(error)) })))
+      assert.deepStrictEqual(whyNotSent(yield* Effect.flip(requestCode(email))), [error._tag, email])
+      assert.deepStrictEqual(yield* raw, { codeRequest: { email, requestedAt: 60_000 } })
+    }).pipe(withFakeApi(firstSentThen(error))))
+
+  it.effect("a new code whose email could not be sent leaves no code request: the server forgot both codes", () =>
+    Effect.gen(function*() {
+      yield* requestCode(email)
+      assert.deepStrictEqual(whyNotSent(yield* Effect.flip(requestCode(email))), ["EmailNotSent", undefined])
+      assert.deepStrictEqual(yield* raw, {})
+    }).pipe(withFakeApi(firstSentThen(emailNotSent))))
+
+  it.effect("a new code that fails once the earlier one's 15 minutes are over is back at the email step", () =>
+    Effect.gen(function*() {
+      yield* requestCode(email)
+      yield* TestClock.setTime(16 * 60_000)
+      assert.deepStrictEqual(whyNotSent(yield* Effect.flip(requestCode(email))), ["NetworkError", undefined])
+      assert.deepStrictEqual(yield* raw, {})
+    }).pipe(withFakeApi(firstSentThen(noAnswer))))
+
+  it.effect.each([
+    {
+      title: "\"Use a different email\"",
+      meanwhile: changeEmail(),
+      expected: {}
+    },
+    {
+      title: "a code asked for another address elsewhere",
+      meanwhile: Effect.gen(function*() {
+        const store = yield* AccountStore
+        yield* store.saveCodeRequest({ email: other, requestedAt: 70_000 })
+      }),
+      expected: { codeRequest: { email: other, requestedAt: 70_000 } }
+    },
+    {
+      title: "a sign-in elsewhere",
+      meanwhile: signedInAs(other, otherToken),
+      expected: { email: other, token: otherToken }
+    }
+  ])("a refusal that comes after $title changes nothing, and has nothing to say", ({ meanwhile, expected }) => {
+    const asked = Latch.makeUnsafe()
+    const answer = Latch.makeUnsafe()
+    return Effect.gen(function*() {
+      yield* requestCode(email)
+      yield* TestClock.setTime(60_000)
+      const resend = yield* Effect.forkChild(Effect.flip(requestCode(email)))
+      yield* Latch.await(asked)
+      yield* meanwhile
+      yield* Latch.open(answer)
+      assert.deepStrictEqual(whyNotSent(yield* Fiber.join(resend)), ["CodeRequestOvertaken"])
+      assert.deepStrictEqual(yield* raw, expected)
+    }).pipe(withFakeApi({
+      sendCode: () =>
+        sent++ === 0
+          ? Effect.void
+          : Latch.open(asked).pipe(Effect.andThen(Latch.await(answer)), Effect.andThen(Effect.fail(noAnswer)))
+    }))
+  })
 })
 
 describe("signIn", () => {

@@ -108,7 +108,7 @@ describe("get", () => {
 
   it.effect("has the code request for 15 minutes after the code was sent, and then removes it from storage", () =>
     withStore(Effect.gen(function*() {
-      const codeRequest = { email: other, sentAt: 1_000 }
+      const codeRequest = { email: other, requestedAt: 1_000 }
       yield* setRaw({ email, codeRequest })
       yield* TestClock.setTime(1_000 + 15 * 60_000 - 1)
       assert.deepStrictEqual(yield* saved, signedOut({ email, codeRequest }))
@@ -121,7 +121,7 @@ describe("get", () => {
 
   it.effect("ignores a code request that is not what this extension saves", () =>
     withStore(Effect.gen(function*() {
-      yield* setRaw({ codeRequest: { email: "student", sentAt: 0 } })
+      yield* setRaw({ codeRequest: { email: "student", requestedAt: 0 } })
       assert.deepStrictEqual(yield* saved, signedOut())
     })))
 })
@@ -156,7 +156,7 @@ describe("save", () => {
   it.effect("stores the email and token under `email` and `token`, and forgets the code request", () =>
     withStore(Effect.gen(function*() {
       const store = yield* AccountStore
-      yield* store.saveCodeRequest({ email, sentAt: 0 })
+      yield* store.saveCodeRequest({ email, requestedAt: 0 })
       yield* store.save(email, token)
       assert.deepStrictEqual(yield* raw, { email, token })
     })))
@@ -217,12 +217,38 @@ describe("code requests", () => {
     withStore(Effect.gen(function*() {
       const store = yield* AccountStore
       yield* TestClock.setTime(5_000)
-      yield* store.saveCodeRequest({ email: other, sentAt: 5_000 })
-      assert.deepStrictEqual(yield* raw, { codeRequest: { email: other, sentAt: 5_000 } })
-      assert.deepStrictEqual(yield* saved, signedOut({ codeRequest: { email: other, sentAt: 5_000 } }))
+      yield* store.saveCodeRequest({ email: other, requestedAt: 5_000 })
+      assert.deepStrictEqual(yield* raw, { codeRequest: { email: other, requestedAt: 5_000 } })
+      assert.deepStrictEqual(yield* saved, signedOut({ codeRequest: { email: other, requestedAt: 5_000 } }))
 
       yield* store.forgetCodeRequest
       assert.deepStrictEqual(yield* raw, {})
+    })))
+
+  it.effect("replaceCodeRequest replaces or forgets the saved request while it is the expected one", () =>
+    withStore(Effect.gen(function*() {
+      const store = yield* AccountStore
+      const first = { email, requestedAt: 1_000 }
+      const second = { email, requestedAt: 2_000 }
+      yield* store.saveCodeRequest(second)
+
+      assert.isTrue(yield* store.replaceCodeRequest(second, first))
+      assert.deepStrictEqual(yield* raw, { codeRequest: first })
+
+      assert.isTrue(yield* store.replaceCodeRequest(first, undefined))
+      assert.deepStrictEqual(yield* raw, {})
+    })))
+
+  it.effect.each([
+    { title: "another request, at another time", now: { codeRequest: { email, requestedAt: 3_000 } } },
+    { title: "another request, for another address", now: { codeRequest: { email: other, requestedAt: 2_000 } } },
+    { title: "no request", now: {} }
+  ])("replaceCodeRequest leaves it alone when what is saved is $title", ({ now }) =>
+    withStore(Effect.gen(function*() {
+      const store = yield* AccountStore
+      yield* setRaw(now)
+      assert.isFalse(yield* store.replaceCodeRequest({ email, requestedAt: 2_000 }, { email, requestedAt: 1_000 }))
+      assert.deepStrictEqual(yield* raw, now)
     })))
 })
 
@@ -233,7 +259,7 @@ describe("clear", () => {
       yield* store.save(email, token)
       yield* store.watch(email, [intro])
       yield* store.watch(other, [ethics])
-      yield* store.saveCodeRequest({ email: other, sentAt: 0 })
+      yield* store.saveCodeRequest({ email: other, requestedAt: 0 })
 
       yield* store.clear
 

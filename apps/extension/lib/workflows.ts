@@ -24,11 +24,17 @@
  * In the types below, the third parameter of `Effect<A, E, R>` lists the
  * services a workflow needs. The runtime in `lib/runtime.ts` supplies them.
  */
-import { type EmailAddress, NotSignedIn, type SignInCode } from "@getthedamclass/shared/domain"
-import { Clock, Duration, Effect } from "effect"
-import { type Account, AccountStore } from "./AccountStore"
+import {
+  type CodeRecentlySent,
+  type EmailAddress,
+  type EmailNotSent,
+  NotSignedIn,
+  type SignInCode
+} from "@getthedamclass/shared/domain"
+import { Clock, Data, Duration, Effect } from "effect"
+import { type Account, AccountStore, type CodeRequest } from "./AccountStore"
 import { Api } from "./Api"
-import { type ClassId, sameClass } from "./domain"
+import { type ClassId, type NetworkError, sameClass, type ServerError } from "./domain"
 
 /** The signed-in account, or a `NotSignedIn` error when nobody is signed in. */
 const signedInAccount = Effect.gen(function*() {
@@ -48,6 +54,25 @@ const withToken = <A, E, R>(account: Account, call: (token: string) => Effect.Ef
   })
 
 /**
+ * `requestCode` brought no new code, because of `reason`, and the sign-in
+ * form is now at the code step for `codeStepFor`, or at the email step when
+ * that is `undefined`. The form says why there.
+ */
+export class CodeNotSent extends Data.TaggedError("CodeNotSent")<{
+  readonly reason: CodeRecentlySent | EmailNotSent | NetworkError | ServerError
+  readonly codeStepFor: EmailAddress | undefined
+}> {}
+
+/**
+ * `requestCode` brought no new code, but before the answer came the student
+ * had moved on: "Use a different email", a code asked for in another part of
+ * the extension, a sign-in or a sign-out. What they did stands, and the
+ * answer is about a step the form no longer shows, so there is nothing to
+ * tell them.
+ */
+export class CodeRequestOvertaken extends Data.TaggedError("CodeRequestOvertaken")<{}> {}
+
+/**
  * Email a sign-in code to this address, and remember that it was asked for,
  * so the sign-in form shows the step where the code is typed.
  *
@@ -55,34 +80,59 @@ const withToken = <A, E, R>(account: Account, call: (token: string) => Effect.Ef
  * the popup as soon as the student switches to their inbox, which is exactly
  * when they do, often before the answer is back; and closing the popup ends
  * everything running in it. Saved first, the form opens again at the code
- * step.
+ * step. If the popup was closed before a refusal came, the student comes back
+ * to a code step for which no email is coming; "Send a new code" there asks
+ * again and shows why it did not work.
  *
- * If the server refuses or cannot be reached, the request saved before this
- * one is put back (none, at the email step; at the code step, the code that
- * was really sent, so its 15 minutes are not counted from this attempt). If
- * the popup was closed by then, that never happens: the student comes back to
- * the code step, and no email is coming. "Send a new code" there asks again
- * and shows why it did not work.
- *
- * "A code went to this address less than a minute ago" is the one refusal
- * after which the form stays at the code step: that code may be in the
- * inbox. It may also be used already (someone signed in, out and in again
- * within the minute), so the form shows the server's sentence there.
+ * If the server refuses or cannot be reached while the request saved here is
+ * still the saved one, it is undone (see `afterRefusal`). If something else
+ * replaced or removed it meanwhile, that is left alone
+ * (`CodeRequestOvertaken`).
  */
 export const requestCode = Effect.fn("requestCode")(function*(email: EmailAddress) {
   const api = yield* Api
   const store = yield* AccountStore
   const { codeRequest: earlier } = yield* store.get
-  yield* store.saveCodeRequest({ email, sentAt: yield* Clock.currentTimeMillis })
-  yield* api.sendCode(email).pipe(Effect.tapError((error) => {
-    if (error._tag === "CodeRecentlySent" && earlier?.email !== email) {
-      // Nothing was saved for this address: keep the request just saved,
-      // as the best guess of when that code went out (within the minute).
-      return Effect.void
-    }
-    return earlier === undefined ? store.forgetCodeRequest : store.saveCodeRequest(earlier)
-  }))
+  const request: CodeRequest = { email, requestedAt: yield* Clock.currentTimeMillis }
+  yield* store.saveCodeRequest(request)
+  yield* api.sendCode(email).pipe(Effect.catch((reason) =>
+    Effect.gen(function*() {
+      const next = afterRefusal(reason, request, earlier)
+      if (yield* store.replaceCodeRequest(request, next)) {
+        return yield* new CodeNotSent({ reason, codeStepFor: next?.email })
+      }
+      return yield* new CodeRequestOvertaken()
+    })
+  ))
 })
+
+/**
+ * The code request to keep when the server refused `request`, or could not
+ * be reached. `earlier` is the one saved before it, if its code still works.
+ */
+const afterRefusal = (
+  reason: CodeNotSent["reason"],
+  request: CodeRequest,
+  earlier: CodeRequest | undefined
+): CodeRequest | undefined => {
+  switch (reason._tag) {
+    case "CodeRecentlySent":
+      // A code for this address went out less than a minute ago, and it may
+      // be in the inbox (or used already: someone signed in, out and in again
+      // within the minute). Stay at its code step, with its own time if this
+      // browser asked for it; otherwise this request's time is the best guess.
+      return earlier?.email === request.email ? earlier : request
+    case "EmailNotSent":
+      // The server replaced the earlier code with a new one, then forgot the
+      // new one when its email failed: no code works for this address now.
+      return undefined
+    case "NetworkError":
+    case "ServerError":
+      // Probably nothing changed on the server: the earlier code, if any,
+      // still works, for 15 minutes from when it was asked for.
+      return earlier
+  }
+}
 
 /**
  * Trade the emailed code for a sign-in token (the server creates the account

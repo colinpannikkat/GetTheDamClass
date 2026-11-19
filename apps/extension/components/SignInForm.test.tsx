@@ -2,10 +2,11 @@
 import { CodeRecentlySent, EmailNotSent, InvalidCode } from "@getthedamclass/shared/domain"
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { Effect, Layer, ManagedRuntime } from "effect"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { fakeBrowser } from "wxt/testing/fake-browser"
 import { AccountStore } from "@/lib/AccountStore"
 import { Api } from "@/lib/Api"
+import { NetworkError } from "@/lib/domain"
 import { RuntimeContext, useAccount } from "@/lib/react"
 import { SignInForm } from "./SignInForm"
 
@@ -61,7 +62,7 @@ function enterCode(typed: string) {
 
 /** As if a code was asked for this many minutes ago (in the popup, which was then closed). */
 const askedMinutesAgo = (minutes: number) =>
-  fakeBrowser.storage.local.set({ codeRequest: { email, sentAt: Date.now() - minutes * 60_000 } })
+  fakeBrowser.storage.local.set({ codeRequest: { email, requestedAt: Date.now() - minutes * 60_000 } })
 
 /** The text of every error message on screen. */
 const errors = () => screen.getAllByRole("alert").map((alert) => alert.textContent).join("")
@@ -72,7 +73,10 @@ const settled = () => new Promise((resolve) => setTimeout(resolve, 20))
 beforeEach(() => {
   fakeBrowser.reset()
 })
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 describe("the email step", () => {
   it("says in a few words that there is no password and nothing else to sign up for", async () => {
@@ -91,6 +95,17 @@ describe("the email step", () => {
     expect(asked).toEqual([email])
     expect(screen.getByText(`We sent it to ${email}. It works for 15 minutes.`)).toBeDefined()
     expect(document.activeElement).toBe(codeField())
+  })
+
+  it("does not call the first code a new one", async () => {
+    await renderForm({ sendCode: () => Effect.void })
+
+    askForCode(email)
+
+    // The hint changes once the server has answered.
+    await screen.findByText(`We sent it to ${email}. It works for 15 minutes.`)
+    await settled()
+    expect(screen.queryByText(`We sent a new code to ${email}.`)).toBeNull()
   })
 
   it.each(["", "student", "student@", "two words@example.com"])(
@@ -213,16 +228,18 @@ describe("the code step", () => {
     expect(await fakeBrowser.storage.local.get()).not.toHaveProperty("token")
   })
 
-  it("sends a new code to the same address, and says so", async () => {
+  it("sends a new code to the same address, says so, and clears the digits typed from the old one", async () => {
     const asked: Array<string> = []
     await askedMinutesAgo(2)
     await renderForm({ sendCode: (email) => Effect.sync(() => void asked.push(email)) })
+    fireEvent.change(codeField(), { target: { value: "012345" } })
 
     fireEvent.click(screen.getByRole("button", { name: "Send a new code" }))
 
     const message = await screen.findByText(`We sent a new code to ${email}.`)
     expect(message.closest("[role=status]")).not.toBeNull()
     expect(asked).toEqual([email])
+    expect(codeField().value).toBe("")
   })
 
   it("shows the server's sentence when a new code is asked for within the minute, and keeps the first code's time", async () => {
@@ -231,13 +248,72 @@ describe("the code step", () => {
     await askedMinutesAgo(0)
     const before = await fakeBrowser.storage.local.get()
     await renderForm({ sendCode: () => Effect.fail(new CodeRecentlySent({ message: sentence })) })
+    fireEvent.change(codeField(), { target: { value: "012345" } })
 
     fireEvent.click(screen.getByRole("button", { name: "Send a new code" }))
 
     expect(await screen.findByText(sentence)).toBeDefined()
-    // Still at the code step: the earlier code works, for 15 minutes from when it was sent.
-    expect(codeField()).toBeDefined()
+    // Still at the code step, with what was typed: the earlier code works,
+    // for 15 minutes from when it was asked for.
+    expect(codeField().value).toBe("012345")
     expect(await fakeBrowser.storage.local.get()).toEqual(before)
+  })
+
+  it("goes back to the email step, with the server's sentence and the address, when the new code's email could not be sent", async () => {
+    // The server replaced the earlier code before the email failed, and then
+    // forgot the new one: no code works for this address any more.
+    await askedMinutesAgo(2)
+    await renderForm({ sendCode: () => Effect.fail(new EmailNotSent({ message: "We couldn't send the email." })) })
+
+    fireEvent.click(screen.getByRole("button", { name: "Send a new code" }))
+
+    expect(await screen.findByText("We couldn't send the email.")).toBeDefined()
+    expect(emailField().value).toBe(email)
+    expect(await fakeBrowser.storage.local.get()).toEqual({})
+  })
+
+  it("shows why a new code failed on the email step, when the form was left open past the code's 15 minutes", async () => {
+    await askedMinutesAgo(14)
+    await renderForm({ sendCode: () => Effect.fail(new NetworkError({ cause: "offline" })) })
+    // Two minutes on: nothing has read the saved request since, so the form
+    // still shows its code step.
+    const later = Date.now() + 2 * 60_000
+    vi.spyOn(Date, "now").mockReturnValue(later)
+
+    fireEvent.click(screen.getByRole("button", { name: "Send a new code" }))
+
+    expect(await screen.findByText("Couldn't reach the server. Check your connection and try again.")).toBeDefined()
+    expect(emailField().value).toBe(email)
+    expect(await fakeBrowser.storage.local.get()).toEqual({})
+  })
+
+  it("lets a late refusal of a new code change nothing once the student went on to a different email", async () => {
+    // The server is asked once the new request is saved, and answers when
+    // the test says.
+    let asked = () => {}
+    const serverAsked = new Promise<void>((resolve) => (asked = resolve))
+    let refuse = () => {}
+    const refused = new Promise<void>((resolve) => (refuse = resolve))
+    await askedMinutesAgo(2)
+    await renderForm({
+      sendCode: () =>
+        Effect.sync(asked).pipe(
+          Effect.andThen(Effect.promise(() => refused)),
+          Effect.andThen(Effect.fail(new NetworkError({ cause: "offline" })))
+        )
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "Send a new code" }))
+    await serverAsked
+    fireEvent.click(screen.getByRole("button", { name: "Use a different email" }))
+    fireEvent.change(await screen.findByLabelText("Email"), { target: { value: "other@oregon" } })
+    refuse()
+    await settled()
+
+    expect(emailField().value).toBe("other@oregon")
+    expect(screen.queryByLabelText("6-digit code")).toBeNull()
+    expect(errors()).toBe("")
+    expect(await fakeBrowser.storage.local.get()).toEqual({})
   })
 
   it("shows only the newest answer: a refused code, then a new one sent", async () => {
@@ -261,7 +337,7 @@ describe("the code step", () => {
     enterCode("999999")
     await screen.findByText("That code isn't right.")
 
-    await fakeBrowser.storage.local.set({ codeRequest: { email: "other@oregonstate.edu", sentAt: Date.now() } })
+    await fakeBrowser.storage.local.set({ codeRequest: { email: "other@oregonstate.edu", requestedAt: Date.now() } })
 
     expect(await screen.findByText("We sent it to other@oregonstate.edu. It works for 15 minutes.")).toBeDefined()
     expect(codeField().value).toBe("")
