@@ -1,0 +1,22 @@
+{
+  "name": "@getthedamclass/shared",
+  "description": "The API between the extension and the server, defined once for both",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./Api": "./src/Api.ts",
+    "./domain": "./src/domain.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "effect": "^4.1.4"
+  },
+  "devDependencies": {
+    "@effect/vitest": "^4.1.4",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
+  }
+}
