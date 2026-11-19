@@ -6,7 +6,8 @@
  *   SignedIn   who is signed in, and their classes (or why they did not load)
  *   Brand      the icon and name at the top of both screens
  *
- * The list of classes itself is in `ClassList.tsx`.
+ * The list of classes itself is in `ClassList.tsx`, and "Delete my account"
+ * in `DeleteAccount.tsx`.
  */
 import { useState } from "react"
 import { Button } from "@/components/Button"
@@ -17,20 +18,24 @@ import { errorMessage } from "@/lib/errorMessage"
 import { useAccount, useAction, useQuery } from "@/lib/react"
 import { listAlerts, signOut } from "@/lib/workflows"
 import { ClassList, ClassListSkeleton } from "./ClassList"
+import { DeleteAccount } from "./DeleteAccount"
+
+/** What the student just did here, said once on the signed-out screen that follows. */
+type Farewell = "signedOut" | "deleted"
 
 export function App() {
   // Updates by itself, so signing in or out switches the screen.
   const account = useAccount()
-  const [signedOutHere, setSignedOutHere] = useState(false)
+  const [farewell, setFarewell] = useState<Farewell | null>(null)
   return (
     // `w-90` is 360px. The height follows the content; Chrome sizes the popup to fit.
     <main className="ui-root flex w-90 flex-col">
       {/* Reading the saved sign-in takes a few milliseconds: show nothing rather than a flash. */}
       {account.status === "loading" && <div className="h-24" aria-busy="true" />}
       {account.status === "signedOut" && (
-        <SignedOut email={account.email} codeRequest={account.codeRequest} afterSigningOut={signedOutHere} />
+        <SignedOut email={account.email} codeRequest={account.codeRequest} farewell={farewell} />
       )}
-      {account.status === "signedIn" && <SignedIn email={account.email} onSignedOut={() => setSignedOutHere(true)} />}
+      {account.status === "signedIn" && <SignedIn email={account.email} onLeft={setFarewell} />}
       <Message tone="error" className="m-4">
         {account.status === "failure" ? "Couldn't read your saved sign-in. Close this popup and open it again." : null}
       </Message>
@@ -39,28 +44,30 @@ export function App() {
   )
 }
 
-function SignedOut({ email, codeRequest, afterSigningOut }: {
+function SignedOut({ email, codeRequest, farewell }: {
   /** What the sign-in form starts from: the last address, and a code asked for and not used yet. */
   readonly email: string | undefined
   readonly codeRequest: CodeRequest | undefined
-  readonly afterSigningOut: boolean
+  readonly farewell: Farewell | null
 }) {
   return (
     <section className="flex flex-col gap-4 p-4">
       <Brand />
-      {afterSigningOut
-        ? (
-          // Signing out only makes this browser forget the account. Say so,
-          // or the emails that keep coming would be a surprise.
-          <Message>
-            Your alerts keep running: to stop one, sign in again and press Stop, or use the link in any email about it.
-          </Message>
-        )
-        : (
-          <p className="text-ink-muted">
-            Pick a class at Oregon State and get an email when a seat opens or the class fills up.
-          </p>
-        )}
+      {farewell === null && (
+        <p className="text-ink-muted">
+          Pick a class at Oregon State and get an email when a seat opens or the class fills up.
+        </p>
+      )}
+      {farewell === "signedOut" && (
+        // Signing out leaves the account and its alerts on the server. Say
+        // so, or the emails that keep coming would be a surprise.
+        <Message>
+          Your alerts keep running: to stop one, sign in again and press Stop, or use the link in any email about it.
+        </Message>
+      )}
+      {farewell === "deleted" && (
+        <Message tone="success">Your account and all its alerts are deleted.</Message>
+      )}
       <SignInForm email={email} codeRequest={codeRequest} />
     </section>
   )
@@ -69,7 +76,11 @@ function SignedOut({ email, codeRequest, afterSigningOut }: {
 /** `useAction` wants a function; `signOut` is an effect that takes no arguments. */
 const runSignOut = () => signOut
 
-function SignedIn({ email, onSignedOut }: { readonly email: string; readonly onSignedOut: () => void }) {
+function SignedIn({ email, onLeft }: {
+  readonly email: string
+  /** The student signed out or deleted the account here. */
+  readonly onLeft: (farewell: Farewell) => void
+}) {
   // Loads when the popup opens, and again if another account signs in.
   const { state, reload } = useQuery(() => listAlerts, [email])
   const signOutAction = useAction(runSignOut)
@@ -92,7 +103,7 @@ function SignedIn({ email, onSignedOut }: { readonly email: string; readonly onS
           onClick={async () => {
             const result = await signOutAction.run()
             if (result.status === "success") {
-              onSignedOut()
+              onLeft("signedOut")
             }
           }}
         >
@@ -113,6 +124,10 @@ function SignedIn({ email, onSignedOut }: { readonly email: string; readonly onS
             Try again
           </Button>
         )}
+      </section>
+
+      <section className="flex flex-col border-t border-line px-4 py-2">
+        <DeleteAccount onDeleted={() => onLeft("deleted")} />
       </section>
     </>
   )

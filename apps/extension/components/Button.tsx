@@ -1,11 +1,14 @@
 import type { ComponentProps } from "react"
 import { cx } from "./cx"
 
-export type ButtonVariant = "primary" | "secondary" | "quiet"
+export type ButtonVariant = "primary" | "secondary" | "quiet" | "danger"
 export type ButtonSize = "sm" | "md"
 
 export interface ButtonProps extends ComponentProps<"button"> {
-  /** `primary` is the one main action; `quiet` has no border. Default: `secondary`. */
+  /**
+   * `primary` is the one main action; `quiet` has no border; `danger`
+   * confirms something that cannot be undone. Default: `secondary`.
+   */
   readonly variant?: ButtonVariant
   /** `md` is 40px tall, `sm` is 32px. Default: `md`. */
   readonly size?: ButtonSize
@@ -19,7 +22,10 @@ export interface ButtonProps extends ComponentProps<"button"> {
 const variantClasses: Record<ButtonVariant, string> = {
   primary: "bg-accent text-on-accent not-aria-disabled:hover:bg-accent-hover",
   secondary: "border border-line-strong bg-surface text-ink not-aria-disabled:hover:bg-surface-muted",
-  quiet: "text-ink-muted not-aria-disabled:hover:bg-surface-muted not-aria-disabled:hover:text-ink"
+  quiet: "text-ink-muted not-aria-disabled:hover:bg-surface-muted not-aria-disabled:hover:text-ink",
+  // Text in the page's background colour: the danger red is dark in light
+  // mode and light in dark mode, so this keeps the contrast in both.
+  danger: "bg-danger text-surface not-aria-disabled:hover:bg-danger/85"
 }
 
 const sizeClasses: Record<ButtonSize, string> = {

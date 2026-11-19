@@ -69,6 +69,8 @@ export class Api extends Context.Service<Api, {
   signIn(email: EmailAddress, code: SignInCode): Effect.Effect<string, InvalidCode | CallError>
   /** End this token on the server. */
   signOut(token: string): Effect.Effect<void, NotSignedIn | CallError>
+  /** Delete the account, its alerts, and the tokens of every browser it is signed in on. */
+  deleteAccount(token: string): Effect.Effect<void, NotSignedIn | CallError>
   /** Every class the account gets alerts for. */
   listAlerts(token: string): Effect.Effect<ReadonlyArray<Alert>, NotSignedIn | CallError>
   /** Start vacancy alerts for a class. */
@@ -177,6 +179,11 @@ function makeApi() {
       yield* client.account.signOut()
     }, settle)
 
+    const deleteAccount = Effect.fn("Api.deleteAccount")(function*(token: string) {
+      const client = yield* clientWith(token)
+      yield* client.account.deleteAccount()
+    }, settle)
+
     const listAlerts = Effect.fn("Api.listAlerts")(function*(token: string) {
       const client = yield* clientWith(token)
       return yield* client.alerts.list()
@@ -192,6 +199,6 @@ function makeApi() {
       yield* client.alerts.unsubscribe({ params: { term, crn } })
     }, settle)
 
-    return Api.of({ sendCode, signIn, signOut, listAlerts, subscribe, unsubscribe })
+    return Api.of({ sendCode, signIn, signOut, deleteAccount, listAlerts, subscribe, unsubscribe })
   })
 }

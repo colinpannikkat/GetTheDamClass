@@ -14,7 +14,16 @@ import { fakeBrowser } from "wxt/testing/fake-browser"
 import { AccountStore } from "./AccountStore"
 import { Api } from "./Api"
 import { type ClassId, NetworkError } from "./domain"
-import { changeEmail, listAlerts, requestCode, signIn, signOut, subscribe, unsubscribe } from "./workflows"
+import {
+  changeEmail,
+  deleteAccount,
+  listAlerts,
+  requestCode,
+  signIn,
+  signOut,
+  subscribe,
+  unsubscribe
+} from "./workflows"
 
 // The workflows run here with a fake Api and the real AccountStore (on WXT's
 // in-memory `browser`). `Layer.mock` builds a service from just the functions
@@ -188,6 +197,30 @@ describe("signOut", () => {
     }).pipe(withFakeApi({ sendCode: () => Effect.void })))
 })
 
+describe("deleteAccount", () => {
+  it.effect("deletes the account on the server with the saved token, then leaves nothing saved", () => {
+    const deleted: Array<string> = []
+    return Effect.gen(function*() {
+      yield* signedInWatching(intro)
+      yield* deleteAccount
+      assert.deepStrictEqual(deleted, [token])
+      assert.deepStrictEqual(yield* raw, {})
+    }).pipe(withFakeApi({ deleteAccount: (token) => Effect.sync(() => void deleted.push(token)) }))
+  })
+
+  it.effect("forgets nothing when the server could not delete it: the account still exists", () =>
+    Effect.gen(function*() {
+      yield* signedInWatching(intro)
+      assert.strictEqual((yield* Effect.flip(deleteAccount))._tag, "NetworkError")
+      assert.deepStrictEqual(yield* watching, ["202702/33940"])
+    }).pipe(withFakeApi({ deleteAccount: () => Effect.fail(new NetworkError({ cause: "offline" })) })))
+
+  it.effect("fails with NotSignedIn, without calling the server, when nobody is signed in", () =>
+    Effect.gen(function*() {
+      assert.strictEqual((yield* Effect.flip(deleteAccount))._tag, "NotSignedIn")
+    }).pipe(withFakeApi({})))
+})
+
 describe("subscribe, unsubscribe and listAlerts", () => {
   it.effect("fail with NotSignedIn, without calling the server, when nobody is signed in", () =>
     Effect.gen(function*() {
@@ -232,6 +265,7 @@ describe("subscribe, unsubscribe and listAlerts", () => {
 
 describe("a sign-in the server no longer accepts", () => {
   const rejectingApi = withFakeApi({
+    deleteAccount: () => Effect.fail(notSignedIn),
     subscribe: () => Effect.fail(notSignedIn),
     unsubscribe: () => Effect.fail(notSignedIn),
     listAlerts: () => Effect.fail(notSignedIn)
@@ -240,7 +274,8 @@ describe("a sign-in the server no longer accepts", () => {
   it.effect.each([
     { name: "subscribe", call: subscribe(ethics) },
     { name: "unsubscribe", call: unsubscribe(intro) },
-    { name: "listAlerts", call: listAlerts }
+    { name: "listAlerts", call: listAlerts },
+    { name: "deleteAccount", call: deleteAccount }
   ])("$name: signs this browser out, keeping the email for the form, and fails with NotSignedIn", ({ call }) =>
     Effect.gen(function*() {
       yield* signedInWatching(intro)

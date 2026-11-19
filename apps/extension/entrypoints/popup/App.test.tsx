@@ -346,6 +346,72 @@ describe("stopping a class", () => {
   })
 })
 
+describe("deleting the account", () => {
+  beforeEach(signedIn)
+
+  /** Press the small link and wait for the question. */
+  async function askToDelete() {
+    fireEvent.click(await screen.findByRole("button", { name: "Delete my account" }))
+    return screen.getByRole("group", { name: /Delete your account\?/ })
+  }
+
+  it("asks first, saying what it does, with the keyboard on Cancel", async () => {
+    let calls = 0
+    renderPopup({ listAlerts: () => Effect.succeed([deepLearning]), deleteAccount: () => Effect.sync(() => void calls++) })
+
+    const question = await askToDelete()
+
+    expect(question.textContent).toContain("This stops all your alerts and signs you out everywhere. It can't be undone.")
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }))
+    expect(calls).toBe(0)
+  })
+
+  it("does nothing on Cancel", async () => {
+    let calls = 0
+    renderPopup({ listAlerts: () => Effect.succeed([deepLearning]), deleteAccount: () => Effect.sync(() => void calls++) })
+    await askToDelete()
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+
+    expect(screen.queryByRole("group")).toBeNull()
+    expect(screen.getByRole("button", { name: "Delete my account" })).toBeDefined()
+    expect(calls).toBe(0)
+    expect(await fakeBrowser.storage.local.get()).toMatchObject({ email, token })
+  })
+
+  it("deletes it on the server, forgets everything here, and says so on the sign-in screen", async () => {
+    const deleted: Array<string> = []
+    renderPopup({
+      listAlerts: () => Effect.succeed([deepLearning]),
+      deleteAccount: (token) => Effect.sync(() => void deleted.push(token))
+    })
+    await askToDelete()
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete account" }))
+
+    expect(await screen.findByText("Your account and all its alerts are deleted.")).toBeDefined()
+    expect(screen.getByLabelText("Email")).toBeDefined()
+    expect(screen.queryByText(/Your alerts keep running/)).toBeNull()
+    expect(deleted).toEqual([token])
+    expect(await fakeBrowser.storage.local.get()).toEqual({})
+  })
+
+  it("stays signed in, and says why, when the server could not delete it", async () => {
+    renderPopup({
+      listAlerts: () => Effect.succeed([deepLearning]),
+      deleteAccount: () => Effect.fail(new NetworkError({ cause: "offline" }))
+    })
+    await askToDelete()
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete account" }))
+
+    const message = await screen.findByText(/Couldn't reach the server/)
+    expect(message.closest("[role=group]")).not.toBeNull()
+    expect(screen.getByText("INTRO TO DEEP LEARNING")).toBeDefined()
+    expect(await fakeBrowser.storage.local.get()).toMatchObject({ email, token })
+  })
+})
+
 describe("the sign-in form's refusals", () => {
   it("shows the server's sentence for a wrong code as it is", async () => {
     await fakeBrowser.storage.local.set({ codeRequest: { email, sentAt: Date.now() } })

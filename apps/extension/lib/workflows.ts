@@ -89,6 +89,19 @@ export const signOut = Effect.gen(function*() {
   yield* store.clear
 })
 
+/**
+ * Delete the signed-in account on the server, which ends its alerts and
+ * signs it out of every browser, then forget everything saved in this one.
+ * Unlike signing out, nothing is forgotten here if the server could not do it.
+ */
+export const deleteAccount = Effect.gen(function*() {
+  const api = yield* Api
+  const store = yield* AccountStore
+  const account = yield* signedInAccount
+  yield* withToken(account, (token) => api.deleteAccount(token))
+  yield* store.clear
+})
+
 /** Start vacancy alerts for a class, as the signed-in user. */
 export const subscribe = Effect.fn("subscribe")(function*(classId: ClassId) {
   const api = yield* Api

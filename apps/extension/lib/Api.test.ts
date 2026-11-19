@@ -52,6 +52,7 @@ const everyCall: ReadonlyArray<{
   { name: "sendCode", call: (api) => api.sendCode(email), success: noContent },
   { name: "signIn", call: (api) => api.signIn(email, "012345"), success: () => jsonResponse(200, { token }) },
   { name: "signOut", call: (api) => api.signOut(token), success: noContent },
+  { name: "deleteAccount", call: (api) => api.deleteAccount(token), success: noContent },
   { name: "listAlerts", call: (api) => api.listAlerts(token), success: () => jsonResponse(200, [introAlert]) },
   { name: "subscribe", call: (api) => api.subscribe(token, intro), success: () => jsonResponse(200, introAlert) },
   { name: "unsubscribe", call: (api) => api.unsubscribe(token, intro), success: noContent }
@@ -108,6 +109,17 @@ describe("requests", () => {
       assert.deepStrictEqual(yield* describeRequest(request), {
         method: "POST",
         url: `${API_BASE_URL}/sign-out`,
+        authorization: `Bearer ${token}`,
+        body: undefined
+      })
+    }))
+
+  it.effect("deleteAccount deletes /account with the token", () =>
+    Effect.gen(function*() {
+      const request = yield* requestOf((api) => api.deleteAccount(token), noContent)
+      assert.deepStrictEqual(yield* describeRequest(request), {
+        method: "DELETE",
+        url: `${API_BASE_URL}/account`,
         authorization: `Bearer ${token}`,
         body: undefined
       })
@@ -177,6 +189,7 @@ describe("the server's refusals", () => {
     { name: "sendCode", call: (api) => api.sendCode(email), status: 503, tag: "EmailNotSent" },
     { name: "signIn", call: (api) => api.signIn(email, "012345"), status: 400, tag: "InvalidCode" },
     { name: "signOut", call: (api) => api.signOut(token), status: 401, tag: "NotSignedIn" },
+    { name: "deleteAccount", call: (api) => api.deleteAccount(token), status: 401, tag: "NotSignedIn" },
     { name: "listAlerts", call: (api) => api.listAlerts(token), status: 401, tag: "NotSignedIn" },
     { name: "subscribe", call: (api) => api.subscribe(token, intro), status: 401, tag: "NotSignedIn" },
     { name: "subscribe", call: (api) => api.subscribe(token, intro), status: 409, tag: "AlreadySubscribed" },
