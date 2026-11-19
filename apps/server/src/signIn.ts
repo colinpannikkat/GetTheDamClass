@@ -37,7 +37,18 @@ const CODE_INTERVAL = Duration.minutes(1)
 const CODE_LIFETIME = Duration.minutes(15)
 const MAX_ATTEMPTS = 5
 
-/** Email a new sign-in code to this address. */
+/**
+ * Email a new sign-in code to this address.
+ *
+ * Once started, it runs to the end, even if the request is dropped meanwhile.
+ * That happens all the time: the student asks for a code and switches to
+ * their inbox at once, which closes the extension's popup, and the browser
+ * drops the request. Effect's router interrupts the handler of a dropped
+ * request; cut off after storing the code and before sending it (or before
+ * forgetting it when the email fails), the server would hold a code nobody
+ * received, and refuse another for a minute. (index.ts keeps the Worker
+ * itself running until the handler is done.)
+ */
 export const sendCode = Effect.fn("sendCode")(function*(email: EmailAddress) {
   const sql = yield* SqlClient.SqlClient
   const mailer = yield* Mailer
@@ -73,7 +84,7 @@ export const sendCode = Effect.fn("sendCode")(function*(email: EmailAddress) {
         return yield* new EmailNotSent({ message: "We couldn't send the email with your code. Please try again." })
       }))
   )
-}, dieOnSqlError)
+}, Effect.uninterruptible, dieOnSqlError)
 
 /** Check a code, and if it is right, return a new sign-in token for its address's account. */
 export const signIn = Effect.fn("signIn")(function*(email: EmailAddress, code: SignInCode) {

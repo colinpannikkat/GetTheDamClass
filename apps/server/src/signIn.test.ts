@@ -1,8 +1,8 @@
 import { assert, describe, it } from "@effect/vitest"
 import { EmailAddress } from "@getthedamclass/shared/domain"
-import { Effect, Schema } from "effect"
+import { Effect, Latch, Schema } from "effect"
 import { TestClock, TestConsole } from "effect/testing"
-import { makeTestServer, PUBLIC_URL } from "../test/TestServer"
+import { makeTestServer, PUBLIC_URL, type TestServer } from "../test/TestServer"
 
 // These tests go through the API, with the typed client from
 // packages/shared, against the whole server in this process (see
@@ -120,6 +120,54 @@ describe("sendCode", () => {
       const rows = yield* sql<{ codeHash: string }>`SELECT code_hash AS codeHash FROM sign_in_codes`
       assert.strictEqual(rows.length, 1)
       assert.notInclude(rows[0]!.codeHash, server.lastCode(email))
+    }))
+})
+
+describe("sendCode, when the request is dropped while the email is being sent", () => {
+  // As when the extension's popup closes the moment the student switches to
+  // their inbox. The server must not stop between storing the code and
+  // sending it (or forgetting it, if the email fails): it would then hold a
+  // code nobody received, and refuse another for a minute.
+
+  /** Ask for a code, drop the request while the mailer is sending, and wait for the server to finish. */
+  const askAndDrop = (server: TestServer) =>
+    Effect.gen(function*() {
+      const sending = Latch.makeUnsafe()
+      const sendNow = Latch.makeUnsafe()
+      server.mailer.beforeSend = Latch.open(sending).pipe(Effect.andThen(Latch.await(sendNow)))
+      const dropped = new AbortController()
+      const response = server.fetch(`${PUBLIC_URL}/sign-in/code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+        signal: dropped.signal
+      })
+      yield* Latch.await(sending)
+      dropped.abort()
+      yield* Latch.open(sendNow)
+      yield* Effect.promise(() => response)
+      server.mailer.beforeSend = undefined
+    })
+
+  it.effect("still sends the email, and the code works", () =>
+    Effect.gen(function*() {
+      const server = yield* makeTestServer()
+      yield* askAndDrop(server)
+      assert.strictEqual(server.mailer.sent.length, 1)
+      const api = yield* server.client()
+      yield* api.signIn.signIn({ payload: { email, code: server.lastCode(email) } })
+    }))
+
+  it.effect("still forgets the code when the email cannot be sent, so asking again works straight away", () =>
+    Effect.gen(function*() {
+      const server = yield* makeTestServer()
+      server.mailer.failure = "Sender address not verified"
+      yield* askAndDrop(server)
+
+      server.mailer.failure = undefined
+      const api = yield* server.client()
+      yield* api.signIn.sendCode({ payload: { email } })
+      assert.strictEqual(server.mailer.sent.length, 1)
     }))
 })
 

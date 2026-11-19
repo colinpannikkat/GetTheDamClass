@@ -57,7 +57,18 @@ const { handler } = HttpRouter.toWebHandler(ServerLayer.pipe(Layer.provideMerge(
 })
 
 export default {
-  fetch: (request) => handler(request),
+  fetch: (request, _env, ctx) => {
+    const response = handler(request)
+    // When the client goes away before the answer (the extension's popup
+    // closes the moment the student switches to their inbox), Cloudflare may
+    // stop the work of that request where it is, unless it was handed to
+    // `waitUntil`, which gives it up to 30 seconds more. So hand it the whole
+    // handler: `sendCode` (signIn.ts) then always gets to send the email or
+    // forget the code. For a request answered normally this changes nothing:
+    // its handler is done by the time the response goes out.
+    ctx.waitUntil(response)
+    return response
+  },
   // Cloudflare waits for the promise, and counts a rejected one as a failed run.
   scheduled: (controller) => jobs.runPromise(runScheduled(controller.cron))
 } satisfies ExportedHandler
