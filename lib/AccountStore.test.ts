@@ -1,7 +1,12 @@
 import { assert, beforeEach, describe, it } from "@effect/vitest"
 import { Effect, Option, Queue, Stream } from "effect"
+import { vi } from "vitest"
 import { fakeBrowser } from "wxt/testing/fake-browser"
 import { type Account, AccountStore } from "./AccountStore"
+
+// The term is part of every watch key. Pin it, so these tests do not change
+// when `lib/term.ts` does.
+vi.mock("./term", () => ({ SUPPORTED_TERM: { code: "202702", label: "Winter 2027" } }))
 
 // In tests, WXT swaps the extension API for `fakeBrowser`, an in-memory copy
 // of it (see vitest.config.ts). So this exercises the real AccountStore
@@ -47,22 +52,28 @@ describe("get", () => {
     withStore(Effect.gen(function*() {
       yield* setRaw({
         ...credentials,
-        "watch:student@oregonstate.edu:33940": true,
-        "watch:student@oregonstate.edu:53476": true,
-        "watch:other@oregonstate.edu:39835": true
+        "watch:202702:student@oregonstate.edu:33940": true,
+        "watch:202702:student@oregonstate.edu:53476": true,
+        "watch:202702:other@oregonstate.edu:39835": true
       })
       assert.deepStrictEqual(yield* account, Option.some({ credentials, watching: ["33940", "53476"] }))
+    })))
+
+  it.effect("ignores classes watched in an earlier term: the same CRN can be another class now", () =>
+    withStore(Effect.gen(function*() {
+      yield* setRaw({ ...credentials, "watch:202701:student@oregonstate.edu:33940": true })
+      assert.deepStrictEqual(yield* account, Option.some({ credentials, watching: [] }))
     })))
 
   it.effect("skips a watch key that does not end in a CRN, and the list an unreleased build saved", () =>
     withStore(Effect.gen(function*() {
       yield* setRaw({
         ...credentials,
-        "watch:student@oregonstate.edu:33940": true,
-        "watch:student@oregonstate.edu:": true,
-        "watch:student@oregonstate.edu:abc": true,
+        "watch:202702:student@oregonstate.edu:33940": true,
+        "watch:202702:student@oregonstate.edu:": true,
+        "watch:202702:student@oregonstate.edu:abc": true,
         // An email that merely starts the same is another account.
-        "watch:student@oregonstate.edu:x@y.edu:53476": true,
+        "watch:202702:student@oregonstate.edu:x@y.edu:53476": true,
         watching: ["39835"]
       })
       assert.deepStrictEqual(yield* account, Option.some({ credentials, watching: ["33940"] }))
@@ -74,7 +85,7 @@ describe("get", () => {
     { title: "a PIN that is not 4 digits", saved: { email: "student@oregonstate.edu", pin: "12" } },
     { title: "a PIN saved as a number", saved: { email: "student@oregonstate.edu", pin: 1234 } },
     { title: "an email without @", saved: { email: "student", pin: "1234" } },
-    { title: "watched classes but no credentials", saved: { "watch:student@oregonstate.edu:33940": true } }
+    { title: "watched classes but no credentials", saved: { "watch:202702:student@oregonstate.edu:33940": true } }
   ]
 
   it.effect.each(unusable
@@ -137,13 +148,13 @@ describe("clear", () => {
 })
 
 describe("watch and unwatch", () => {
-  it.effect("save one key per class, named after the account and the CRN", () =>
+  it.effect("save one key per class, named after the term, the account and the CRN", () =>
     withStore(Effect.gen(function*() {
       const store = yield* AccountStore
       yield* store.save(credentials)
       yield* store.watch(credentials.email, ["33940", "53476"])
       yield* store.unwatch(credentials.email, ["33940"])
-      assert.deepStrictEqual(yield* raw, { ...credentials, "watch:student@oregonstate.edu:53476": true })
+      assert.deepStrictEqual(yield* raw, { ...credentials, "watch:202702:student@oregonstate.edu:53476": true })
     })))
 
   it.effect("change nothing when asked again, or for a class that is not there", () =>

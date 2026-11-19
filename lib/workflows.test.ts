@@ -274,4 +274,27 @@ describe("while the server is still answering", () => {
       listSubscriptions: () => Effect.as(heldBack(asked, letGo), [{ crn: "53476", name: null }])
     }))
   })
+
+  it.effect("listSubscriptions: an alert stopped in the meantime stays stopped", () => {
+    const asked = Latch.makeUnsafe()
+    const letGo = Latch.makeUnsafe()
+    return Effect.gen(function*() {
+      yield* signedInWatching("33940", "53476")
+      // The popup opens and asks for the list...
+      const pending = yield* Effect.forkChild(listSubscriptions)
+      yield* Latch.await(asked)
+
+      // ...and before the answer is back, a class page stops one alert.
+      yield* unsubscribe("33940")
+      yield* Latch.open(letGo)
+      yield* Fiber.join(pending)
+
+      // The server's (older) list still has 33940. It must not come back.
+      assert.deepStrictEqual(yield* watching, ["53476"])
+    }).pipe(withFakeApi({
+      unsubscribe: () => Effect.void,
+      listSubscriptions: () =>
+        Effect.as(heldBack(asked, letGo), [{ crn: "33940", name: null }, { crn: "53476", name: null }])
+    }))
+  })
 })

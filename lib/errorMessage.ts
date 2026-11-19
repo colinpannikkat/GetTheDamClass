@@ -9,7 +9,8 @@ export function errorMessage(error: AppError): string {
   // TypeScript reports this function until it has a sentence for it.
   switch (error._tag) {
     case "WrongPin":
-      return "That PIN doesn't match this email. Check it and try again."
+      // There is no "reset PIN" on the server, so say who can help.
+      return "That PIN doesn't match this email. Check it and try again. Forgot it? Email getthedamclass@gmail.com."
     case "ClassNotFound":
       return `We couldn't find a class with CRN ${error.crn}.`
     case "RequestRejected":

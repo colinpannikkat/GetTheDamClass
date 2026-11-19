@@ -96,9 +96,11 @@ What is stored, unencrypted, until you sign out (which removes all of it):
 | --- | --- | --- |
 | `email` | `"student@oregonstate.edu"` | The same two keys version 1 used, so its users stay signed in. |
 | `pin` | `"1234"` | |
-| `watch:student@oregonstate.edu:33940` | `true` | One key per watched class, named after the account and the CRN. |
+| `watch:202702:student@oregonstate.edu:33940` | `true` | One key per watched class, named after the term, the account and the CRN. |
 
-A watched class is a key of its own so that adding one is a single write and removing one a single delete. Nothing reads a list, changes it and writes it back, so two changes made at the same moment (in the popup and on a class page, say) cannot undo each other. And the account is part of the name so that an answer from the server that arrives after someone else signed in is saved for the account that asked, where the other never sees it.
+A watched class is a key of its own so that adding one is a single write and removing one a single delete. Nothing reads a list, changes it and writes it back, so two changes made at the same moment (in the popup and on a class page, say) cannot undo each other. And the account is part of the name so that an answer from the server that arrives after someone else signed in is saved for the account that asked, where the other never sees it. The term is part of the name so that last term's classes stop counting as watched when `lib/term.ts` moves on (the next term can reuse a CRN for a different class).
+
+One known gap: if you sign out while a "Notify me" request is still waiting for the server, its answer is saved after the sign-out, leaving one `watch:` key (email and CRN, no PIN) until the next sign-out.
 
 The page trusts that saved list and does not ask the server when a class is opened. If an alert was stopped elsewhere (the Unsubscribe link in an email, another browser), the page still says "Watching" until the popup is next opened, which fetches the real list, or until "Stop alerts" is pressed, which works either way.
 
@@ -123,6 +125,8 @@ The backend looks up classes in one hard-coded term (`'term': '202702'` in its `
 3. Once the new version is out, change the term in the backend and deploy it.
 
 Do step 3 soon after step 2. The two can never switch at the same instant (browsers pick up a new version of an extension over hours or days), and while they disagree a press is looked up in the wrong term. Releasing the extension first, during the quiet days before registration opens, keeps that to a minimum.
+
+People who installed from a release zip ("Load unpacked") do not get updates automatically: until they download the new release, the page keeps telling them alerts cover the old term only. Say so in the release notes.
 
 Alerts set up for the old term stay in the backend's database, where after the switch their CRNs would be looked up in the new term. Clear them out there as part of step 3.
 
@@ -182,6 +186,8 @@ function NotifyButton({ crn }: { crn: string }) {
 - `useAction(workflow)` gives a `run` function for clicks and form submits.
 - `useQuery(() => effect, deps)` runs an effect when the component appears, for loading data.
 - `useAccount()` says who is signed in and which classes they are watching, and updates when that changes anywhere in the extension.
+
+**In the tests** you will meet a few more Effect names. `it.effect(...)` runs a test written as an effect. `Layer.mock(Api, { ... })` is a fake backend. In `lib/workflows.test.ts`, `Effect.forkChild` starts a workflow without waiting for it (it returns a `Fiber`, a handle to the running work, which `Fiber.join` waits for), and a `Latch` is a gate the fake server waits at until the test opens it. Together they let a test do something while a request is still unanswered.
 
 ### Adding a backend call
 

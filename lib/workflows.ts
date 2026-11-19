@@ -74,10 +74,11 @@ export const listSubscriptions = Effect.gen(function*() {
   const store = yield* AccountStore
   const { credentials, watching } = yield* savedAccount
   const subscriptions = yield* api.listSubscriptions(credentials)
-  // The server's list is the truth. Drop what we had saved before asking and
-  // the server no longer lists, and save everything it does list.
+  // The server's list is the truth, as of when we asked. So only undo the
+  // differences from what was saved at that moment: a class started or stopped
+  // while the server was answering is newer than its list, and is left alone.
   const listed = subscriptions.map((subscription) => subscription.crn)
   yield* store.unwatch(credentials.email, watching.filter((crn) => !listed.includes(crn)))
-  yield* store.watch(credentials.email, listed)
+  yield* store.watch(credentials.email, listed.filter((crn) => !watching.includes(crn)))
   return subscriptions
 })

@@ -10,22 +10,25 @@
  *
  * What is stored:
  *
- *   email                                  "student@oregonstate.edu"
- *   pin                                    "1234"
- *   watch:student@oregonstate.edu:33940    true
+ *   email                                         "student@oregonstate.edu"
+ *   pin                                           "1234"
+ *   watch:202702:student@oregonstate.edu:33940    true
  *
- * Every watched class is a key of its own, named after the account and the
- * CRN. That makes two things safe without any locking:
+ * Every watched class is a key of its own, named after the term, the account
+ * and the CRN. That makes three things safe without any locking:
  *
  * - Adding a class is one write and removing it one delete. Neither reads the
  *   list first, so two changes made at the same moment (in the popup and on a
  *   class page, say) cannot undo each other.
  * - An answer from the server that arrives after someone else signed in is
  *   saved under the account that asked, where the other account never sees it.
+ * - When `lib/term.ts` moves to the next term, last term's keys stop matching,
+ *   so a CRN the new term reuses for another class does not show as watched.
  */
 import { Context, Effect, Layer, Option, Queue, Schema, Stream } from "effect"
 import { browser } from "wxt/browser"
 import { Credentials, Crn, StorageError } from "./domain"
+import { SUPPORTED_TERM } from "./term"
 
 export interface Account {
   readonly credentials: Credentials
@@ -40,9 +43,9 @@ export interface Account {
 
 /**
  * How the storage key of every class watched by one account starts. The CRN
- * follows: "watch:student@oregonstate.edu:33940".
+ * follows: "watch:202702:student@oregonstate.edu:33940".
  */
-const watchPrefix = (email: string) => `watch:${email}:`
+const watchPrefix = (email: string) => `watch:${SUPPORTED_TERM.code}:${email}:`
 
 export class AccountStore extends Context.Service<AccountStore, {
   /** The saved account, or `Option.none()` when nobody is signed in. */
