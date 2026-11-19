@@ -48,12 +48,15 @@ export const signInCodeEmail = (to: string, code: string): Email => ({
   )
 })
 
-/** Sent right after a student starts alerts for a class. */
-export const subscriptionConfirmedEmail = (to: string, alert: {
+/** The class an email about one alert is about, and the link that stops that alert. */
+interface AlertDetails {
   readonly title: string
   readonly crn: Crn
   readonly unsubscribeUrl: string
-}): Email => {
+}
+
+/** Sent right after a student starts alerts for a class. */
+export const subscriptionConfirmedEmail = (to: string, alert: AlertDetails): Email => {
   const label = classLabel(alert)
   return {
     to,
@@ -68,6 +71,74 @@ export const subscriptionConfirmedEmail = (to: string, alert: {
       paragraph(`You will get an email when a seat opens in <strong>${escapeHtml(label)}</strong>, and another if it fills up again.`) +
         paragraph("To stop these alerts, use the extension or this button:") +
         button(alert.unsubscribeUrl, "Stop these alerts")
+    )
+  }
+}
+
+/**
+ * Where students register: the class search the extension runs on. The
+ * button in the seat-opened email goes there, so a student on a phone is one
+ * tap away from the class.
+ */
+const CLASS_SEARCH_URL = "https://classes.oregonstate.edu/"
+
+/**
+ * The end of both alert emails: how to stop them. A plain link rather than a
+ * button, so it does not compete with what the email is for.
+ */
+const stopAlerts = (unsubscribeUrl: string) => ({
+  text: ["To stop these alerts, use the extension or open this link:", unsubscribeUrl],
+  html: `<p style="margin:24px 0 0;font-size:14px;color:#666666;">To stop these alerts, use the extension or <a href="${
+    escapeHtml(unsubscribeUrl)
+  }" style="color:#666666;">open this link</a>.</p>`
+})
+
+/**
+ * Sent when a watched class goes from full to having a free seat. Seats go
+ * fast, so the subject says it all, and the CRN stands out to copy.
+ */
+export const seatOpenedEmail = (to: string, alert: AlertDetails): Email => {
+  const label = classLabel(alert)
+  const footer = stopAlerts(alert.unsubscribeUrl)
+  return {
+    to,
+    subject: `Seat open: ${label}`,
+    text: [
+      `A seat just opened in ${label}. Seats go fast, so register now:`,
+      `add CRN ${alert.crn} on the class search, ${CLASS_SEARCH_URL}`,
+      "",
+      "You will get another email if the class fills up again.",
+      "",
+      ...footer.text
+    ].join("\n"),
+    html: layout(
+      paragraph(`A seat just opened in <strong>${escapeHtml(label)}</strong>. Seats go fast, so register now.`) +
+        `<p style="margin:0 0 16px;font-size:24px;font-weight:bold;letter-spacing:2px;">CRN ${escapeHtml(alert.crn)}</p>` +
+        button(CLASS_SEARCH_URL, "Open the class search") +
+        paragraph("You will get another email if the class fills up again.") +
+        footer.html
+    )
+  }
+}
+
+/** Sent when a watched class that had a free seat is full again. */
+export const classFullEmail = (to: string, alert: AlertDetails): Email => {
+  const label = classLabel(alert)
+  const footer = stopAlerts(alert.unsubscribeUrl)
+  return {
+    to,
+    subject: `Full again: ${label}`,
+    text: [
+      `${label} is full again.`,
+      "",
+      "You will get an email as soon as another seat opens.",
+      "",
+      ...footer.text
+    ].join("\n"),
+    html: layout(
+      paragraph(`<strong>${escapeHtml(label)}</strong> is full again.`) +
+        paragraph("You will get an email as soon as another seat opens.") +
+        footer.html
     )
   }
 }

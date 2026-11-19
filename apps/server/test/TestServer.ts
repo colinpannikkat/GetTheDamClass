@@ -6,7 +6,8 @@
  *
  * Around the real server: a real SQLite database (TestDatabase.ts), a mailer
  * that keeps the messages (RecordingMailer.ts), and a university that knows
- * the classes the test gives it (FakeUniversity.ts).
+ * the classes the test gives it (FakeUniversity.ts). The jobs Cloudflare runs
+ * on a schedule run on the same services, with `run`.
  *
  * Use it inside `it.effect`. The server then runs on the test's clock, so
  * `TestClock.adjust("15 minutes")` moves time for the server too, and logs to
@@ -61,22 +62,20 @@ const countingRandom = () => {
 export const makeTestServer = Effect.fn("makeTestServer")(function*(classes: Record<string, FakeClass> = defaultClasses) {
   const mailer = makeRecordingMailer()
   const university = makeFakeUniversity(classes, TERMS)
-  // Built here rather than inside the server, so the test can query the same
-  // database (`sql` below).
-  const database = yield* Layer.build(TestDatabase)
+  // Built here rather than inside the server, so that the test can query the
+  // same database (`sql` below) and run jobs on the same services (`run`).
+  const services = yield* Layer.build(Layer.mergeAll(
+    TestDatabase,
+    mailer.layer,
+    university.layer,
+    Layer.succeed(PublicUrl, PUBLIC_URL),
+    Layer.succeed(SecureRandom.SecureRandom, countingRandom()),
+    Layer.succeed(Clock.Clock, yield* Clock.Clock),
+    Layer.succeed(Console.Console, yield* Console.Console)
+  ))
 
   const { handler, dispose } = HttpRouter.toWebHandler(
-    ServerLayer.pipe(
-      Layer.provideMerge(Layer.mergeAll(
-        Layer.succeedContext(database),
-        mailer.layer,
-        university.layer,
-        Layer.succeed(PublicUrl, PUBLIC_URL),
-        Layer.succeed(SecureRandom.SecureRandom, countingRandom()),
-        Layer.succeed(Clock.Clock, yield* Clock.Clock),
-        Layer.succeed(Console.Console, yield* Console.Console)
-      ))
-    ),
+    ServerLayer.pipe(Layer.provideMerge(Layer.succeedContext(services))),
     { disableLogger: true }
   )
   yield* Effect.addFinalizer(() => Effect.promise(dispose))
@@ -110,7 +109,10 @@ export const makeTestServer = Effect.fn("makeTestServer")(function*(classes: Rec
   })
 
   /** The server's database, for looking at what it stored. */
-  const sql = SqlClient.SqlClient.pipe(Effect.provide(database))
+  const sql = SqlClient.SqlClient.pipe(Effect.provide(services))
 
-  return { fetch, client, signIn, lastCode, mailer, university, sql }
+  /** Run a job (the check every minute, the daily job) on the server's services, as Cloudflare would. */
+  const run = <A, E, R>(job: Effect.Effect<A, E, R>) => Effect.provide(job, services)
+
+  return { fetch, client, signIn, lastCode, mailer, university, sql, run }
 })
