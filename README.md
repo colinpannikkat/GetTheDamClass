@@ -10,7 +10,7 @@ We have a backend server running on a private VPS to track course vacancies and 
 
 ## Adding the Chrome Extension
 
-1. Download the latest release from the [releases page](https://github.com/aj-arts/GetTheDamClass/releases).
+1. Download the latest release from the [releases page](https://github.com/colinpannikkat/GetTheDamClass/releases).
 2. Extract the downloaded zip file to a location on your local machine.
 3. Open Chrome and navigate to `chrome://extensions`.
 4. Enable "Developer mode" by toggling the switch in the top right corner.
