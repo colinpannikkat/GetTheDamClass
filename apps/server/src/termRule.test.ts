@@ -25,15 +25,21 @@ describe("addDeadline", () => {
       deadline: "2027-01-17"
     },
     {
-      // Monday 2027-06-21 to Saturday 2027-07-31 is 41 days.
-      title: "running under six weeks: the Sunday ending its first week",
-      meetings: [{ start: "2027-06-21", end: "2027-07-31" }],
+      // Monday 2027-06-21 to Sunday 2027-07-25 is 35 days: five whole weeks.
+      title: "running five weeks: the Sunday ending its first week",
+      meetings: [{ start: "2027-06-21", end: "2027-07-25" }],
       deadline: "2027-06-27"
     },
     {
-      // Monday 2027-06-21 to Sunday 2027-08-01 is 42 days.
-      title: "running exactly six weeks: not a short session",
-      meetings: [{ start: "2027-06-21", end: "2027-08-01" }],
+      // Monday 2027-06-21 to Monday 2027-07-26 is 36 days: it reaches a sixth week.
+      title: "reaching into a sixth week: not a short session",
+      meetings: [{ start: "2027-06-21", end: "2027-07-26" }],
+      deadline: "2027-07-04"
+    },
+    {
+      // Monday 2027-06-21 to Friday 2027-07-30: what a six-week session looks like.
+      title: "running six weeks, to a Friday: not a short session",
+      meetings: [{ start: "2027-06-21", end: "2027-07-30" }],
       deadline: "2027-07-04"
     },
     {

@@ -36,8 +36,13 @@ export const todayInOregon: Effect.Effect<string> = Effect.map(
   (now) => DateTime.formatIsoDate(DateTime.setZone(now, OREGON))
 )
 
-/** A class that runs fewer days than this (first and last day both counted) is a short session. */
-const SHORT_SESSION_DAYS = 6 * 7
+/**
+ * A class that runs fewer weeks than this is a short session. Weeks are
+ * counted the way a session is named: one that runs Monday to Friday of its
+ * sixth week is a six-week session (40 days), not "under six weeks". So every
+ * week the class reaches into counts as a whole one.
+ */
+const SHORT_SESSION_WEEKS = 6
 
 /**
  * The last day a class takes new alerts, as an ISO date, or `undefined` for a
@@ -66,8 +71,9 @@ export const addDeadline = (meetings: ReadonlyArray<MeetingDates>): string | und
   // `weekDay` counts from Sunday (0) to Saturday (6).
   const daysToMonday = (8 - DateTime.getPartUtc(first, "weekDay")) % 7
   const firstMonday = DateTime.add(first, { days: daysToMonday })
-  const days = Duration.toDays(DateTime.distance(first, last)) + 1
-  return DateTime.formatIsoDateUtc(DateTime.add(firstMonday, { days: days < SHORT_SESSION_DAYS ? 6 : 13 }))
+  // First and last day both count: Monday to Friday is five days, one week.
+  const weeks = Math.ceil((Duration.toDays(DateTime.distance(first, last)) + 1) / 7)
+  return DateTime.formatIsoDateUtc(DateTime.add(firstMonday, { days: weeks < SHORT_SESSION_WEEKS ? 6 : 13 }))
 }
 
 /** A refusal naming the day alerts for the class ended: "Sunday, January 17, 2027". */
