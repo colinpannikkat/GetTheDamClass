@@ -1,0 +1,10 @@
+{
+  "name": "getthedamclass-monorepo",
+  "private": true,
+  "packageManager": "pnpm@12.21.0",
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "build": "pnpm -r build"
+  }
+}
