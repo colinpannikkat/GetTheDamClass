@@ -19,6 +19,7 @@ import { FetchHttpClient, HttpClient, HttpClientRequest, HttpRouter } from "effe
 import { HttpApiClient } from "effect/http-api"
 import { SqlClient } from "effect/sql"
 import { ServerLayer } from "../src/server"
+import type { ListedTerm } from "../src/University"
 import { PublicUrl } from "../src/unsubscribe"
 import { type FakeClass, makeFakeUniversity } from "./FakeUniversity"
 import { makeRecordingMailer } from "./RecordingMailer"
@@ -26,11 +27,26 @@ import { TestDatabase } from "./TestDatabase"
 
 export const PUBLIC_URL = "https://api.test"
 
-/** A class the fake university knows unless a test says otherwise. */
+/**
+ * A class the fake university knows unless a test says otherwise. It runs
+ * from Monday 2027-01-04 to 2027-03-12, so its add deadline is 2027-01-17.
+ */
 export const INTRO_TO_CS = { term: "202702", crn: "33940" } as const
 const defaultClasses: Record<string, FakeClass> = {
-  "202702/33940": { title: "INTRO TO COMPUTER SCIENCE I", seats: { enrolled: 60, capacity: 60 } }
+  "202702/33940": {
+    title: "INTRO TO COMPUTER SCIENCE I",
+    seats: { enrolled: 60, capacity: 60 },
+    meetings: [{ start: "2027-01-04", end: "2027-03-12" }]
+  }
 }
+
+/** The fake university's term list unless a test says otherwise: the real one of November 2026, shortened. */
+export const TERMS: ReadonlyArray<ListedTerm> = [
+  { code: "202703", name: "Spring 2027", open: false },
+  { code: "202702", name: "Winter 2027", open: true },
+  { code: "202701", name: "Fall 2026", open: true },
+  { code: "202700", name: "Summer 2026", open: false }
+]
 
 /**
  * Randomness the test controls: every draw (a code, a token, a key) is bytes
@@ -44,7 +60,7 @@ const countingRandom = () => {
 
 export const makeTestServer = Effect.fn("makeTestServer")(function*(classes: Record<string, FakeClass> = defaultClasses) {
   const mailer = makeRecordingMailer()
-  const university = makeFakeUniversity(classes)
+  const university = makeFakeUniversity(classes, TERMS)
   // Built here rather than inside the server, so the test can query the same
   // database (`sql` below).
   const database = yield* Layer.build(TestDatabase)

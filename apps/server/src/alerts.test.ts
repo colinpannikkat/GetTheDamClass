@@ -1,11 +1,13 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { TestClock, TestConsole } from "effect/testing"
-import { INTRO_TO_CS, makeTestServer, PUBLIC_URL } from "../test/TestServer"
+import { setOregonTime } from "../test/oregonTime"
+import { INTRO_TO_CS, makeTestServer, PUBLIC_URL, TERMS } from "../test/TestServer"
 
 // Through the API, against the whole server in this process (see
 // test/TestServer.ts). The fake university knows INTRO_TO_CS, full (60 of
-// 60 seats taken), unless a test says otherwise.
+// 60 seats taken), and the terms in TERMS, unless a test says otherwise. The
+// clock starts in 1970, long before INTRO_TO_CS's add deadline.
 
 const email = "student@oregonstate.edu"
 const TITLE = "INTRO TO COMPUTER SCIENCE I"
@@ -22,20 +24,42 @@ const signedIn = (address = email) =>
 const classRow = (server: Effect.Success<ReturnType<typeof makeTestServer>>, term: string, crn: string) =>
   Effect.gen(function*() {
     const sql = yield* server.sql
-    const rows = yield* sql<{ title: string; vacant: number }>`
-      SELECT title, vacant FROM classes WHERE term = ${term} AND crn = ${crn}
+    const rows = yield* sql<{ title: string; vacant: number; addDeadline: string | null }>`
+      SELECT title, vacant, add_deadline AS addDeadline FROM classes WHERE term = ${term} AND crn = ${crn}
     `
     return rows[0]
   })
 
+/** Everything in the two tables a subscribe writes to. */
+const storedClassesAndAlerts = (server: Effect.Success<ReturnType<typeof makeTestServer>>) =>
+  Effect.gen(function*() {
+    const sql = yield* server.sql
+    return { classes: yield* sql`SELECT * FROM classes`, alerts: yield* sql`SELECT * FROM alerts` }
+  })
+
+/** The university's answers for the whole lookup of a class nobody watches yet. */
+const LOOKUP = ["classTitle 202702/33940", "seats 202702/33940", "meetingDates 202702/33940"]
+
 describe("subscribe", () => {
-  it.effect("to a class nobody watches: looks it up, records its title and state, and returns the alert", () =>
+  it.effect("to a class nobody watches: checks the term, looks the class up, records it, and returns the alert", () =>
     Effect.gen(function*() {
       const { server, api } = yield* signedIn()
       const alert = yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
       assert.deepStrictEqual(alert, { ...INTRO_TO_CS, title: TITLE })
-      assert.deepStrictEqual(server.university.calls, ["classTitle 202702/33940", "seats 202702/33940"])
-      assert.deepStrictEqual(yield* classRow(server, "202702", "33940"), { title: TITLE, vacant: 0 })
+      assert.deepStrictEqual(server.university.calls, ["terms", ...LOOKUP])
+      assert.deepStrictEqual(yield* classRow(server, "202702", "33940"), {
+        title: TITLE,
+        vacant: 0,
+        addDeadline: "2027-01-17"
+      })
+    }))
+
+  it.effect("to a class without dates: records no deadline", () =>
+    Effect.gen(function*() {
+      const { server, api } = yield* signedIn()
+      server.university.classes.set("202702/33940", { title: TITLE, seats: { enrolled: 60, capacity: 60 } })
+      yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
+      assert.strictEqual((yield* classRow(server, "202702", "33940"))!.addDeadline, null)
     }))
 
   it.effect("records a class with a free seat as vacant", () =>
@@ -43,7 +67,7 @@ describe("subscribe", () => {
       const { server, api } = yield* signedIn()
       server.university.classes.set("202702/33940", { title: TITLE, seats: { enrolled: 59, capacity: 60 } })
       yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
-      assert.deepStrictEqual(yield* classRow(server, "202702", "33940"), { title: TITLE, vacant: 1 })
+      assert.strictEqual((yield* classRow(server, "202702", "33940"))!.vacant, 1)
     }))
 
   it.effect("emails a confirmation naming the class, with an unsubscribe link that works", () =>
@@ -65,7 +89,7 @@ describe("subscribe", () => {
       assert.deepStrictEqual(yield* api.alerts.list(), [])
     }))
 
-  it.effect("to a class others watch: leaves its recorded state alone and does not ask the university", () =>
+  it.effect("to a class others watch: leaves its recorded state alone and only checks the term", () =>
     Effect.gen(function*() {
       const { server, api } = yield* signedIn()
       yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
@@ -79,8 +103,8 @@ describe("subscribe", () => {
       const alert = yield* other.alerts.subscribe({ payload: INTRO_TO_CS })
 
       assert.deepStrictEqual(alert, { ...INTRO_TO_CS, title: TITLE })
-      assert.strictEqual(server.university.calls.length, callsBefore)
-      assert.deepStrictEqual(yield* classRow(server, "202702", "33940"), { title: TITLE, vacant: 0 })
+      assert.deepStrictEqual(server.university.calls.slice(callsBefore), ["terms"])
+      assert.strictEqual((yield* classRow(server, "202702", "33940"))!.vacant, 0)
       assert.strictEqual(server.mailer.sent.at(-1)!.to, "other@example.com")
     }))
 
@@ -99,7 +123,11 @@ describe("subscribe", () => {
       }).pipe(Effect.orDie)
       const alert = yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
 
-      assert.deepStrictEqual(yield* classRow(server, "202702", "33940"), { title: TITLE, vacant: 0 })
+      assert.deepStrictEqual(yield* classRow(server, "202702", "33940"), {
+        title: TITLE,
+        vacant: 0,
+        addDeadline: "2027-01-17"
+      })
       // The title this student is given is the one stored, as in their list.
       assert.deepStrictEqual(alert, { ...INTRO_TO_CS, title: TITLE })
       assert.include(server.mailer.sent.at(-1)!.subject, TITLE)
@@ -113,14 +141,15 @@ describe("subscribe", () => {
       yield* other.alerts.unsubscribe({ params: INTRO_TO_CS })
 
       server.university.classes.set("202702/33940", { title: TITLE, seats: { enrolled: 10, capacity: 60 } })
+      const callsBefore = server.university.calls.length
       yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
 
-      assert.strictEqual(server.university.calls.length, 4)
-      assert.deepStrictEqual(yield* classRow(server, "202702", "33940"), { title: TITLE, vacant: 1 })
+      assert.deepStrictEqual(server.university.calls.slice(callsBefore), ["terms", ...LOOKUP])
+      assert.deepStrictEqual(yield* classRow(server, "202702", "33940"), { title: TITLE, vacant: 1, addDeadline: null })
       assert.deepStrictEqual(yield* api.alerts.list(), [{ ...INTRO_TO_CS, title: TITLE }])
     }))
 
-  it.effect("again: AlreadySubscribed, without asking the university or sending another email", () =>
+  it.effect("again: AlreadySubscribed, without looking the class up or sending another email", () =>
     Effect.gen(function*() {
       const { server, api } = yield* signedIn()
       yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
@@ -129,7 +158,7 @@ describe("subscribe", () => {
 
       const error = yield* Effect.flip(api.alerts.subscribe({ payload: INTRO_TO_CS }))
       assert.strictEqual(error._tag, "AlreadySubscribed")
-      assert.strictEqual(server.university.calls.length, calls)
+      assert.deepStrictEqual(server.university.calls.slice(calls), ["terms"])
       assert.strictEqual(server.mailer.sent.length, emails)
     }))
 
@@ -154,12 +183,12 @@ describe("subscribe", () => {
   it.effect("to the same CRN in another term: a separate alert", () =>
     Effect.gen(function*() {
       const { server, api } = yield* signedIn()
-      server.university.classes.set("202703/33940", { title: "WEB DEVELOPMENT", seats: { enrolled: 0, capacity: 30 } })
+      server.university.classes.set("202701/33940", { title: "WEB DEVELOPMENT", seats: { enrolled: 0, capacity: 30 } })
       yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
-      yield* api.alerts.subscribe({ payload: { term: "202703", crn: "33940" } })
+      yield* api.alerts.subscribe({ payload: { term: "202701", crn: "33940" } })
       assert.deepStrictEqual(yield* api.alerts.list(), [
         { ...INTRO_TO_CS, title: TITLE },
-        { term: "202703", crn: "33940", title: "WEB DEVELOPMENT" }
+        { term: "202701", crn: "33940", title: "WEB DEVELOPMENT" }
       ])
     }))
 
@@ -173,13 +202,14 @@ describe("subscribe", () => {
       assert.deepStrictEqual(yield* sql`SELECT * FROM alerts`, [])
     }))
 
-  it.effect("while the university is down: UniversityUnavailable, and nothing is stored", () =>
+  it.effect("while the university is down (the term list cannot be read): UniversityUnavailable, and nothing is stored", () =>
     Effect.gen(function*() {
       const { server, api } = yield* signedIn()
       server.university.down = true
       const error = yield* Effect.flip(api.alerts.subscribe({ payload: INTRO_TO_CS }))
       assert.strictEqual(error._tag, "UniversityUnavailable")
-      assert.deepStrictEqual(yield* api.alerts.list(), [])
+      assert.deepStrictEqual(server.university.calls, ["terms"])
+      assert.deepStrictEqual(yield* storedClassesAndAlerts(server), { classes: [], alerts: [] })
     }))
 
   it.effect("when the confirmation cannot be sent: the alert stays, and the request succeeds", () =>
@@ -209,6 +239,138 @@ describe("subscribe", () => {
         assert.strictEqual(response.status, 400)
       }
       assert.deepStrictEqual(server.university.calls, [])
+    }))
+})
+
+describe("subscribe: the term", () => {
+  it.effect.each([
+    { title: "not open yet", term: "202703", message: "Seat alerts for Spring 2027 start when registration opens." },
+    {
+      title: "over",
+      term: "202700",
+      message: "Registration for Summer 2026 has closed, so seat alerts for it have ended."
+    },
+    {
+      title: "not listed by the university",
+      term: "202504",
+      message: "Oregon State's class search doesn't offer that term, so it can't have seat alerts."
+    }
+  ])("$title: TermNotOpen, with a sentence saying so, and nothing is looked up or stored", ({ message, term }) =>
+    Effect.gen(function*() {
+      const { server, api } = yield* signedIn()
+      server.university.classes.set(`${term}/33940`, { title: TITLE, seats: { enrolled: 0, capacity: 60 } })
+      const error = yield* Effect.flip(api.alerts.subscribe({ payload: { term, crn: "33940" } }))
+      assert.strictEqual(error._tag, "TermNotOpen")
+      assert.strictEqual(error.message, message)
+      assert.deepStrictEqual(server.university.calls, ["terms"])
+      assert.deepStrictEqual(yield* storedClassesAndAlerts(server), { classes: [], alerts: [] })
+    }))
+
+  it.effect("is checked for a class others already watch, too", () =>
+    Effect.gen(function*() {
+      const { server, api } = yield* signedIn()
+      yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
+
+      // Registration for Winter 2027 closes.
+      server.university.terms = TERMS.map((term) => term.code === "202702" ? { ...term, open: false } : term)
+      const other = yield* server.client(yield* server.signIn("other@example.com"))
+      const error = yield* Effect.flip(other.alerts.subscribe({ payload: INTRO_TO_CS }))
+
+      assert.strictEqual(error._tag, "TermNotOpen")
+      assert.deepStrictEqual(yield* other.alerts.list(), [])
+    }))
+})
+
+describe("subscribe: the add deadline", () => {
+  // INTRO_TO_CS's add deadline is Sunday 2027-01-17. A summer class shows
+  // the same in daylight-saving time, when Oregon is 7 hours behind UTC
+  // rather than 8.
+  const SUMMER_2027 = { code: "202800", name: "Summer 2027", open: true }
+  const SUMMER_CLASS = {
+    title: "TECHNICAL WRITING",
+    seats: { enrolled: 30, capacity: 30 },
+    // Eight weeks from Monday 2027-06-21, so the deadline is Sunday 2027-07-04.
+    meetings: [{ start: "2027-06-21", end: "2027-08-13" }]
+  }
+  const seasons = [
+    {
+      season: "winter",
+      payload: INTRO_TO_CS,
+      lastMinute: "2027-01-17T23:59",
+      nextDay: "2027-01-18T00:00",
+      named: "Sunday, January 17, 2027"
+    },
+    {
+      season: "summer",
+      payload: { term: "202800", crn: "40000" },
+      lastMinute: "2027-07-04T23:59",
+      nextDay: "2027-07-05T00:00",
+      named: "Sunday, July 4, 2027"
+    }
+  ]
+
+  /** A signed-in student, with the summer class and its term known too. */
+  const withSummerClass = (address = email) =>
+    Effect.gen(function*() {
+      const { server, api } = yield* signedIn(address)
+      server.university.terms = [SUMMER_2027, ...TERMS]
+      server.university.classes.set("202800/40000", SUMMER_CLASS)
+      return { server, api }
+    })
+
+  it.effect.each(seasons)(
+    "$season: accepted late on the deadline day in Oregon, when it is already the next day in UTC",
+    ({ lastMinute, payload }) =>
+      Effect.gen(function*() {
+        const { api } = yield* withSummerClass()
+        yield* setOregonTime(lastMinute)
+        yield* api.alerts.subscribe({ payload })
+        assert.strictEqual((yield* api.alerts.list()).length, 1)
+      })
+  )
+
+  it.effect.each(seasons)(
+    "$season: from the next day in Oregon, AddDeadlinePassed naming the date, and no alert",
+    ({ named, nextDay, payload }) =>
+      Effect.gen(function*() {
+        const { server, api } = yield* withSummerClass()
+        yield* setOregonTime(nextDay)
+        const error = yield* Effect.flip(api.alerts.subscribe({ payload }))
+        assert.strictEqual(error._tag, "AddDeadlinePassed")
+        assert.include(error.message, named)
+        assert.deepStrictEqual((yield* storedClassesAndAlerts(server)).alerts, [])
+      })
+  )
+
+  it.effect("for a class others watch: refused by its recorded deadline, without looking the class up", () =>
+    Effect.gen(function*() {
+      const { server, api } = yield* signedIn()
+      yield* setOregonTime("2027-01-10T12:00")
+      yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
+
+      yield* setOregonTime("2027-01-18T00:00")
+      const other = yield* server.client(yield* server.signIn("other@example.com"))
+      const calls = server.university.calls.length
+      const error = yield* Effect.flip(other.alerts.subscribe({ payload: INTRO_TO_CS }))
+
+      assert.strictEqual(error._tag, "AddDeadlinePassed")
+      assert.strictEqual(
+        error.message,
+        "The last day to add INTRO TO COMPUTER SCIENCE I (CRN 33940) was Sunday, January 17, 2027, so seat alerts for it have ended."
+      )
+      assert.deepStrictEqual(server.university.calls.slice(calls), ["terms"])
+      assert.deepStrictEqual(yield* other.alerts.list(), [])
+    }))
+
+  it.effect("a class without dates: accepted whenever its term is open", () =>
+    Effect.gen(function*() {
+      const { server, api } = yield* signedIn()
+      server.university.classes.set("202702/33940", { title: TITLE, seats: { enrolled: 60, capacity: 60 } })
+      yield* setOregonTime("2027-06-01T12:00")
+      yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
+      const other = yield* server.client(yield* server.signIn("other@example.com"))
+      yield* other.alerts.subscribe({ payload: INTRO_TO_CS })
+      assert.strictEqual((yield* other.alerts.list()).length, 1)
     }))
 })
 

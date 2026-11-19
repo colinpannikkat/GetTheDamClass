@@ -8,14 +8,25 @@ import { isVacant, University } from "./University"
 
 // The real University on top of a fake `fetch`: no request leaves the test.
 // The pages it answers with are real ones, saved from the university in
-// November 2026 (test/fixtures/): class CRN 33940 of term 202702, and CRN
-// 99999, which does not exist.
+// November 2026 (test/fixtures/): class CRN 33940 of term 202702, CRN 99999,
+// which does not exist, and the term list. Variants of them (other dates, say)
+// are made by changing a copy in the test.
 
 const fixture = (name: string) => readFileSync(join(import.meta.dirname, "..", "test", "fixtures", name), "utf8")
 const classDetails = fixture("getClassDetails.202702.33940.html")
 const enrollment = fixture("getEnrollmentInfo.202702.33940.html")
 const missingDetails = fixture("getClassDetails.202702.99999-missing.html")
 const missingEnrollment = fixture("getEnrollmentInfo.202702.99999-missing.html")
+const meetingTimes = fixture("getFacultyMeetingTimes.202702.33940.json")
+const terms = fixture("getTerms.json")
+
+/** The saved meeting times answer, with its one meeting time replaced by these dates. */
+const meetingTimesWith = (dates: Array<{ startDate: string | null; endDate: string | null }>) => {
+  const answer = JSON.parse(meetingTimes)
+  const [entry] = answer.fmt
+  answer.fmt = dates.map((date) => ({ ...entry, meetingTime: { ...entry.meetingTime, ...date } }))
+  return JSON.stringify(answer)
+}
 
 interface RecordedRequest {
   readonly url: string
@@ -99,6 +110,84 @@ describe("seats", () => {
       const html = enrollment.replace("Enrollment Maximum:", "Seats:")
       const error = yield* Effect.flip(ask(page(html), (university) => university.seats("202702", "33940")))
       assert.strictEqual(error._tag, "UniversityUnavailable")
+    }))
+})
+
+describe("meetingDates", () => {
+  it.effect("asks getFacultyMeetingTimes for the term and CRN", () =>
+    Effect.gen(function*() {
+      const fake = universityAnswering(page(meetingTimes))
+      yield* University.use((university) => university.meetingDates("202702", "33940")).pipe(Effect.provide(fake.layer))
+      assert.strictEqual(
+        fake.requests[0]!.url,
+        "https://prodapps.isadm.oregonstate.edu/StudentRegistrationSsb/ssb/searchResults/getFacultyMeetingTimes?term=202702&courseReferenceNumber=33940"
+      )
+      assert.strictEqual(fake.requests[0]!.method, "GET")
+    }))
+
+  it.effect("reads the first and last day, as ISO dates", () =>
+    Effect.gen(function*() {
+      const dates = yield* ask(page(meetingTimes), (university) => university.meetingDates("202702", "33940"))
+      assert.deepStrictEqual(dates, [{ start: "2027-01-04", end: "2027-03-12" }])
+    }))
+
+  it.effect("reads every meeting time, and leaves out those without dates", () =>
+    Effect.gen(function*() {
+      const answer = meetingTimesWith([
+        { startDate: "01/04/2027", endDate: "03/12/2027" },
+        { startDate: null, endDate: null },
+        { startDate: "01/06/2027", endDate: null },
+        { startDate: "01/11/2027", endDate: "03/05/2027" }
+      ])
+      const dates = yield* ask(page(answer), (university) => university.meetingDates("202702", "33940"))
+      assert.deepStrictEqual(dates, [{ start: "2027-01-04", end: "2027-03-12" }, { start: "2027-01-11", end: "2027-03-05" }])
+    }))
+
+  it.effect("a class without dates: none", () =>
+    Effect.gen(function*() {
+      const answer = meetingTimesWith([{ startDate: null, endDate: null }])
+      assert.deepStrictEqual(yield* ask(page(answer), (university) => university.meetingDates("202702", "33940")), [])
+    }))
+
+  it.effect.each([
+    { title: "a date written another way", answer: meetingTimesWith([{ startDate: "2027-01-04", endDate: "03/12/2027" }]) },
+    { title: "not JSON at all", answer: "<html>Service Unavailable</html>" }
+  ])("an answer it cannot read ($title): UniversityUnavailable", ({ answer }) =>
+    Effect.gen(function*() {
+      const error = yield* Effect.flip(ask(page(answer), (university) => university.meetingDates("202702", "33940")))
+      assert.strictEqual(error._tag, "UniversityUnavailable")
+    }))
+})
+
+describe("terms", () => {
+  it.effect("asks getTerms for the newest 20", () =>
+    Effect.gen(function*() {
+      const fake = universityAnswering(page(terms))
+      yield* University.use((university) => university.terms()).pipe(Effect.provide(fake.layer))
+      assert.strictEqual(
+        fake.requests[0]!.url,
+        "https://prodapps.isadm.oregonstate.edu/StudentRegistrationSsb/ssb/classSearch/getTerms?searchTerm=&offset=1&max=20"
+      )
+      assert.strictEqual(fake.requests[0]!.method, "GET")
+    }))
+
+  it.effect("reads each term's code and name, and \"View Only\" as not open", () =>
+    Effect.gen(function*() {
+      const listed = yield* ask(page(terms), (university) => university.terms())
+      assert.strictEqual(listed.length, 20)
+      assert.deepStrictEqual(listed.slice(0, 4), [
+        { code: "202703", name: "Spring 2027", open: false },
+        { code: "202702", name: "Winter 2027", open: true },
+        { code: "202701", name: "Fall 2026", open: true },
+        { code: "202700", name: "Summer 2026", open: false }
+      ])
+    }))
+
+  it.effect("an error page: UniversityUnavailable", () =>
+    Effect.gen(function*() {
+      const error = yield* Effect.flip(ask(page(missingDetails, 500), (university) => university.terms()))
+      assert.strictEqual(error._tag, "UniversityUnavailable")
+      assert.match(error.message, /try again/)
     }))
 })
 

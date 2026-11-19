@@ -20,6 +20,7 @@
 import { Context, Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware, HttpApiSecurity } from "effect/http-api"
 import {
+  AddDeadlinePassed,
   Alert,
   AlreadySubscribed,
   ClassNotFound,
@@ -32,6 +33,7 @@ import {
   NotSubscribed,
   SignInCode,
   Term,
+  TermNotOpen,
   UniversityUnavailable
 } from "./domain"
 
@@ -85,11 +87,14 @@ class AlertsGroup extends HttpApiGroup.make("alerts").add(
   HttpApiEndpoint.get("list", "/alerts", {
     success: Schema.Array(Alert)
   }),
-  /** Start alerts for a class. A confirmation email follows. */
+  /**
+   * Start alerts for a class. A confirmation email follows. Only a class
+   * whose term is open and whose add deadline has not passed takes alerts.
+   */
   HttpApiEndpoint.post("subscribe", "/alerts", {
     payload: Schema.Struct({ term: Term, crn: Crn }),
     success: Alert,
-    error: [AlreadySubscribed, ClassNotFound, UniversityUnavailable]
+    error: [AlreadySubscribed, ClassNotFound, TermNotOpen, AddDeadlinePassed, UniversityUnavailable]
   }),
   /** Stop alerts for a class. */
   HttpApiEndpoint.delete("unsubscribe", "/alerts/:term/:crn", {

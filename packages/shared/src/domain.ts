@@ -113,6 +113,24 @@ export class UniversityUnavailable extends Schema.TaggedError<UniversityUnavaila
   { httpApiStatus: 502 }
 ) {}
 
+/**
+ * The class's term takes no new alerts: the university's class search does
+ * not offer the term, or offers it as "View Only" because its registration
+ * has not opened yet or is over. The sentence says which.
+ */
+export class TermNotOpen extends Schema.TaggedError<TermNotOpen>()("TermNotOpen", refusal, {
+  httpApiStatus: 409
+}) {}
+
+/**
+ * The class's add deadline has passed, so a seat opening would be of no use.
+ * The sentence names the date. (How the deadline is worked out is in
+ * apps/server/src/termRule.ts.)
+ */
+export class AddDeadlinePassed extends Schema.TaggedError<AddDeadlinePassed>()("AddDeadlinePassed", refusal, {
+  httpApiStatus: 409
+}) {}
+
 /** The student already gets alerts for this class. */
 export class AlreadySubscribed extends Schema.TaggedError<AlreadySubscribed>()("AlreadySubscribed", refusal, {
   httpApiStatus: 409

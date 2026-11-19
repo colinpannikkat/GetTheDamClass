@@ -50,13 +50,18 @@ CREATE TABLE tokens (
 CREATE INDEX tokens_by_account ON tokens (account_id);
 
 -- Every class somebody watches (or watched; a row can outlive its alerts):
--- its title, and whether it had a free seat when last looked at.
+-- its title, whether it had a free seat when last looked at, and until when
+-- it takes alerts.
 CREATE TABLE classes (
   term TEXT NOT NULL,
   crn TEXT NOT NULL,
   title TEXT NOT NULL,
   -- 1 when fewer students were enrolled than the class allows, else 0.
   vacant INTEGER NOT NULL,
+  -- The last day, in Oregon, that the class takes alerts, as an ISO date
+  -- ("2027-01-17"; see `addDeadline` in src/termRule.ts). NULL for a class
+  -- without dates, which takes alerts for as long as its term is open.
+  add_deadline TEXT,
   PRIMARY KEY (term, crn)
 );
 
