@@ -8,7 +8,7 @@
  * - `Mailer.layerPrint` prints every message to the terminal and sends
  *   nothing. It is for `pnpm dev`, where the sign-in code is read from the
  *   terminal. `src/index.ts` only picks it when cloudflare.config.ts says so,
- *   and that file only says so for local development.
+ *   and that file only says so in "development" mode, the one `cf dev` uses.
  * - `RecordingMailer` (in test/) keeps the messages for tests to look at.
  *
  * Every email goes to one student. What the emails say is in `emails.ts`.

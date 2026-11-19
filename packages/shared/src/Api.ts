@@ -8,6 +8,14 @@
  * sign-in token (`signIn`). Every other endpoint needs that token in the
  * `Authorization: Bearer <token>` header, and answers `NotSignedIn` (HTTP 401)
  * without a valid one.
+ *
+ * Input that does not fit the schemas (an email without "@", a code that is
+ * not six digits, a CRN that is not digits) never reaches the server's code:
+ * it is refused with an empty HTTP 400, without a sentence for the student.
+ * So the extension must check what a student types with the same schemas
+ * (`EmailAddress` and `SignInCode` in domain.ts) before calling, and show its
+ * own sentence when they refuse it. Terms and CRNs need no such check: the
+ * extension reads them from the university's page, and nobody types them.
  */
 import { Context, Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware, HttpApiSecurity } from "effect/http-api"

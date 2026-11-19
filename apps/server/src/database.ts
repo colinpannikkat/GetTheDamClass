@@ -8,9 +8,13 @@
  * with the same tables, built by the same migrations. The tables themselves
  * are described in migrations/.
  *
- * D1 runs every statement on its own and has no transactions, so the code
- * never relies on two statements happening together: where that would matter,
- * it does the work in one statement.
+ * D1 has no transactions that stay open while the code runs (Effect's
+ * `sql.withTransaction` fails on it), so nothing can read a row, decide, and
+ * write it back while holding it. D1 can run a fixed list of statements as
+ * one atomic batch (`D1Client.batch`), but this code does not use that.
+ * Where two requests at the same moment could get in each other's way, the
+ * check and the write are one statement instead (an `UPDATE ... WHERE`, or
+ * an upsert with a `WHERE`), and SQLite runs each statement atomically.
  */
 import { D1Client } from "@effect/sql-d1"
 import { Effect } from "effect"

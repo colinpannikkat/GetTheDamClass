@@ -41,8 +41,9 @@ export default defineConfig(({ mode }) => {
         PUBLIC_URL: bindings.text(local ? "http://localhost:5173" : "https://api.getthedamclass.ajinkya.dev"),
         // "print" makes the server print emails to the terminal instead of
         // sending them (`Mailer.layerPrint`), so a sign-in code can be read
-        // there. It is tied to `cf dev` here and nowhere else, so that no
-        // build for production can print codes instead of emailing them.
+        // there. Only "development" mode sets it. `cf dev` runs in that mode;
+        // `cf build` and `cf deploy` only do when told to with a flag
+        // (`-m development`), which a real deploy must never be given.
         MAILER: bindings.text(local ? "print" : "cloudflare")
       }
     }

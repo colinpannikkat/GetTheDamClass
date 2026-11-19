@@ -19,8 +19,9 @@ import { PublicUrl } from "./unsubscribe"
 
 const Dependencies = Layer.mergeAll(
   layerD1(env.DB),
-  // "print" is only ever set for `cf dev` (see cloudflare.config.ts); a build
-  // for production always sends for real.
+  // "print" is only set in "development" mode, which `cf dev` uses (see
+  // cloudflare.config.ts); a build in the default "production" mode always
+  // sends for real.
   env.MAILER === "print" ? Mailer.layerPrint : Mailer.layerCloudflare(env.EMAIL, env.EMAIL_FROM),
   University.layer.pipe(Layer.provide(FetchHttpClient.layer)),
   Layer.succeed(PublicUrl, env.PUBLIC_URL),
