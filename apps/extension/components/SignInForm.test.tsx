@@ -93,7 +93,7 @@ describe("the email step", () => {
 
     expect(await screen.findByLabelText("6-digit code")).toBeDefined()
     expect(asked).toEqual([email])
-    expect(screen.getByText(`We sent it to ${email}. It works for 15 minutes.`)).toBeDefined()
+    expect(screen.getByText(`Check ${email} for the code. It works for 15 minutes.`)).toBeDefined()
     expect(document.activeElement).toBe(codeField())
   })
 
@@ -103,7 +103,7 @@ describe("the email step", () => {
     askForCode(email)
 
     // The hint changes once the server has answered.
-    await screen.findByText(`We sent it to ${email}. It works for 15 minutes.`)
+    await screen.findByText(`Check ${email} for the code. It works for 15 minutes.`)
     await settled()
     expect(screen.queryByText(`We sent a new code to ${email}.`)).toBeNull()
   })
@@ -339,7 +339,7 @@ describe("the code step", () => {
 
     await fakeBrowser.storage.local.set({ codeRequest: { email: "other@oregonstate.edu", requestedAt: Date.now() } })
 
-    expect(await screen.findByText("We sent it to other@oregonstate.edu. It works for 15 minutes.")).toBeDefined()
+    expect(await screen.findByText("Check other@oregonstate.edu for the code. It works for 15 minutes.")).toBeDefined()
     expect(codeField().value).toBe("")
     expect(errors()).toBe("")
   })
@@ -363,7 +363,7 @@ describe("closed and opened again", () => {
     // The popup does not ask for the keyboard; the code step takes it all the same.
     await renderForm({}, undefined, { autoFocus: false })
     expect(codeField()).toBeDefined()
-    expect(screen.getByText(`We sent it to ${email}. It works for 15 minutes.`)).toBeDefined()
+    expect(screen.getByText(`Check ${email} for the code. It works for 15 minutes.`)).toBeDefined()
     expect(document.activeElement).toBe(codeField())
   })
 
@@ -378,7 +378,7 @@ describe("closed and opened again", () => {
     await renderForm({})
 
     expect(codeField()).toBeDefined()
-    expect(screen.getByText(`We sent it to ${email}. It works for 15 minutes.`)).toBeDefined()
+    expect(screen.getByText(`Check ${email} for the code. It works for 15 minutes.`)).toBeDefined()
   })
 
   it("opens at the email step once the code's 15 minutes are over, and forgets the address the code went to", async () => {

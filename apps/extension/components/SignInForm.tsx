@@ -188,7 +188,7 @@ function EmailStep({ startWith, autoFocus, notice, sending, onSubmit }: {
 }
 
 function CodeStep({ email, notice, sending, onNotice, onResend, onChangeEmail, onSigningIn, onSignedIn }: {
-  /** Where the code was sent. */
+  /** The address the code was asked for. */
   readonly email: EmailAddress
   readonly notice: Notice | null
   /** A code is being asked for: the first one, or a new one. */
@@ -240,7 +240,9 @@ function CodeStep({ email, notice, sending, onNotice, onResend, onChangeEmail, o
     <form noValidate onSubmit={handleSubmit} className="ui-root flex flex-col gap-3">
       <TextField
         label="6-digit code"
-        hint={sending ? `Sending a code to ${email}…` : `We sent it to ${email}. It works for 15 minutes.`}
+        // "Check", not "we sent it": the request is saved before the server
+        // answers, so a form reopened here cannot know the email went out.
+        hint={sending ? `Sending a code to ${email}…` : `Check ${email} for the code. It works for 15 minutes.`}
         // Text rather than `type="number"`: a code can start with 0, and a
         // number field would offer arrows to count it up and down.
         type="text"

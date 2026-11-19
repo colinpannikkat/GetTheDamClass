@@ -55,7 +55,7 @@ We do not sell, rent, or share your information with third parties except in the
 
 4. **Automatic Removal**: A job on the server runs once a day and removes:
    - Sign-in tokens that have not been used for a year, which signs that browser out.
-   - Sign-in codes whose 15 minutes are over, with the record kept for them (the address, when the code was sent, and the number of tries).
+   - Sign-in codes whose 15 minutes are over. The whole record goes with the code: the address, when the code was asked for, and the number of tries.
    - Alerts whose class's add deadline has passed (or, for a class without dates, whose term has closed in Oregon State's class search). You are not emailed about this; the class just leaves your list. This needs Oregon State's list of terms: on a day the job cannot read it, these alerts stay until a later day's run can, so an alert can outlast its deadline by a day or more.
 
    Your account and email address stay until you delete your account.

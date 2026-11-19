@@ -94,7 +94,7 @@ describe("signed out", () => {
     renderPopup({ signIn: () => Effect.succeed(token), listAlerts: () => Effect.succeed([]) })
 
     const codeField = await screen.findByLabelText("6-digit code")
-    expect(screen.getByText(`We sent it to ${email}. It works for 15 minutes.`)).toBeDefined()
+    expect(screen.getByText(`Check ${email} for the code. It works for 15 minutes.`)).toBeDefined()
     expect(document.activeElement).toBe(codeField)
   })
 
@@ -406,6 +406,17 @@ describe("deleting the account", () => {
     expect(screen.queryByText(/Your alerts keep running/)).toBeNull()
     expect(deleted).toEqual([token])
     expect(await fakeBrowser.storage.local.get()).toEqual({})
+  })
+
+  it("cannot be cancelled once deleting has started", async () => {
+    renderPopup({ listAlerts: () => Effect.succeed([deepLearning]), deleteAccount: () => Effect.never })
+    const question = await askToDelete()
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete account" }))
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+
+    expect(question.isConnected).toBe(true)
+    expect(screen.getByRole("button", { name: "Cancel" }).getAttribute("aria-disabled")).toBe("true")
   })
 
   it("stays signed in, and says why, when the server could not delete it", async () => {

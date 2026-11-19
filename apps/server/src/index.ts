@@ -63,9 +63,9 @@ export default {
     // closes the moment the student switches to their inbox), Cloudflare may
     // stop the work of that request where it is, unless it was handed to
     // `waitUntil`, which gives it up to 30 seconds more. So hand it the whole
-    // handler: `sendCode` (signIn.ts) then always gets to send the email or
-    // forget the code. For a request answered normally this changes nothing:
-    // its handler is done by the time the response goes out.
+    // handler: `sendCode` (signIn.ts) then gets those 30 seconds to send the
+    // email or forget the code. For a request answered normally this changes
+    // nothing: its handler is done by the time the response goes out.
     ctx.waitUntil(response)
     return response
   },

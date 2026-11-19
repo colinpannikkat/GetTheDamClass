@@ -106,7 +106,7 @@ describe("get", () => {
       assert.deepStrictEqual(yield* saved, expected)
     })))
 
-  it.effect("has the code request for 15 minutes after the code was sent, and then removes it from storage", () =>
+  it.effect("has the code request for 15 minutes after the code was asked for, and then removes it from storage", () =>
     withStore(Effect.gen(function*() {
       const codeRequest = { email: other, requestedAt: 1_000 }
       yield* setRaw({ email, codeRequest })

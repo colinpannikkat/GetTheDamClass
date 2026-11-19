@@ -46,7 +46,9 @@ export function DeleteAccount({ onDeleted }: {
         <Button variant="danger" size="sm" loading={state.status === "loading"} onClick={handleDelete}>
           Delete account
         </Button>
-        <Button size="sm" autoFocus onClick={() => setConfirming(false)}>
+        {/* Once deleting has started it cannot be called back, so "Cancel"
+            must not look as if it could: it would only hide the box. */}
+        <Button size="sm" autoFocus aria-disabled={state.status === "loading"} onClick={() => setConfirming(false)}>
           Cancel
         </Button>
       </div>

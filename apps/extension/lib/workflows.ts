@@ -225,6 +225,8 @@ export const listAlerts = Effect.fn("listAlerts")(function*() {
   // The server's list is the truth, as of when we asked. So only undo the
   // differences from what was saved at that moment: a class started or stopped
   // while the server was answering is newer than its list, and is left alone.
+  // (Two snapshots cannot put an answer for a class in order with a later
+  // change to that same class; the README lists that under known gaps.)
   const isListed = (watched: ClassId) => alerts.some((alert) => sameClass(alert, watched))
   const wasSaved = (alert: ClassId) => account.watching.some((watched) => sameClass(watched, alert))
   yield* store.unwatch(account.email, account.watching.filter((watched) => !isListed(watched)))
