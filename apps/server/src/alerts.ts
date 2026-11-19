@@ -8,7 +8,7 @@
  * to date, and nothing here may overwrite it (see `subscribe`).
  */
 import { Api, SignedIn } from "@getthedamclass/shared/Api"
-import { type Alert, AlreadySubscribed, type Crn, NotSubscribed, type Term } from "@getthedamclass/shared/domain"
+import { type Alert, AlreadySubscribed, type Crn, type EmailAddress, NotSubscribed, type Term } from "@getthedamclass/shared/domain"
 import { Clock, Effect } from "effect"
 import { HttpApiBuilder } from "effect/http-api"
 import { SqlClient } from "effect/sql"
@@ -35,64 +35,129 @@ export const listAlerts = Effect.fn("listAlerts")(function*(accountId: number) {
 }, dieOnSqlError)
 
 /**
- * Start alerts for a class, and email the student a confirmation with an
- * unsubscribe link.
+ * Add the student's alert, if somebody already watches the class. The check
+ * and the insert are one statement, so the last watcher cannot leave in
+ * between and leave the alert on a class whose state nobody keeps up to date.
+ * False when nothing was added: nobody watches the class, or the student
+ * already does.
  */
-export const subscribe = Effect.fn("subscribe")(function*(signedIn: SignedIn["Service"], term: Term, crn: Crn) {
+const joinWatchedClass = Effect.fn("subscribe.joinWatchedClass")(
+  function*(accountId: number, term: Term, crn: Crn, key: string) {
+    const sql = yield* SqlClient.SqlClient
+    const now = yield* Clock.currentTimeMillis
+    const added = yield* sql`
+      INSERT INTO alerts (account_id, term, crn, unsubscribe_key, created_at)
+      SELECT ${accountId}, ${term}, ${crn}, ${key}, ${now}
+      WHERE EXISTS (SELECT 1 FROM alerts WHERE term = ${term} AND crn = ${crn})
+      ON CONFLICT (account_id, term, crn) DO NOTHING
+      RETURNING crn
+    `
+    return added.length > 0
+  },
+  dieOnSqlError
+)
+
+/** Whether the account already gets alerts for this class. */
+const hasAlert = Effect.fn("subscribe.hasAlert")(function*(accountId: number, term: Term, crn: Crn) {
+  const sql = yield* SqlClient.SqlClient
+  const rows = yield* sql`
+    SELECT 1 FROM alerts WHERE account_id = ${accountId} AND term = ${term} AND crn = ${crn}
+  `
+  return rows.length > 0
+}, dieOnSqlError)
+
+/**
+ * Ask the university for the class, and record its title and state, unless
+ * somebody has started watching it meanwhile. (A row can be left from people
+ * who watched it before; it is out of date, so it is replaced.)
+ */
+const recordClass = Effect.fn("subscribe.recordClass")(function*(term: Term, crn: Crn) {
+  const sql = yield* SqlClient.SqlClient
+  const university = yield* University
+  const title = yield* university.classTitle(term, crn)
+  const seats = yield* university.seats(term, crn)
+  // If another student started watching while the university was asked,
+  // their recorded state stands, for the reason given at `subscribe`. The
+  // `WHERE` makes the write happen only if nobody watches the class yet,
+  // checked in the same statement so nobody can start watching in between.
+  yield* sql`
+    INSERT INTO classes (term, crn, title, vacant) VALUES (${term}, ${crn}, ${title}, ${isVacant(seats) ? 1 : 0})
+    ON CONFLICT (term, crn) DO UPDATE SET title = excluded.title, vacant = excluded.vacant
+      WHERE NOT EXISTS (SELECT 1 FROM alerts WHERE alerts.term = classes.term AND alerts.crn = classes.crn)
+  `
+}, dieOnSqlError)
+
+/** Add the student's alert for a recorded class. False if they already had it. */
+const addAlert = Effect.fn("subscribe.addAlert")(function*(accountId: number, term: Term, crn: Crn, key: string) {
   const sql = yield* SqlClient.SqlClient
   const now = yield* Clock.currentTimeMillis
-
-  // A class somebody already watches is left exactly as it is, and the
-  // university is not asked. Its state belongs to the check that runs every
-  // minute: writing today's state here would hide a change from the students
-  // already watching, who would then never hear about it.
-  const watched = yield* sql<{ title: string }>`
-    SELECT title FROM classes
-    WHERE term = ${term} AND crn = ${crn}
-      AND EXISTS (SELECT 1 FROM alerts WHERE alerts.term = classes.term AND alerts.crn = classes.crn)
-  `
-  let title = watched[0]?.title
-  if (title === undefined) {
-    // Nobody watches it: look it up, and remember it as it is now. (A row
-    // can be left from people who watched it before; it is out of date, so
-    // it is replaced.)
-    const university = yield* University
-    const found = yield* university.classTitle(term, crn)
-    const seats = yield* university.seats(term, crn)
-    // Another student may have started watching it while the university was
-    // being asked. Then their recorded state stands, for the same reason as
-    // above: the `WHERE` makes the write happen only if nobody watches it yet,
-    // checked in the same statement so nobody can start watching in between.
-    yield* sql`
-      INSERT INTO classes (term, crn, title, vacant) VALUES (${term}, ${crn}, ${found}, ${isVacant(seats) ? 1 : 0})
-      ON CONFLICT (term, crn) DO UPDATE SET title = excluded.title, vacant = excluded.vacant
-        WHERE NOT EXISTS (SELECT 1 FROM alerts WHERE alerts.term = classes.term AND alerts.crn = classes.crn)
-    `
-    // The title as stored: the other student's, if they got there first.
-    const stored = yield* sql<{ title: string }>`SELECT title FROM classes WHERE term = ${term} AND crn = ${crn}`
-    title = stored[0]!.title
-  }
-
-  const key = yield* randomKey(16)
-  const created = yield* sql`
+  const added = yield* sql`
     INSERT INTO alerts (account_id, term, crn, unsubscribe_key, created_at)
-    VALUES (${signedIn.accountId}, ${term}, ${crn}, ${key}, ${now})
+    VALUES (${accountId}, ${term}, ${crn}, ${key}, ${now})
     ON CONFLICT (account_id, term, crn) DO NOTHING
     RETURNING crn
   `
-  if (created.length === 0) {
-    return yield* new AlreadySubscribed({ message: "You already get alerts for this class." })
-  }
+  return added.length > 0
+}, dieOnSqlError)
 
-  // The alert stands even if this email cannot be sent: the student asked for
-  // alerts, not for the email, and can see the alert in the extension.
+/**
+ * The class's title as recorded, which is what the student's list shows. It
+ * can differ from what this request learnt from the university, if another
+ * student recorded the class first.
+ */
+const storedTitle = Effect.fn("subscribe.storedTitle")(function*(term: Term, crn: Crn) {
+  const sql = yield* SqlClient.SqlClient
+  const rows = yield* sql<{ title: string }>`SELECT title FROM classes WHERE term = ${term} AND crn = ${crn}`
+  return rows[0]!.title
+}, dieOnSqlError)
+
+/**
+ * Email the confirmation. The alert stands even if this email cannot be sent:
+ * the student asked for alerts, not for the email, and can see the alert in
+ * the extension.
+ */
+const sendConfirmation = Effect.fn("subscribe.sendConfirmation")(function*(to: EmailAddress, alert: Alert, key: string) {
   const mailer = yield* Mailer
-  const email = subscriptionConfirmedEmail(signedIn.email, { title, crn, unsubscribeUrl: yield* unsubscribeUrl(key) })
+  const email = subscriptionConfirmedEmail(to, { ...alert, unsubscribeUrl: yield* unsubscribeUrl(key) })
   yield* mailer.send(email).pipe(
     Effect.catchTag("SendFailed", (error) => Effect.logWarning("Could not send a subscription confirmation", error.reason))
   )
-  return { term, crn, title } satisfies Alert
-}, dieOnSqlError)
+})
+
+const alreadySubscribed = new AlreadySubscribed({ message: "You already get alerts for this class." })
+
+/**
+ * Start alerts for a class, and email the student a confirmation with an
+ * unsubscribe link.
+ *
+ * A class somebody already watches is joined as it is, and the university is
+ * not asked. Its recorded state belongs to the check that runs every minute:
+ * writing today's state here would hide a change from the students already
+ * watching, who would then never hear about it. Only a class nobody watches
+ * is looked up and recorded afresh.
+ */
+export const subscribe = Effect.fn("subscribe")(function*(signedIn: SignedIn["Service"], term: Term, crn: Crn) {
+  const key = yield* randomKey(16)
+  const joined = yield* joinWatchedClass(signedIn.accountId, term, crn, key)
+  if (!joined) {
+    if (yield* hasAlert(signedIn.accountId, term, crn)) {
+      return yield* alreadySubscribed
+    }
+    // Nobody watches the class. Between the statements below others can
+    // start or stop watching it too, and that is harmless: the class's state
+    // is either written while nobody watches it (so nobody's state is
+    // replaced), or left as the check every minute keeps it, which is what
+    // anyone joining a watched class gets.
+    yield* recordClass(term, crn)
+    if (!(yield* addAlert(signedIn.accountId, term, crn, key))) {
+      // The same student, from another browser, got there first.
+      return yield* alreadySubscribed
+    }
+  }
+  const alert = { term, crn, title: yield* storedTitle(term, crn) } satisfies Alert
+  yield* sendConfirmation(signedIn.email, alert, key)
+  return alert
+})
 
 /** Stop alerts for a class. The university is not asked, so alerts of any term can be stopped. */
 export const unsubscribe = Effect.fn("unsubscribe")(function*(accountId: number, term: Term, crn: Crn) {

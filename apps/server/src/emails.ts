@@ -7,7 +7,7 @@
  * out differently in every inbox.
  */
 import type { Crn } from "@getthedamclass/shared/domain"
-import { ACCENT, className, escapeHtml } from "./html"
+import { ACCENT, classLabel, escapeHtml } from "./html"
 import type { Email } from "./Mailer"
 
 /** The HTML around every message. `body` is HTML already. */
@@ -54,18 +54,18 @@ export const subscriptionConfirmedEmail = (to: string, alert: {
   readonly crn: Crn
   readonly unsubscribeUrl: string
 }): Email => {
-  const name = className(alert)
+  const label = classLabel(alert)
   return {
     to,
     subject: `Watching ${alert.title} for open seats`,
     text: [
-      `You will get an email when a seat opens in ${name}, and another if it fills up again.`,
+      `You will get an email when a seat opens in ${label}, and another if it fills up again.`,
       "",
       "To stop these alerts, use the extension or open this link:",
       alert.unsubscribeUrl
     ].join("\n"),
     html: layout(
-      paragraph(`You will get an email when a seat opens in <strong>${escapeHtml(name)}</strong>, and another if it fills up again.`) +
+      paragraph(`You will get an email when a seat opens in <strong>${escapeHtml(label)}</strong>, and another if it fills up again.`) +
         paragraph("To stop these alerts, use the extension or this button:") +
         button(alert.unsubscribeUrl, "Stop these alerts")
     )

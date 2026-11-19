@@ -13,7 +13,7 @@ export const ACCENT = "#D73F09"
  * The CRN tells apart sections that share a title. This is plain text, not
  * HTML yet.
  */
-export const className = (alert: { readonly title: string; readonly crn: Crn }) => `${alert.title} (CRN ${alert.crn})`
+export const classLabel = (alert: { readonly title: string; readonly crn: Crn }) => `${alert.title} (CRN ${alert.crn})`
 
 const replacements: Record<string, string> = {
   "&": "&amp;",

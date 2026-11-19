@@ -126,7 +126,7 @@ apps/server/              The Cloudflare Worker that will replace the backend.
   src/emails.ts           What every email says.
   src/database.ts         The database client (D1).
   src/secrets.ts          Random codes, tokens and keys, and their hashes.
-  src/html.ts             Escaping text for HTML.
+  src/html.ts             For emails and pages: escaping text, naming a class, the brand colour.
   migrations/             The database tables, as SQL run in order.
   test/                   What the tests share: the server in-process, SQLite, fakes, saved university pages.
   cloudflare.config.ts    The Worker's name, settings and bindings for Cloudflare.

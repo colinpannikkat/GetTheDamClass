@@ -22,7 +22,7 @@ import { Context, Effect, Layer } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { SqlClient } from "effect/sql"
 import { dieOnSqlError } from "./database"
-import { ACCENT, className, escapeHtml } from "./html"
+import { ACCENT, classLabel, escapeHtml } from "./html"
 
 /**
  * The address the server is reached at from outside, such as
@@ -68,7 +68,7 @@ const showConfirmation = Effect.fn("unsubscribe.showConfirmation")(function*(key
   return page(
     200,
     "Stop alerts?",
-    `<p>Stop the open-seat emails for <strong>${escapeHtml(className(alert))}</strong>?</p>
+    `<p>Stop the open-seat emails for <strong>${escapeHtml(classLabel(alert))}</strong>?</p>
 <form method="post" action="/unsubscribe?key=${escapeHtml(encodeURIComponent(key))}">
 <button type="submit" style="padding:12px 20px;border:0;border-radius:4px;background-color:${ACCENT};color:#ffffff;font-size:16px;font-weight:bold;cursor:pointer;">Stop alerts</button>
 </form>`
@@ -85,7 +85,7 @@ const stopAlert = Effect.fn("unsubscribe.stopAlert")(function*(key: string) {
   return page(
     200,
     "Alerts stopped",
-    `<p>You won't get more emails about <strong>${escapeHtml(className(alert))}</strong>.</p>
+    `<p>You won't get more emails about <strong>${escapeHtml(classLabel(alert))}</strong>.</p>
 <p>To watch it again, use the GetTheDamClass extension on the class search.</p>`
   )
 })

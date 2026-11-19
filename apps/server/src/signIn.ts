@@ -59,7 +59,7 @@ export const sendCode = Effect.fn("sendCode")(function*(email: EmailAddress) {
   `
   if (stored.length === 0) {
     return yield* new CodeRecentlySent({
-      message: "We just sent a code to this address. Check your inbox, or wait a minute to ask for another."
+      message: "A code went to this address less than a minute ago. Please wait a minute before asking for another."
     })
   }
 

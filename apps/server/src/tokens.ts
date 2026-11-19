@@ -74,8 +74,12 @@ export const AuthenticationLive = Layer.effect(
         return yield* notSignedIn
       }
       const now = yield* Clock.currentTimeMillis
-      if (now - row.lastUsedAt >= Duration.toMillis(LAST_USED_PRECISION)) {
-        yield* sql`UPDATE tokens SET last_used_at = ${now} WHERE id = ${row.tokenId}`
+      const staleBefore = now - Duration.toMillis(LAST_USED_PRECISION)
+      // The check here only spares fresh tokens the extra statement. The
+      // `WHERE` repeats it on the row as it is when the `UPDATE` runs, so
+      // that of several requests arriving together only the first one writes.
+      if (row.lastUsedAt <= staleBefore) {
+        yield* sql`UPDATE tokens SET last_used_at = ${now} WHERE id = ${row.tokenId} AND last_used_at <= ${staleBefore}`
       }
       return SignedIn.of({ tokenId: row.tokenId, accountId: row.accountId, email: row.email })
     }, dieOnSqlError)

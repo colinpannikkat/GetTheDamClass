@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
-import { TestConsole } from "effect/testing"
+import { TestClock, TestConsole } from "effect/testing"
 import { INTRO_TO_CS, makeTestServer, PUBLIC_URL } from "../test/TestServer"
 
 // Through the API, against the whole server in this process (see
@@ -105,17 +105,19 @@ describe("subscribe", () => {
       assert.include(server.mailer.sent.at(-1)!.subject, TITLE)
     }))
 
-  it.effect("to a class nobody watches any more: looks it up again, since what was recorded is old", () =>
+  it.effect("when the only watcher has left: looks the class up afresh, since what was recorded is old", () =>
     Effect.gen(function*() {
       const { server, api } = yield* signedIn()
-      yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
-      yield* api.alerts.unsubscribe({ params: INTRO_TO_CS })
+      const other = yield* server.client(yield* server.signIn("other@example.com"))
+      yield* other.alerts.subscribe({ payload: INTRO_TO_CS })
+      yield* other.alerts.unsubscribe({ params: INTRO_TO_CS })
 
       server.university.classes.set("202702/33940", { title: TITLE, seats: { enrolled: 10, capacity: 60 } })
       yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
 
       assert.strictEqual(server.university.calls.length, 4)
       assert.deepStrictEqual(yield* classRow(server, "202702", "33940"), { title: TITLE, vacant: 1 })
+      assert.deepStrictEqual(yield* api.alerts.list(), [{ ...INTRO_TO_CS, title: TITLE }])
     }))
 
   it.effect("again: AlreadySubscribed, without asking the university or sending another email", () =>
@@ -129,6 +131,24 @@ describe("subscribe", () => {
       assert.strictEqual(error._tag, "AlreadySubscribed")
       assert.strictEqual(server.university.calls.length, calls)
       assert.strictEqual(server.mailer.sent.length, emails)
+    }))
+
+  it.effect("from two browsers at once: one alert, and the later request is AlreadySubscribed", () =>
+    Effect.gen(function*() {
+      const { server, api } = yield* signedIn()
+      // A second browser signs in (the next code can be sent after a minute).
+      yield* TestClock.adjust("1 minute")
+      const secondBrowser = yield* server.client(yield* server.signIn(email))
+      const emails = server.mailer.sent.length
+
+      // While this request waits for the university, the other browser
+      // subscribes to the same class, and so is first.
+      server.university.meanwhile = secondBrowser.alerts.subscribe({ payload: INTRO_TO_CS }).pipe(Effect.asVoid, Effect.orDie)
+      const error = yield* Effect.flip(api.alerts.subscribe({ payload: INTRO_TO_CS }))
+
+      assert.strictEqual(error._tag, "AlreadySubscribed")
+      assert.deepStrictEqual(yield* api.alerts.list(), [{ ...INTRO_TO_CS, title: TITLE }])
+      assert.strictEqual(server.mailer.sent.length, emails + 1)
     }))
 
   it.effect("to the same CRN in another term: a separate alert", () =>

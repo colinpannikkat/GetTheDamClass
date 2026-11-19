@@ -78,6 +78,8 @@ describe("sendCode", () => {
       yield* server.signIn(email)
       const error = yield* Effect.flip(api.signIn.sendCode({ payload: { email } }))
       assert.strictEqual(error._tag, "CodeRecentlySent")
+      // The code in their inbox is used up, so the sentence must not send them there.
+      assert.notInclude(error.message, "inbox")
       yield* TestClock.adjust("1 minute")
       yield* api.signIn.sendCode({ payload: { email } })
     }))
