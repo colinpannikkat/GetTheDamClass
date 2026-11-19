@@ -7,5 +7,9 @@ import { cloudflare } from "@cloudflare/vite-plugin"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [cloudflare()]
+  plugins: [cloudflare()],
+  // Vite's dev server answers browsers' CORS preflight requests itself, and
+  // only for pages on localhost. Turned off, those requests reach the Worker,
+  // which answers them the same way as in production (see src/server.ts).
+  server: { cors: false }
 })

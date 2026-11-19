@@ -1,18 +1,50 @@
 /**
- * The Worker's settings for Cloudflare: its name, its code, and which version
- * of the Workers runtime it expects. `cf dev`, `cf build` and `cf deploy` all
- * read this file. (It replaces the `wrangler.toml` older projects have.)
+ * The Worker's settings for Cloudflare: its name, its code, which version of
+ * the Workers runtime it expects, and its bindings (what `env` holds in the
+ * code). `cf dev`, `cf build` and `cf deploy` all read this file. (It replaces
+ * the `wrangler.toml` older projects have.)
  * See https://developers.cloudflare.com/cf/projects/cloudflare-config/
+ *
+ * The settings depend on the mode: `cf dev` runs in "development", and
+ * `cf build` and `cf deploy` in "production".
  */
-import { defineConfig } from "cf/config"
+import { bindings, defineConfig } from "cf/config"
 
-export default defineConfig({
-  worker: {
-    name: "getthedamclass",
-    entrypoint: "./src/index.ts",
-    // Cloudflare updates the Workers runtime all the time. Changes that could
-    // break existing code are switched on by date, and a Worker only gets the
-    // ones dated on or before this. Move it forward on purpose, and test.
-    compatibilityDate: "2026-11-17"
+/** The address every email comes from. Cloudflare only sends from addresses listed on the binding. */
+const SENDER = "alerts@getthedamclass.ajinkya.dev"
+
+/**
+ * The local database `cf dev` uses. Any valid UUID works; it only names the
+ * file the local simulation keeps under .cloudflare/state. The "dev" script in
+ * package.json applies the migrations to the same ID, so change both together.
+ */
+const LOCAL_DATABASE_ID = "00000000-0000-4000-8000-000000000000"
+
+export default defineConfig(({ mode }) => {
+  const local = mode === "development"
+  return {
+    worker: {
+      name: "getthedamclass",
+      entrypoint: "./src/index.ts",
+      // Cloudflare updates the Workers runtime all the time. Changes that could
+      // break existing code are switched on by date, and a Worker only gets the
+      // ones dated on or before this. Move it forward on purpose, and test.
+      compatibilityDate: "2026-11-17",
+      env: {
+        // TODO(production): the real database's ID goes here instead of
+        // `undefined`, once it exists. Without one, `cf deploy` creates a new
+        // database.
+        DB: bindings.d1({ name: "getthedamclass", id: local ? LOCAL_DATABASE_ID : undefined }),
+        EMAIL: bindings.sendEmail({ allowedSenderAddresses: [SENDER] }),
+        EMAIL_FROM: bindings.text(SENDER),
+        // Where links in emails point.
+        PUBLIC_URL: bindings.text(local ? "http://localhost:5173" : "https://api.getthedamclass.ajinkya.dev"),
+        // "print" makes the server print emails to the terminal instead of
+        // sending them (`Mailer.layerPrint`), so a sign-in code can be read
+        // there. It is tied to `cf dev` here and nowhere else, so that no
+        // build for production can print codes instead of emailing them.
+        MAILER: bindings.text(local ? "print" : "cloudflare")
+      }
+    }
   }
 })
