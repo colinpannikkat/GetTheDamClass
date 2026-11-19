@@ -5,9 +5,8 @@
  * Each browser gets its own token, so signing in somewhere new leaves the
  * others signed in. A token ends when its browser signs out, when nobody has
  * used it for a year, or when the account is deleted (the database removes
- * its tokens with it). The database
- * keeps only a hash of each token; the token itself exists only in the
- * browser that holds it.
+ * its tokens with it). The database keeps only a hash of each token; the
+ * token itself exists only in the browser that holds it.
  */
 import { Authentication, SignedIn } from "@getthedamclass/shared/Api"
 import { type EmailAddress, NotSignedIn } from "@getthedamclass/shared/domain"

@@ -143,9 +143,9 @@ export class University extends Context.Service<University, {
           json("getTerms", "classSearch/getTerms", { searchTerm: "", offset: "1", max: "20" }, TermsAnswer).pipe(
             Effect.map((terms) => terms.map(readTerm)),
             // Some term is always open: in November 2026 both the one in
-            // progress and the next were. So a list without one (an empty one too) is
-            // a broken answer, and taken at its word it would refuse every
-            // subscribe and end alerts that should go on.
+            // progress and the next were. So a list without one (an empty
+            // one too) is a broken answer, and taken at its word it would
+            // refuse every subscribe and end alerts that should go on.
             Effect.flatMap((terms) =>
               terms.some((term) => term.open) ? Effect.succeed(terms) : unavailable("getTerms: no open term in the list")
             )
@@ -157,7 +157,8 @@ export class University extends Context.Service<University, {
 
 /**
  * Fail with `UniversityUnavailable`, after logging the technical reason for
- * whoever reads the logs. The student gets a sentence instead.
+ * whoever reads the logs. The student gets a sentence instead. This line is
+ * the one record of why, so callers need not log the failure again.
  */
 const unavailable = (reason: string) =>
   Effect.logWarning("The university's class search failed", reason).pipe(

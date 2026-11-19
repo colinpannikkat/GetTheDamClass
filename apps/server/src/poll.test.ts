@@ -1,8 +1,10 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Tracer } from "effect"
+import { Effect, Layer, Tracer } from "effect"
+import { FetchHttpClient } from "effect/http"
 import { TestConsole } from "effect/testing"
 import { INTRO_TO_CS, makeTestServer, type TestServer } from "../test/TestServer"
 import { pollClasses } from "./poll"
+import { University } from "./University"
 
 // The check every minute, run on the same services as the whole server in
 // this process (see test/TestServer.ts), after students subscribed through
@@ -66,6 +68,18 @@ const pollCountingStatements = (server: TestServer) =>
     })
   })
 
+/** The key in each student's unsubscribe link for INTRO_TO_CS, by address. */
+const unsubscribeKeys = (server: TestServer) =>
+  Effect.gen(function*() {
+    const sql = yield* server.sql
+    const rows = yield* sql<{ email: string; key: string }>`
+      SELECT accounts.email AS email, alerts.unsubscribe_key AS key
+      FROM alerts JOIN accounts ON accounts.id = alerts.account_id
+      WHERE alerts.term = ${INTRO_TO_CS.term} AND alerts.crn = ${INTRO_TO_CS.crn}
+    `
+    return new Map(rows.map((row) => [row.email, row.key]))
+  })
+
 /** The unsubscribe link in an email. */
 const linkIn = (text: string) => text.match(/https:\/\/api\.test\/unsubscribe\?\S+/)![0]
 
@@ -123,6 +137,45 @@ describe("pollClasses", () => {
       assert.match(statements[0]!, /^\s*SELECT term, crn, title, vacant FROM classes/)
     }))
 
+  it.effect("a change: one statement beyond reading the watch list, which records it and reads the watchers", () =>
+    Effect.gen(function*() {
+      const { server } = yield* watching("first@example.com", "second@example.com")
+      setEnrolled(server, "202702/33940", 59)
+
+      const statements = yield* pollCountingStatements(server)
+
+      assert.strictEqual(server.mailer.sent.length, 2)
+      // One statement both records the change and reads who to email, so
+      // nothing can happen between the two (see `recordChange` in poll.ts).
+      // The limits note there counts on it too.
+      assert.strictEqual(statements.length, 2)
+      assert.match(statements[1]!, /^\s*UPDATE classes SET vacant/)
+    }))
+
+  it.effect("emails who watches when the change is recorded, not when the run began, each with their own link", () =>
+    Effect.gen(function*() {
+      const { server, students } = yield* watching("first@example.com", "leaving@example.com")
+      const joining = yield* server.client(yield* server.signIn("joining@example.com"))
+      server.mailer.sent.length = 0
+      setEnrolled(server, "202702/33940", 59)
+
+      // While the run waits for the university, after it read the watch
+      // list, one student stops watching the class and another starts.
+      server.university.meanwhile = Effect.gen(function*() {
+        yield* students[1]!.api.alerts.unsubscribe({ params: INTRO_TO_CS })
+        yield* joining.alerts.subscribe({ payload: INTRO_TO_CS })
+        server.mailer.sent.length = 0 // their confirmation
+      }).pipe(Effect.orDie)
+      yield* server.run(pollClasses())
+
+      const sent = server.mailer.sent
+      assert.deepStrictEqual(sent.map((email) => email.to).sort(), ["first@example.com", "joining@example.com"])
+      const keys = yield* unsubscribeKeys(server)
+      for (const email of sent) {
+        assert.include(linkIn(email.text), keys.get(email.to)!)
+      }
+    }))
+
   it.effect("a second run right after a change sends nothing more", () =>
     Effect.gen(function*() {
       const { server } = yield* watching("student@example.com")
@@ -166,7 +219,7 @@ describe("pollClasses", () => {
       assert.strictEqual((yield* students[0]!.api.alerts.list()).length, 2)
       // The warning, and which class it is about (as the log's annotations).
       const logged = yield* TestConsole.logLines
-      assert.isTrue(logged.some((line) => String(line).startsWith("Could not check a class")))
+      assert.include(logged, "Could not check a class: the university has no class with this CRN in this term")
       assert.deepInclude(logged, { term: "202702", crn: "33940" })
 
       // Once it loads again, its change is noticed after all.
@@ -188,14 +241,37 @@ describe("pollClasses", () => {
       assert.strictEqual((yield* students[0]!.api.alerts.list()).length, 1)
     }))
 
-  it.effect("if reading the watchers fails, the change is not recorded, and the next run emails them", () =>
+  it.effect("an outage logs one line per class, with the reason, the term and the CRN", () =>
+    Effect.gen(function*() {
+      const { server } = yield* watching("student@example.com")
+      // The real University, on a `fetch` that answers every request with
+      // HTTP 503, since the line that says why comes from University.ts.
+      const failing = University.layer.pipe(
+        Layer.provide(FetchHttpClient.layer),
+        Layer.provide(Layer.succeed(FetchHttpClient.Fetch, () => Promise.resolve(new Response("", { status: 503 }))))
+      )
+      const before = (yield* TestConsole.logLines).length
+
+      yield* server.run(pollClasses().pipe(Effect.provide(failing)))
+
+      // Each log line starts with its time and level, as in
+      // "[16:00:00.000] WARN (#43):".
+      const logged = (yield* TestConsole.logLines).slice(before)
+      const warnings = logged.filter((line) => /^\[[\d:.]+\] (WARN|ERROR)/.test(String(line)))
+      assert.strictEqual(warnings.length, 1)
+      assert.include(logged, "getEnrollmentInfo: HTTP 503")
+      assert.deepInclude(logged, { term: "202702", crn: "33940" })
+    }))
+
+  it.effect("if recording the change fails, nothing is sent, and the next run records it and emails", () =>
     Effect.gen(function*() {
       const { server } = yield* watching("student@example.com")
       const sql = yield* server.sql
       setEnrolled(server, "202702/33940", 59)
 
-      // Reading the watchers is the check's only query of `accounts`, so
-      // hiding the table makes that one query fail.
+      // The statement that records the change is the check's only query of
+      // `accounts` (it reads the watchers too), so hiding the table makes
+      // that one statement fail, as a database error would.
       server.university.meanwhile = Effect.orDie(sql`ALTER TABLE accounts RENAME TO hidden_accounts`)
       yield* server.run(pollClasses())
       assert.deepStrictEqual(server.mailer.sent, [])
@@ -204,6 +280,7 @@ describe("pollClasses", () => {
       yield* sql`ALTER TABLE hidden_accounts RENAME TO accounts`
       yield* server.run(pollClasses())
       assert.deepStrictEqual(server.mailer.sent.map((email) => email.subject), [`Seat open: ${TITLE} (CRN 33940)`])
+      assert.strictEqual(yield* recordedVacant(server, "202702", "33940"), 1)
     }))
 
   it.effect("a class failing in any other way is logged, and the run still checks the others and completes", () =>

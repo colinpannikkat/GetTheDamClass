@@ -40,9 +40,10 @@ export const todayInOregon: Effect.Effect<string> = Effect.map(
 
 /**
  * A class that runs fewer weeks than this is a short session. Weeks are
- * counted the way a session is named: one that runs Monday to Friday of its
- * sixth week is a six-week session (40 days), not "under six weeks". So every
- * week the class reaches into counts as a whole one.
+ * counted in blocks of seven days from the class's first day, and a last
+ * block the class only partly uses counts as a whole week. That is how a
+ * session is named: one that runs Monday to Friday of its sixth week is a
+ * six-week session (40 days), not "under six weeks".
  */
 const SHORT_SESSION_WEEKS = 6
 

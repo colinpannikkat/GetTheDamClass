@@ -1,9 +1,9 @@
 /**
  * The Worker's settings for Cloudflare: its name, its code, which version of
  * the Workers runtime it expects, when its jobs run, and its bindings (what
- * `env` holds in the code). `cf dev`, `cf build` and `cf deploy` all read this file. (It replaces
- * the `wrangler.toml` older projects have.)
- * See https://developers.cloudflare.com/cf/projects/cloudflare-config/
+ * `env` holds in the code). `cf dev`, `cf build` and `cf deploy` all read
+ * this file. (It replaces the `wrangler.toml` older projects have.) See
+ * https://developers.cloudflare.com/cf/projects/cloudflare-config/
  *
  * The settings depend on the mode: `cf dev` runs in "development", and
  * `cf build` and `cf deploy` in "production".
