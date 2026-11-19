@@ -1,0 +1,91 @@
+/*
+ * The one stylesheet of the extension. Both the popup and the content script
+ * import it, so the tokens below are the whole visual vocabulary.
+ *
+ * Tailwind turns each `--color-*` token into utility classes: `--color-ink`
+ * gives `text-ink`, `bg-ink`, `border-ink`, and so on.
+ */
+@import "tailwindcss";
+
+@theme {
+  /* --- Colour: neutral surfaces and one accent, OSU "Beaver Orange". --- */
+  --color-surface: #ffffff;        /* page and card background */
+  --color-surface-muted: #f5f5f3;  /* quiet panels, hover on neutral buttons */
+  --color-line: #e3e3df;           /* dividers and decorative borders */
+  --color-line-strong: #8a8a85;    /* borders of inputs (3:1 against surface) */
+  --color-ink: #1c1b1a;            /* body text */
+  --color-ink-muted: #5f5e5a;      /* secondary text */
+  --color-accent: #d73f09;         /* primary buttons; white text on it is 4.6:1 */
+  --color-accent-hover: #b53407;
+  --color-on-accent: #ffffff;      /* text on --color-accent */
+  --color-accent-ink: #c23808;     /* orange text and focus rings on a surface */
+  --color-success: #1a7a3c;
+  --color-success-soft: #e8f5ec;
+  --color-danger: #b42318;
+  --color-danger-soft: #fdecea;
+
+  /*
+   * --- Sizes in px, not rem. ---
+   * Tailwind's defaults are in `rem`, which is relative to the font size of
+   * the page's <html> element. Our UI also runs inside the university's page,
+   * so `rem` would make it grow or shrink with that site's CSS. Clearing the
+   * default scales (`initial`) keeps the rem-based sizes from sneaking back.
+   */
+  --spacing: 4px; /* `p-2` = 8px, `gap-3` = 12px, `w-80` = 320px, ... */
+
+  --text-*: initial;
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 14px;
+  --text-sm--line-height: 20px;
+  --text-base: 16px;
+  --text-base--line-height: 24px;
+  --text-lg: 18px;
+  --text-lg--line-height: 26px;
+
+  --radius-*: initial;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+
+  --container-*: initial; /* use the spacing scale instead: `max-w-80` */
+}
+
+/*
+ * Dark colours. They apply only inside an element with the class
+ * `theme-system`, and only when the operating system is in dark mode. The
+ * popup opts in; a UI placed inside the (always light) university page can
+ * simply leave the class off and stay light.
+ */
+@layer theme {
+  @media (prefers-color-scheme: dark) {
+    .theme-system {
+      color-scheme: dark; /* dark scrollbars and form controls */
+      --color-surface: #1b1b1a;
+      --color-surface-muted: #272725;
+      --color-line: #3a3a37;
+      --color-line-strong: #85857f;
+      --color-ink: #f2f2ef;
+      --color-ink-muted: #b3b2ad;
+      --color-accent-ink: #ff9466;
+      --color-success: #6fd08c;
+      --color-success-soft: #17301f;
+      --color-danger: #ff8f85;
+      --color-danger-soft: #3b1c19;
+    }
+  }
+}
+
+/*
+ * `ui-root` gives a piece of UI its base text style. Put it on the outermost
+ * element of anything you render. Styles set on <body> do not reach inside a
+ * shadow root, so we cannot rely on them.
+ */
+@utility ui-root {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+  color: var(--color-ink);
+  text-align: start;
+  -webkit-font-smoothing: antialiased;
+}
