@@ -113,11 +113,11 @@ const Watchers = Schema.fromJsonString(
  * watchers come in it as one JSON text (`json_group_array`). A value that is
  * not the expected JSON would be a bug in this query, so it is a defect.
  */
-const recordChange = Effect.fn("pollClasses.recordChange")(function*(watched: WatchedClass, vacant: boolean) {
+const recordChange = Effect.fn("pollClasses.recordChange")(function*(watched: WatchedClass, nowVacant: boolean) {
   const sql = yield* SqlClient.SqlClient
   const changed = yield* sql<{ watchers: unknown }>`
-    UPDATE classes SET vacant = ${vacant ? 1 : 0}
-    WHERE term = ${watched.term} AND crn = ${watched.crn} AND vacant = ${vacant ? 0 : 1}
+    UPDATE classes SET vacant = ${nowVacant ? 1 : 0}
+    WHERE term = ${watched.term} AND crn = ${watched.crn} AND vacant = ${nowVacant ? 0 : 1}
     RETURNING (
       SELECT json_group_array(json_object('email', accounts.email, 'unsubscribeKey', alerts.unsubscribe_key))
       FROM alerts JOIN accounts ON accounts.id = alerts.account_id
@@ -138,10 +138,10 @@ const recordChange = Effect.fn("pollClasses.recordChange")(function*(watched: Wa
  * keeping track of who got which email; one missed alert is the smaller harm.
  */
 const sendAlert = Effect.fn("pollClasses.sendAlert")(
-  function*(watched: WatchedClass, vacant: boolean, to: string, unsubscribeKey: string) {
+  function*(watched: WatchedClass, nowVacant: boolean, to: string, unsubscribeKey: string) {
     const mailer = yield* Mailer
     const details = { title: watched.title, crn: watched.crn, unsubscribeUrl: yield* unsubscribeUrl(unsubscribeKey) }
-    const email = vacant ? seatOpenedEmail(to, details) : classFullEmail(to, details)
+    const email = nowVacant ? seatOpenedEmail(to, details) : classFullEmail(to, details)
     yield* mailer.send(email).pipe(
       Effect.catchTag("SendFailed", (error) => Effect.logWarning("Could not send a seat alert", error.reason))
     )
@@ -178,27 +178,27 @@ const checkClass = Effect.fn("pollClasses.checkClass")(
     if (seats === undefined) {
       return "failed"
     }
-    const vacant = isVacant(seats)
+    const nowVacant = isVacant(seats)
     // Most classes have not changed, and this costs them no database
     // statement at all, which is what keeps a run within D1's limit.
-    if (vacant === (watched.vacant === 1)) {
+    if (nowVacant === (watched.vacant === 1)) {
       return "unchanged"
     }
-    const watchers = yield* recordChange(watched, vacant)
+    const watchers = yield* recordChange(watched, nowVacant)
     if (watchers === undefined) {
       // Another run, or a subscribe, recorded this state first.
       return "unchanged"
     }
     for (const watcher of watchers) {
-      yield* sendAlert(watched, vacant, watcher.email, watcher.unsubscribeKey)
+      yield* sendAlert(watched, nowVacant, watcher.email, watcher.unsubscribeKey)
     }
     return "changed"
   },
   (effect, watched) =>
     effect.pipe(
-      Effect.catchCause((cause) =>
-        Effect.as(Effect.logError("Could not check a class; the next run tries again", cause), "failed" as const)
-      ),
+      // No promise of another try in the message: a failure before the
+      // change was recorded is retried by the next run, one after it is not.
+      Effect.catchCause((cause) => Effect.as(Effect.logError("Checking a class failed", cause), "failed" as const)),
       Effect.annotateLogs({ term: watched.term, crn: watched.crn })
     )
 )

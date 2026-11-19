@@ -300,7 +300,7 @@ describe("pollClasses", () => {
       assert.deepStrictEqual(server.mailer.sent.map((email) => email.subject), ["Seat open: DATA STRUCTURES (CRN 12345)"])
       assert.strictEqual(yield* recordedVacant(server, "202702", "33940"), 0)
       const logged = yield* TestConsole.logLines
-      assert.isTrue(logged.some((line) => String(line).startsWith("Could not check a class; the next run tries again")))
+      assert.isTrue(logged.some((line) => String(line).startsWith("Checking a class failed")))
       assert.deepInclude(logged, { term: "202702", crn: "33940" })
 
       // It keeps its change for the next run.

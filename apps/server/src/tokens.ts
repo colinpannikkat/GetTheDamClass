@@ -45,13 +45,19 @@ export const endToken = Effect.fn("endToken")(function*(tokenId: number) {
   yield* sql`DELETE FROM tokens WHERE id = ${tokenId}`
 }, dieOnSqlError)
 
-/** Remove the tokens nobody has used for a year, for the daily job (cleanup.ts). How many were removed. */
+/**
+ * Remove the tokens nobody has used for a year, for the daily job
+ * (cleanup.ts). How many were removed.
+ *
+ * `last_used_at` can be up to `LAST_USED_PRECISION` older than the token's
+ * real last use, so a token is kept that much longer: none goes while it
+ * might still have been used within the year.
+ */
 export const deleteUnusedTokens = Effect.fn("deleteUnusedTokens")(function*() {
   const sql = yield* SqlClient.SqlClient
   const now = yield* Clock.currentTimeMillis
-  const deleted = yield* sql`
-    DELETE FROM tokens WHERE last_used_at <= ${now - Duration.toMillis(UNUSED_TOKEN_LIFETIME)} RETURNING id
-  `
+  const unusedSince = now - Duration.toMillis(Duration.sum(UNUSED_TOKEN_LIFETIME, LAST_USED_PRECISION))
+  const deleted = yield* sql`DELETE FROM tokens WHERE last_used_at <= ${unusedSince} RETURNING id`
   return deleted.length
 })
 

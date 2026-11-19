@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect } from "effect"
+import { Duration, Effect } from "effect"
 import { TestClock, TestConsole } from "effect/testing"
 import { setOregonTime } from "../test/oregonTime"
 import { INTRO_TO_CS, makeTestServer, type TestServer } from "../test/TestServer"
@@ -201,11 +201,32 @@ describe("cleanup: sign-in codes and tokens", () => {
 
       yield* TestClock.adjust("200 days")
       yield* used.alerts.list()
-      yield* TestClock.adjust("165 days")
+      yield* TestClock.adjust("166 days")
       yield* server.run(cleanup())
 
       assert.strictEqual((yield* Effect.flip(unused.alerts.list()))._tag, "NotSignedIn")
       assert.deepStrictEqual(yield* used.alerts.list(), [])
+    }))
+
+  it.effect("keeps a token whose last use was too recent to be written down", () =>
+    Effect.gen(function*() {
+      const server = yield* makeTestServer()
+      const api = yield* server.client(yield* server.signIn("student@example.com"))
+      // Used 23 hours after signing in: within the day in which `last_used_at`
+      // is not written again, so the database still says "signed in".
+      yield* TestClock.adjust("23 hours")
+      yield* api.alerts.list()
+
+      // A year after signing in, but an hour short of a year after that use.
+      yield* TestClock.adjust(Duration.subtract(Duration.days(365), Duration.hours(23)))
+      yield* server.run(cleanup())
+      // Asked of the database, so that asking does not count as a use.
+      const sql = yield* server.sql
+      assert.deepStrictEqual(yield* sql`SELECT COUNT(*) AS tokens FROM tokens`, [{ tokens: 1 }])
+
+      yield* TestClock.adjust("1 day")
+      yield* server.run(cleanup())
+      assert.deepStrictEqual(yield* sql`SELECT COUNT(*) AS tokens FROM tokens`, [{ tokens: 0 }])
     }))
 
   it.effect("removes them even when the term list cannot be read", () =>
@@ -213,7 +234,8 @@ describe("cleanup: sign-in codes and tokens", () => {
       const { server, api } = yield* signedIn
       server.university.down = true
 
-      yield* TestClock.adjust("365 days")
+      // A year, and the day a token's last use can go unrecorded.
+      yield* TestClock.adjust("366 days")
       yield* server.run(cleanup())
 
       assert.strictEqual(yield* storedCodes(server), 0)
