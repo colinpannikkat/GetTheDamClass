@@ -122,7 +122,7 @@ describe("SignInFrame", () => {
 
   it("reports its height so the frame can be made to fit", async () => {
     // The test DOM never calls a ResizeObserver; call it the way a browser does.
-    let resized: () => void = () => {}
+    let resized: (() => void) | undefined
     vi.stubGlobal(
       "ResizeObserver",
       class {
@@ -134,8 +134,11 @@ describe("SignInFrame", () => {
       }
     )
     await renderFrame()
+    // The form is on screen one step before React runs the effect that creates
+    // the observer, so wait for that too.
+    await vi.waitFor(() => expect(resized).toBeDefined())
 
-    resized()
+    resized?.()
 
     expect(posted.at(-1)).toEqual([
       { type: "getthedamclass/resize", height: expect.any(Number) },

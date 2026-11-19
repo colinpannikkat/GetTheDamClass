@@ -13,7 +13,8 @@ export default defineConfig({
   manifest: {
     name: "GetTheDamClass",
     description: "This is a Chrome extension for class vacancy notification",
-    // `version` is taken from package.json.
+    // `version` is taken from this folder's package.json (not the one at the
+    // repository root).
     permissions: ["storage"],
     // No `host_permissions`: the backend allows cross-origin requests (CORS),
     // so the extension does not need access to any site.
