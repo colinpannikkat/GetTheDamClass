@@ -2,7 +2,7 @@
 
 Class vacancy notifier Chrome extension for Oregon State University.
 
-On [classes.oregonstate.edu](https://classes.oregonstate.edu), open a class and press **Notify Me**: you get an email when a seat opens up. The toolbar popup lists the classes you are watching and lets you stop the alerts.
+On [classes.oregonstate.edu](https://classes.oregonstate.edu), open a class and press **Notify me**: you get an email when a seat opens up. The toolbar popup lists the classes you are watching and lets you stop the alerts.
 
 We have a backend server running on a private VPS to track course vacancies and alert students. The backend code can be found [here](https://github.com/aj-arts/GetTheDamClass-Backend).
 
@@ -111,7 +111,7 @@ function NotifyButton({ crn }: { crn: string }) {
   return (
     <>
       <Button variant="primary" loading={state.status === "loading"} onClick={() => run(crn)}>
-        Notify Me
+        Notify me
       </Button>
       <Message tone="success">{state.status === "success" ? "You're on the list." : null}</Message>
       <Message tone="error">{state.status === "failure" ? errorMessage(state.error) : null}</Message>
