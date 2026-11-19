@@ -111,7 +111,7 @@ describe("the unsubscribe page", () => {
   it.effect("escapes the course title, on the page and in the email", () =>
     Effect.gen(function*() {
       const server = yield* makeTestServer({
-        "202702/33940": { title: "C & C++ <ADVANCED>", seats: { enrolled: 1, capacity: 1 } }
+        classes: { "202702/33940": { title: "C & C++ <ADVANCED>", seats: { enrolled: 1, capacity: 1 } } }
       })
       const api = yield* server.client(yield* server.signIn("student@oregonstate.edu"))
       yield* api.alerts.subscribe({ payload: INTRO_TO_CS })

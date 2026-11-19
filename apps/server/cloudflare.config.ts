@@ -92,7 +92,14 @@ export default defineConfig(({ mode }) => {
         // `cf build` and `cf deploy` only do when told to with a flag
         // (`-m development`), and then build the separate local Worker (see
         // the top of this file), never the real one.
-        MAILER: bindings.text(local ? "print" : "cloudflare")
+        MAILER: bindings.text(local ? "print" : "cloudflare"),
+        // The most sign-in code emails sent in one day (UTC). It keeps room in
+        // the account's daily email limit (200 now; see "How many emails it
+        // can send" in the README) for subscription confirmations and seat
+        // alerts, which share that limit with the codes anyone can ask for.
+        // Keep it at about half the account's limit, and raise the two
+        // together. Locally nothing is sent, so the cap is set out of reach.
+        SIGN_IN_EMAILS_PER_DAY: bindings.json(local ? 1_000_000 : 100)
       }
     }
   }

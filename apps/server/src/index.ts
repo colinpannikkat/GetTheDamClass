@@ -18,6 +18,7 @@ import { layerD1 } from "./database"
 import { Mailer } from "./Mailer"
 import { runScheduled } from "./scheduled"
 import { ServerLayer } from "./server"
+import { SignInEmailsPerDay } from "./signIn"
 import { University } from "./University"
 import { PublicUrl } from "./unsubscribe"
 
@@ -29,6 +30,7 @@ const Dependencies = Layer.mergeAll(
   env.MAILER === "print" ? Mailer.layerPrint : Mailer.layerCloudflare(env.EMAIL, env.EMAIL_FROM),
   University.layer.pipe(Layer.provide(FetchHttpClient.layer)),
   Layer.succeed(PublicUrl, env.PUBLIC_URL),
+  Layer.succeed(SignInEmailsPerDay, env.SIGN_IN_EMAILS_PER_DAY),
   SecureRandom.layerWebCrypto
 )
 

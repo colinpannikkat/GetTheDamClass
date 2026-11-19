@@ -1,8 +1,9 @@
 import { assert, describe, it } from "@effect/vitest"
-import { EmailAddress } from "@getthedamclass/shared/domain"
+import { EmailAddress, EmailNotSent } from "@getthedamclass/shared/domain"
 import { Effect, Latch, Schema } from "effect"
 import { TestClock, TestConsole } from "effect/testing"
-import { makeTestServer, PUBLIC_URL, type TestServer } from "../test/TestServer"
+import { INTRO_TO_CS, makeTestServer, PUBLIC_URL, type TestServer } from "../test/TestServer"
+import { pollClasses } from "./poll"
 
 // These tests go through the API, with the typed client from
 // packages/shared, against the whole server in this process (see
@@ -168,6 +169,116 @@ describe("sendCode, when the request is dropped while the email is being sent", 
       const api = yield* server.client()
       yield* api.signIn.sendCode({ payload: { email } })
       assert.strictEqual(server.mailer.sent.length, 1)
+    }))
+})
+
+describe("sendCode, past the day's cap on sign-in emails", () => {
+  const TOO_MANY = "Too many sign-in emails were sent today. Please try again tomorrow."
+
+  /** Ask for a code, and return "sent", or the error's tag. */
+  const ask = (server: TestServer, address: string) =>
+    Effect.gen(function*() {
+      const api = yield* server.client()
+      return yield* api.signIn.sendCode({ payload: { email: address } }).pipe(
+        Effect.as("sent"),
+        Effect.catch((error) => Effect.succeed(error._tag))
+      )
+    })
+
+  /** The sign-in codes stored, by address. */
+  const storedCodes = (server: TestServer) =>
+    Effect.gen(function*() {
+      const sql = yield* server.sql
+      const rows = yield* sql<{ email: string }>`SELECT email FROM sign_in_codes ORDER BY email`
+      return rows.map((row) => row.email)
+    })
+
+  it.effect("is EmailNotSent, with its own sentence, and nothing is sent or stored", () =>
+    Effect.gen(function*() {
+      const server = yield* makeTestServer({ signInEmailsPerDay: 2 })
+      assert.strictEqual(yield* ask(server, "a@example.com"), "sent")
+      assert.strictEqual(yield* ask(server, "b@example.com"), "sent")
+      const api = yield* server.client()
+      const error = yield* Effect.flip(api.signIn.sendCode({ payload: { email: "c@example.com" } }))
+      assert.deepStrictEqual(error, new EmailNotSent({ message: TOO_MANY }))
+      assert.deepStrictEqual(server.mailer.sent.map((sent) => sent.to), ["a@example.com", "b@example.com"])
+      assert.deepStrictEqual(yield* storedCodes(server), ["a@example.com", "b@example.com"])
+    }))
+
+  it.effect("counts only emails sent: a request refused for the minute does not use one up", () =>
+    Effect.gen(function*() {
+      const server = yield* makeTestServer({ signInEmailsPerDay: 2 })
+      yield* ask(server, "a@example.com")
+      assert.strictEqual(yield* ask(server, "a@example.com"), "CodeRecentlySent")
+      assert.strictEqual(yield* ask(server, "b@example.com"), "sent")
+    }))
+
+  it.effect("starts again at midnight UTC, and the refused address can ask straight away", () =>
+    Effect.gen(function*() {
+      const server = yield* makeTestServer({ signInEmailsPerDay: 1 })
+      yield* TestClock.setTime(Date.parse("2026-11-19T23:59:30Z"))
+      yield* ask(server, "a@example.com")
+      assert.strictEqual(yield* ask(server, "b@example.com"), "EmailNotSent")
+
+      // Ten seconds before midnight UTC (still the afternoon of the same day
+      // in Oregon): still refused.
+      yield* TestClock.setTime(Date.parse("2026-11-19T23:59:50Z"))
+      assert.strictEqual(yield* ask(server, "b@example.com"), "EmailNotSent")
+
+      // Midnight UTC, less than a minute after the refusal: the code goes
+      // out, and it works.
+      yield* TestClock.setTime(Date.parse("2026-11-20T00:00:00Z"))
+      assert.strictEqual(yield* ask(server, "b@example.com"), "sent")
+      const api = yield* server.client()
+      yield* api.signIn.signIn({ payload: { email: "b@example.com", code: server.lastCode("b@example.com") } })
+    }))
+
+  it.effect("many requests at the same moment for the last email: exactly one is sent", () =>
+    Effect.gen(function*() {
+      const server = yield* makeTestServer({ signInEmailsPerDay: 3 })
+      yield* ask(server, "first@example.com")
+      yield* ask(server, "second@example.com")
+      const addresses = Array.from({ length: 10 }, (_, i) => `student${i}@example.com`)
+      const results = yield* Effect.all(addresses.map((address) => ask(server, address)), { concurrency: "unbounded" })
+      assert.strictEqual(results.filter((result) => result === "sent").length, 1)
+      assert.strictEqual(results.filter((result) => result === "EmailNotSent").length, 9)
+      assert.strictEqual(server.mailer.sent.length, 3)
+      // Only the address that got its email keeps a code.
+      assert.strictEqual((yield* storedCodes(server)).length, 3)
+    }))
+
+  it.effect("logs one warning when the cap is reached, without any address", () =>
+    Effect.gen(function*() {
+      const server = yield* makeTestServer({ signInEmailsPerDay: 2 })
+      for (const address of ["a@example.com", "b@example.com", "c@example.com", "d@example.com"]) {
+        yield* ask(server, address)
+      }
+      // Each log line comes as its parts: the time and level, the message, the data.
+      const logged = yield* TestConsole.logLines
+      const reached = logged.flatMap((part, i) =>
+        String(part).includes("Reached the day's cap on sign-in emails") ? [logged[i - 1]] : []
+      )
+      assert.strictEqual(reached.length, 1)
+      assert.include(reached[0], "WARN")
+      assert.deepInclude(logged, { cap: 2 })
+      assert.notInclude(logged.map((part) => JSON.stringify(part)).join(" "), "@example.com")
+    }))
+
+  it.effect("does not stop subscription confirmations or seat alerts", () =>
+    Effect.gen(function*() {
+      const server = yield* makeTestServer({ signInEmailsPerDay: 1 })
+      const student = "student@oregonstate.edu"
+      const api = yield* server.client(yield* server.signIn(student))
+      assert.strictEqual(yield* ask(server, "other@example.com"), "EmailNotSent")
+
+      yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
+      assert.match(server.mailer.sent.at(-1)!.subject, /^Watching INTRO TO COMPUTER SCIENCE I/)
+
+      const key = `${INTRO_TO_CS.term}/${INTRO_TO_CS.crn}`
+      server.university.classes.set(key, { ...server.university.classes.get(key)!, seats: { enrolled: 59, capacity: 60 } })
+      yield* server.run(pollClasses())
+      assert.deepStrictEqual(server.mailer.sent.map((sent) => sent.to), [student, student, student])
+      assert.match(server.mailer.sent.at(-1)!.subject, /^Seat open/)
     }))
 })
 

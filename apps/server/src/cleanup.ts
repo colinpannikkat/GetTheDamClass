@@ -1,7 +1,8 @@
 /**
  * The daily job: removing what is no longer needed.
  *
- * - Sign-in codes that have expired, and tokens nobody has used for a year.
+ * - Sign-in codes that have expired, tokens nobody has used for a year, and
+ *   the counts of sign-in emails older than a week.
  * - Alerts that have ended (see termRule.ts): those whose class's add
  *   deadline has passed, and those of a class without a deadline once the
  *   university lists its term as "View Only". Nobody is emailed about it; the
@@ -11,8 +12,8 @@
  *
  * Alerts and classes depend on the university's term list, which this job
  * asks for. If it cannot be read, none of them are removed, and the next
- * day's run tries again. Codes and tokens do not depend on the university and
- * are removed regardless.
+ * day's run tries again. Codes, tokens and counts do not depend on the
+ * university and are removed regardless.
  *
  * Each removal is one statement over the whole table. The run ends with one
  * line in the log saying how much each removed.
@@ -20,7 +21,7 @@
 import type { Term } from "@getthedamclass/shared/domain"
 import { Effect } from "effect"
 import { SqlClient } from "effect/sql"
-import { deleteExpiredCodes } from "./signIn"
+import { deleteExpiredCodes, deleteOldEmailCounts } from "./signIn"
 import { closedTerms, todayInOregon } from "./termRule"
 import { deleteUnusedTokens } from "./tokens"
 
@@ -81,6 +82,7 @@ const deleteEndedAlertsAndClasses = Effect.fn("cleanup.deleteEndedAlertsAndClass
 /** The daily job. */
 export const cleanup = Effect.fn("cleanup")(function*() {
   const signInCodes = yield* deleteExpiredCodes()
+  const signInEmailCounts = yield* deleteOldEmailCounts()
   const tokens = yield* deleteUnusedTokens()
   const ended = yield* deleteEndedAlertsAndClasses().pipe(
     Effect.catchTag("UniversityUnavailable", () =>
@@ -89,5 +91,5 @@ export const cleanup = Effect.fn("cleanup")(function*() {
         { alerts: 0, classes: 0 }
       ))
   )
-  yield* Effect.logInfo("Daily cleanup done. Removed:", { signInCodes, tokens, ...ended })
+  yield* Effect.logInfo("Daily cleanup done. Removed:", { signInCodes, signInEmailCounts, tokens, ...ended })
 })

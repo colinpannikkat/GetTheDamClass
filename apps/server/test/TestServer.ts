@@ -9,17 +9,21 @@
  * the classes the test gives it (FakeUniversity.ts). The jobs Cloudflare runs
  * on a schedule run on the same services, with `run`.
  *
+ * The day's cap on sign-in emails is set out of reach, unless a test sets
+ * its own (`signInEmailsPerDay`).
+ *
  * Use it inside `it.effect`. The server then runs on the test's clock, so
  * `TestClock.adjust("15 minutes")` moves time for the server too, and logs to
  * the test's console, so `TestConsole.logLines` holds what the server logged.
  */
 import { Api } from "@getthedamclass/shared/Api"
-import { Clock, Console, Effect, Layer } from "effect"
+import { Clock, Console, Effect, Layer, Scheduler } from "effect"
 import { SecureRandom } from "effect/crypto"
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpRouter } from "effect/http"
 import { HttpApiClient } from "effect/http-api"
 import { SqlClient } from "effect/sql"
 import { ServerLayer } from "../src/server"
+import { SignInEmailsPerDay } from "../src/signIn"
 import type { ListedTerm } from "../src/University"
 import { PublicUrl } from "../src/unsubscribe"
 import { type FakeClass, makeFakeUniversity } from "./FakeUniversity"
@@ -59,7 +63,15 @@ const countingRandom = () => {
   return SecureRandom.make((size) => new Uint8Array(size).fill(++draws % 256))
 }
 
-export const makeTestServer = Effect.fn("makeTestServer")(function*(classes: Record<string, FakeClass> = defaultClasses) {
+/** More sign-in emails than any test sends, so that only tests about the cap meet it. */
+const DEFAULT_SIGN_IN_EMAILS_PER_DAY = 1_000
+
+export const makeTestServer = Effect.fn("makeTestServer")(function*(options: {
+  /** What the fake university knows, by "term/crn". */
+  readonly classes?: Record<string, FakeClass>
+  readonly signInEmailsPerDay?: number
+} = {}) {
+  const { classes = defaultClasses, signInEmailsPerDay = DEFAULT_SIGN_IN_EMAILS_PER_DAY } = options
   const mailer = makeRecordingMailer()
   const university = makeFakeUniversity(classes, TERMS)
   // Built here rather than inside the server, so that the test can query the
@@ -69,9 +81,16 @@ export const makeTestServer = Effect.fn("makeTestServer")(function*(classes: Rec
     mailer.layer,
     university.layer,
     Layer.succeed(PublicUrl, PUBLIC_URL),
+    Layer.succeed(SignInEmailsPerDay, signInEmailsPerDay),
     Layer.succeed(SecureRandom.SecureRandom, countingRandom()),
     Layer.succeed(Clock.Clock, yield* Clock.Clock),
-    Layer.succeed(Console.Console, yield* Console.Console)
+    Layer.succeed(Console.Console, yield* Console.Console),
+    // Every fiber hands over to the others after each step, so requests that
+    // arrive together interleave between any two statements, as they can in
+    // the Worker, where each statement waits on D1. Without it, Node's SQLite
+    // would run one request's statements back to back, and no test could
+    // catch a check split from its write (see the top of src/database.ts).
+    Layer.succeed(Scheduler.MaxOpsBeforeYield, 1)
   ))
 
   const { handler, dispose } = HttpRouter.toWebHandler(

@@ -5,11 +5,12 @@
  * What it needs from outside is left open, so that the Worker (index.ts) and
  * the tests (test/TestServer.ts) can each supply their own:
  *
- *   SqlClient      the database (D1, or SQLite in tests)
- *   Mailer         sending email
- *   University     the university's class search
- *   PublicUrl      where links in emails point
- *   SecureRandom   randomness for codes, tokens and keys
+ *   SqlClient            the database (D1, or SQLite in tests)
+ *   Mailer               sending email
+ *   University           the university's class search
+ *   PublicUrl            where links in emails point
+ *   SignInEmailsPerDay   the day's cap on sign-in code emails
+ *   SecureRandom         randomness for codes, tokens and keys
  *
  * They must be given with `Layer.provideMerge`, not `Layer.provide`: the
  * handlers ask for them on each request, and only a merged layer keeps them

@@ -157,18 +157,19 @@ describe("cleanup: the log", () => {
       yield* api.alerts.subscribe({ payload: NO_DATES })
       yield* api.alerts.unsubscribe({ params: NO_DATES })
       closeTerm(server, "202701")
-      // Past INTRO_TO_CS's deadline, and the sign-in code has long expired.
+      // Past INTRO_TO_CS's deadline; the sign-in code has long expired, and
+      // the count of that day's sign-in emails is more than a week old.
       yield* setOregonTime("2027-01-18T03:00")
 
       yield* server.run(cleanup())
 
       const logged = yield* TestConsole.logLines
       assert.include(logged, "Daily cleanup done. Removed:")
-      assert.deepInclude(logged, { signInCodes: 1, tokens: 0, alerts: 1, classes: 1 })
+      assert.deepInclude(logged, { signInCodes: 1, signInEmailCounts: 1, tokens: 0, alerts: 1, classes: 1 })
     }))
 })
 
-describe("cleanup: sign-in codes and tokens", () => {
+describe("cleanup: sign-in codes, email counts and tokens", () => {
   /** How many sign-in codes are stored. */
   const storedCodes = (server: TestServer) =>
     Effect.gen(function*() {
@@ -191,6 +192,26 @@ describe("cleanup: sign-in codes and tokens", () => {
       yield* TestClock.adjust("1 minute")
       yield* server.run(cleanup())
       assert.strictEqual(yield* storedCodes(server), 0)
+    }))
+
+  it.effect("removes the counts of sign-in emails more than a week old, and keeps the others", () =>
+    Effect.gen(function*() {
+      const server = yield* makeTestServer()
+      const api = yield* server.client()
+      for (const day of ["2027-01-01", "2027-01-04", "2027-01-08"]) {
+        yield* TestClock.setTime(Date.parse(`${day}T12:00:00Z`))
+        yield* api.signIn.sendCode({ payload: { email: `${day}@example.com` } })
+      }
+
+      // The daily job's time, a week after 2027-01-04.
+      yield* TestClock.setTime(Date.parse("2027-01-11T11:00:00Z"))
+      yield* server.run(cleanup())
+
+      const sql = yield* server.sql
+      assert.deepStrictEqual(yield* sql`SELECT day, sent FROM sign_in_emails ORDER BY day`, [
+        { day: "2027-01-04", sent: 1 },
+        { day: "2027-01-08", sent: 1 }
+      ])
     }))
 
   it.effect("removes tokens unused for a year, and keeps one used within it", () =>
