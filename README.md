@@ -272,6 +272,14 @@ pnpm exec cf observability tail --worker getthedamclass    # live, one JSON line
 
 The server writes one line per request (method, path, status), one per check (`Checked the watched classes:`, every minute, with its counts), one per daily cleanup (`Daily cleanup done.`, at 11:00 UTC), and a warning for every email that could not be sent, with Cloudflare's reason. Workers Logs keeps them for 7 days; to look further back than the tail, open the Worker in the Cloudflare dashboard and choose **Logs**.
 
+### How many emails it can send
+
+Cloudflare lets a new account send 200 emails a day, counting sign-in codes, confirmations and alerts together, to any address. The limit rises by itself as the account keeps sending mail that is not bounced or reported; Cloudflare's [limits page](https://developers.cloudflare.com/email-service/platform/limits/) links a form for asking sooner. Past the limit a send fails, and the server logs it like any other email that could not be sent.
+
+```sh
+pnpm exec cf email-sending limits get    # the daily limit, and how many were sent since it last reset
+```
+
 ### Setting it up on another account
 
 This was done once, in this order:

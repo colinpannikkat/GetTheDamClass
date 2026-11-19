@@ -4,7 +4,7 @@ _Last Updated: 19th November 2026_
 
 Welcome to **GetTheDamClass**! Your privacy is important to us, and this Privacy Policy explains how we collect, use, and protect your information when you use our Chrome extension.
 
-This policy describes the version of the extension that signs in with an emailed code. That version and its server are not released yet: until they are, what this policy says about the server describes how it is built to run.
+This policy describes version 2 of the extension, which signs in with an emailed code and has its own server. (Version 1 signed in with a PIN and used an earlier server.)
 
 ## **Information We Collect**
 
@@ -34,14 +34,14 @@ We do not use your information for advertising or other unrelated purposes.
 ## **Data Sharing and Disclosure**
 
 We do not sell, rent, or share your information with third parties except in the following cases:
-- **Service Providers**: The server is built to run on Cloudflare (Cloudflare Workers, with its data in a Cloudflare D1 database), and sign-in codes and alert emails are sent through Cloudflare's email service. Cloudflare therefore processes your email address and the data described here on our behalf.
+- **Service Providers**: The server runs on Cloudflare (Cloudflare Workers, with its data in a Cloudflare D1 database), and sign-in codes and alert emails are sent through Cloudflare's email service. Cloudflare therefore processes your email address and the data described here on our behalf.
 - **Oregon State University**: To check for open seats, the server asks Oregon State's public class search about the classes being watched, by term and CRN. Nothing about you is sent with these requests.
 - **Legal Compliance**: When required to comply with applicable laws, regulations, or legal proceedings.
 
 ## **Data Storage and Security**
 
 1. **Data Transmission**:
-   - The extension is built to reach its server only over HTTPS, which encrypts everything sent between your browser and the server. The server reaches Oregon State's class search over HTTPS as well.
+   - The extension reaches its server only over HTTPS, which encrypts everything sent between your browser and the server. The server reaches Oregon State's class search over HTTPS as well.
 
 2. **Data Storage**:
    - The server stores your email address and when your account was created, and your alerts: for each, the term, the CRN, the class title, when you started it, and a random key used in the "stop these alerts" link in your emails.
