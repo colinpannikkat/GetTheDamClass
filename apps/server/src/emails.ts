@@ -7,11 +7,8 @@
  * out differently in every inbox.
  */
 import type { Crn } from "@getthedamclass/shared/domain"
-import { escapeHtml } from "./html"
+import { ACCENT, className, escapeHtml } from "./html"
 import type { Email } from "./Mailer"
-
-/** Oregon State's orange, for the one accent line and the button. */
-const ACCENT = "#D73F09"
 
 /** The HTML around every message. `body` is HTML already. */
 const layout = (body: string) =>
@@ -57,7 +54,7 @@ export const subscriptionConfirmedEmail = (to: string, alert: {
   readonly crn: Crn
   readonly unsubscribeUrl: string
 }): Email => {
-  const name = `${alert.title} (CRN ${alert.crn})`
+  const name = className(alert)
   return {
     to,
     subject: `Watching ${alert.title} for open seats`,

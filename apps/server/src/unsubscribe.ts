@@ -22,7 +22,7 @@ import { Context, Effect, Layer } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { SqlClient } from "effect/sql"
 import { dieOnSqlError } from "./database"
-import { escapeHtml } from "./html"
+import { ACCENT, className, escapeHtml } from "./html"
 
 /**
  * The address the server is reached at from outside, such as
@@ -47,14 +47,20 @@ const findAlert = Effect.fn("unsubscribe.findAlert")(function*(key: string) {
   return rows[0]
 }, dieOnSqlError)
 
+/** Stop the alert with this key. */
+const deleteAlert = Effect.fn("unsubscribe.deleteAlert")(function*(key: string) {
+  const sql = yield* SqlClient.SqlClient
+  yield* sql`DELETE FROM alerts WHERE unsubscribe_key = ${key}`
+}, dieOnSqlError)
+
 /** The `key` in the query string, or "" without one (which matches no alert). */
 const requestKey = Effect.map(HttpServerRequest.ParsedSearchParams, (params) => {
   const key = params["key"]
   return typeof key === "string" ? key : ""
 })
 
-const showConfirmation = Effect.gen(function*() {
-  const key = yield* requestKey
+/** The page the link opens: it names the class and asks. */
+const showConfirmation = Effect.fn("unsubscribe.showConfirmation")(function*(key: string) {
   const alert = yield* findAlert(key)
   if (alert === undefined) {
     return alreadyStoppedPage
@@ -64,19 +70,18 @@ const showConfirmation = Effect.gen(function*() {
     "Stop alerts?",
     `<p>Stop the open-seat emails for <strong>${escapeHtml(className(alert))}</strong>?</p>
 <form method="post" action="/unsubscribe?key=${escapeHtml(encodeURIComponent(key))}">
-<button type="submit" style="padding:12px 20px;border:0;border-radius:4px;background-color:#D73F09;color:#ffffff;font-size:16px;font-weight:bold;cursor:pointer;">Stop alerts</button>
+<button type="submit" style="padding:12px 20px;border:0;border-radius:4px;background-color:${ACCENT};color:#ffffff;font-size:16px;font-weight:bold;cursor:pointer;">Stop alerts</button>
 </form>`
   )
 })
 
-const stopAlert = Effect.gen(function*() {
-  const sql = yield* SqlClient.SqlClient
-  const key = yield* requestKey
+/** What the button does: stops the alert, and says so. */
+const stopAlert = Effect.fn("unsubscribe.stopAlert")(function*(key: string) {
   const alert = yield* findAlert(key)
   if (alert === undefined) {
     return alreadyStoppedPage
   }
-  yield* sql`DELETE FROM alerts WHERE unsubscribe_key = ${key}`.pipe(dieOnSqlError)
+  yield* deleteAlert(key)
   return page(
     200,
     "Alerts stopped",
@@ -87,11 +92,9 @@ const stopAlert = Effect.gen(function*() {
 
 /** The page and the button's POST, as routes for the server's router. */
 export const UnsubscribePage = Layer.mergeAll(
-  HttpRouter.add("GET", "/unsubscribe", showConfirmation),
-  HttpRouter.add("POST", "/unsubscribe", stopAlert)
+  HttpRouter.add("GET", "/unsubscribe", Effect.flatMap(requestKey, showConfirmation)),
+  HttpRouter.add("POST", "/unsubscribe", Effect.flatMap(requestKey, stopAlert))
 )
-
-const className = (alert: { readonly title: string; readonly crn: Crn }) => `${alert.title} (CRN ${alert.crn})`
 
 /** A small page of its own. `body` is HTML already. */
 const page = (status: number, title: string, body: string) =>
@@ -104,7 +107,7 @@ const page = (status: number, title: string, body: string) =>
 <title>${escapeHtml(title)} - GetTheDamClass</title>
 </head>
 <body style="margin:0;padding:24px;background-color:#f4f4f4;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5;color:#222222;">
-<main style="max-width:560px;margin:0 auto;padding:24px;background-color:#ffffff;border-top:4px solid #D73F09;">
+<main style="max-width:560px;margin:0 auto;padding:24px;background-color:#ffffff;border-top:4px solid ${ACCENT};">
 <h1 style="margin:0 0 16px;font-size:24px;">${escapeHtml(title)}</h1>
 ${body}
 </main>
