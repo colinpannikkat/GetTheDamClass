@@ -36,7 +36,6 @@
  */
 import { Option } from "effect"
 import type { Crn } from "@/lib/domain"
-import { parseCrn } from "@/lib/parseCrn"
 
 /** The element all panels are direct children of, or `null` on any other page. */
 export const findPanelStack = (root: ParentNode): Element | null => root.querySelector("main.panels")
@@ -55,6 +54,17 @@ export const findButtonBar = (panel: Element): Element | null => panel.querySele
 /** The CRN of the section a details panel shows right now, if it shows one. */
 export const readCrn = (panel: Element): Option.Option<Crn> =>
   parseCrn(panel.querySelector(".dtl-section")?.textContent ?? "")
+
+/**
+ * Find the CRN in the page's section line.
+ *
+ *   parseCrn("Section 001, CRN 39835")  // Option.some("39835")
+ *   parseCrn("Section 001")             // Option.none()
+ */
+export const parseCrn = (text: string): Option.Option<Crn> =>
+  // "CRN", then up to three characters that are not digits (a space, ": "),
+  // then the digits we want.
+  Option.fromNullishOr(text.match(/\bCRN\D{0,3}(\d+)/i)?.[1])
 
 /**
  * The code of the term that section belongs to ("202702" is Winter 2027), if

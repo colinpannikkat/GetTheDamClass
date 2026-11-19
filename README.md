@@ -17,6 +17,8 @@ We have a backend server running on a private VPS to track course vacancies and 
 5. Click on the "Load unpacked" button and select the extracted folder.
 6. The extension should now be added to Chrome and ready to use.
 
+**Updating from an earlier version** (including version 1): extract the new zip over the old folder and press the reload button on the extension's card. That keeps you signed in. If you extract to a new folder instead, Chrome treats it as a different extension: remove the old GetTheDamClass first (otherwise the class page gets two buttons) and sign in again.
+
 We will hopefully have it released on the Chrome Web Store soon!
 
 ## Building it yourself
@@ -77,7 +79,6 @@ lib/                    Everything that is not user interface.
   runtime.ts            Wires the real services together so effects can run.
   react.ts              Hooks that let React components run effects.
   errorMessage.ts       The sentence shown to the user for each error.
-  parseCrn.ts           Finds the CRN in the text of the class page.
 assets/tailwind.css     The stylesheet: colours and sizes used everywhere.
 public/icons/           The extension's icons, copied into the build as they are.
 wxt.config.ts           Extension name, permissions, icons; build plugins.
@@ -94,11 +95,11 @@ What is stored, unencrypted, until you sign out (which removes all of it):
 
 | Key | Value | |
 | --- | --- | --- |
-| `email` | `"student@oregonstate.edu"` | The same two keys version 1 used, so its users stay signed in. |
+| `email` | `"student@oregonstate.edu"` | The same two keys version 1 used, so its users stay signed in when the extension is updated in place. |
 | `pin` | `"1234"` | |
 | `watch:202702:student@oregonstate.edu:33940` | `true` | One key per watched class, named after the term, the account and the CRN. |
 
-A watched class is a key of its own so that adding one is a single write and removing one a single delete. Nothing reads a list, changes it and writes it back, so two changes made at the same moment (in the popup and on a class page, say) cannot undo each other. And the account is part of the name so that an answer from the server that arrives after someone else signed in is saved for the account that asked, where the other never sees it. The term is part of the name so that last term's classes stop counting as watched when `lib/term.ts` moves on (the next term can reuse a CRN for a different class).
+A watched class is a key of its own so that adding one is a single write and removing one a single delete. Nothing reads a list, changes it and writes it back, so two changes made at the same moment (in the popup and on a class page, say) cannot undo each other. And the account is part of the name so that an answer from the server that arrives after someone else signed in is saved for the account that asked, where the other never sees it. The term is part of the name so that last term's saved classes stop counting as watched when `lib/term.ts` moves on (the next term can reuse a CRN for a different class). That only covers what this browser saved: the server's list carries no term, so the old alerts must also be cleared in the backend (see [Each term](#each-term)).
 
 One known gap: if you sign out while a "Notify me" request is still waiting for the server, its answer is saved after the sign-out, leaving one `watch:` key (email and CRN, no PIN) until the next sign-out.
 
@@ -128,7 +129,7 @@ Do step 3 soon after step 2. The two can never switch at the same instant (brows
 
 People who installed from a release zip ("Load unpacked") do not get updates automatically: until they download the new release, the page keeps telling them alerts cover the old term only. Say so in the release notes.
 
-Alerts set up for the old term stay in the backend's database, where after the switch their CRNs would be looked up in the new term. Clear them out there as part of step 3.
+Alerts set up for the old term stay in the backend's database, and its API does not say which term an alert belongs to. Clearing them out is a required part of step 3, not a tidy-up: until they are gone, their CRNs are looked up in the new term, and opening the popup lists them and marks them as watched, so a new class that reuses one of those numbers shows "Watching".
 
 ## Releasing
 

@@ -24,6 +24,8 @@
  *   saved under the account that asked, where the other account never sees it.
  * - When `lib/term.ts` moves to the next term, last term's keys stop matching,
  *   so a CRN the new term reuses for another class does not show as watched.
+ *   (The server's own list has no term, so last term's alerts must also be
+ *   cleared there: see "Each term" in the README.)
  */
 import { Context, Effect, Layer, Option, Queue, Schema, Stream } from "effect"
 import { browser } from "wxt/browser"
@@ -93,7 +95,7 @@ function makeAccountStore(): AccountStore["Service"] {
   )
 
   // Version 1 of the extension saved these same two keys, so people who
-  // signed in with it stay signed in. Do not rename them.
+  // update it in place stay signed in. Do not rename them.
   const save = (credentials: Credentials) =>
     storage(() => browser.storage.local.set({ email: credentials.email, pin: credentials.pin }))
 
