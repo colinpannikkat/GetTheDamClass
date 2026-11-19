@@ -271,7 +271,7 @@ pnpm exec cf workers deployments create --worker getthedamclass --strategy perce
 
 That puts back the version's code and bindings only: the cron triggers, the domain and the log settings stay as the latest deploy set them. Or check out the earlier commit and `cf deploy` it, which puts back its whole configuration.
 
-Going back also takes back whatever the bad version's predecessors lacked. Versions deployed before 19 November 2026, 23:00 UTC lack one or more of the protections below; do not go back to them (the list shows each version's time; go by that, not by its message). After going back to any version, check:
+Going back also takes back whatever the bad version's predecessors lacked. Versions deployed before 19 November 2026, 22:40 UTC lack one or more of the protections below; do not go back to them (the list shows each version's time; go by that, not by its message). After going back to any version, check:
 
 - The unsubscribe page still answers with its `Referrer-Policy`, `Content-Security-Policy` and `Cache-Control` headers: `curl -sI "https://api.getthedamclass.ajinkya.dev/unsubscribe?key=x"`.
 - A request with a made-up `?x=1` shows in the live tail without its query.
