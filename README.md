@@ -50,7 +50,7 @@ Run these in `apps/extension/`. `pnpm typecheck`, `pnpm test` and `pnpm build` a
 
 ### Running the server
 
-`apps/server` is the Cloudflare Worker that will replace the backend: sign-in by emailed code, and starting, listing and stopping alerts. (The check every minute that sends the alerts comes next.) The extension does not use it yet.
+`apps/server` is the Cloudflare Worker that will replace the backend: sign-in by emailed code; starting, listing and stopping alerts; a check every minute that emails each watcher when a seat opens or the class fills again; and a daily cleanup. The extension does not use it yet.
 
 ```sh
 cd apps/server
@@ -69,7 +69,18 @@ curl -X POST http://localhost:5173/sign-in -H 'content-type: application/json' \
 curl http://localhost:5173/alerts -H 'authorization: Bearer ...'
 ```
 
-The endpoints are listed in `packages/shared/src/Api.ts`. Subscribing (`POST /alerts` with `{"term":"202702","crn":"33940"}`) asks the university's real class search. To start over, delete `apps/server/.cloudflare/state`. `pnpm typecheck`, `pnpm test` and `pnpm build` work there as they do in the extension; the tests use a SQLite database in Node and never reach the network.
+The endpoints are listed in `packages/shared/src/Api.ts`. Subscribing (`POST /alerts` with `{"term":"202702","crn":"33940"}`) asks the university's real class search, and only works for a term that is open for registration, until the class's add deadline (see `src/termRule.ts`).
+
+The two jobs, the check every minute and the daily cleanup, do not run by themselves locally. To run one:
+
+```sh
+curl 'http://localhost:5173/cdn-cgi/local/scheduled?cron=*+*+*+*+*'     # the check every minute
+curl 'http://localhost:5173/cdn-cgi/local/scheduled?cron=0+11+*+*+*'    # the daily cleanup
+```
+
+Each answers `ok` or `exception`; what they log, and any alert emails, appear in the `pnpm dev` terminal. To look into the local database meanwhile, `POST` SQL as `{"sql":"SELECT * FROM classes"}` to `http://localhost:5173/cdn-cgi/local/explorer/api/d1/database/00000000-0000-4000-8000-000000000000/raw`. The check asks the real university about every watched class, so run it sparingly.
+
+To start over, delete `apps/server/.cloudflare/state`; do so too after a change to the tables in `migrations/`. `pnpm typecheck`, `pnpm test` and `pnpm build` work there as they do in the extension; the tests use a SQLite database in Node and never reach the network.
 
 ## How it is built
 
@@ -114,12 +125,17 @@ apps/extension/           The browser extension.
   wxt.config.ts           Extension name, permissions, icons; build plugins.
   vitest.config.ts        Test setup (with vitest.setup.ts).
 apps/server/              The Cloudflare Worker that will replace the backend.
-  src/index.ts            The Worker: plugs the server into Cloudflare's bindings.
+  src/index.ts            The Worker: plugs the server and the jobs into Cloudflare's bindings.
   src/server.ts           The whole server as one layer: API handlers, unsubscribe page, CORS.
   src/signIn.ts           Sign-in codes, and the sign-in endpoints.
   src/tokens.ts           Sign-in tokens, and the middleware that checks them.
   src/account.ts          Signing out and deleting the account.
   src/alerts.ts           Starting, listing and stopping alerts.
+  src/termRule.ts         Which terms and dates take alerts: open terms, and each class's add deadline.
+  src/poll.ts             The check every minute: seats, and the emails when a class opens or fills.
+  src/cleanup.ts          The daily job: ended alerts, old classes, expired codes and tokens.
+  src/scheduled.ts        Which job each cron trigger runs.
+  src/cron.ts             When the two jobs run.
   src/unsubscribe.ts      The unsubscribe link in emails, and the page it opens.
   src/University.ts       Service: the university's class search, and reading its pages.
   src/Mailer.ts           Service: sending email (or printing it, locally).
@@ -128,8 +144,8 @@ apps/server/              The Cloudflare Worker that will replace the backend.
   src/secrets.ts          Random codes, tokens and keys, and their hashes.
   src/html.ts             For emails and pages: escaping text, naming a class, the brand colour.
   migrations/             The database tables, as SQL run in order.
-  test/                   What the tests share: the server in-process, SQLite, fakes, saved university pages.
-  cloudflare.config.ts    The Worker's name, settings and bindings for Cloudflare.
+  test/                   What the tests share: the server in-process, SQLite, fakes, saved university answers.
+  cloudflare.config.ts    The Worker's name, settings, cron triggers and bindings for Cloudflare.
   vite.config.ts          Builds and runs the Worker, with Cloudflare's Vite plugin.
   vitest.config.ts        Test setup.
 packages/shared/          What the extension and the server share, used as TypeScript source.
