@@ -76,15 +76,16 @@ describe("the unsubscribe page", () => {
       assert.strictEqual((yield* api.alerts.list()).length, 1)
     }))
 
-  it.effect("escapes the course title", () =>
+  it.effect("escapes the course title, on the page and in the email", () =>
     Effect.gen(function*() {
       const server = yield* makeTestServer({
         "202702/33940": { title: "C & C++ <ADVANCED>", seats: { enrolled: 1, capacity: 1 } }
       })
       const api = yield* server.client(yield* server.signIn("student@oregonstate.edu"))
       yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
-      const link = server.mailer.sent.at(-1)!.text.match(/https:\/\/\S+/)![0]
-      const page = yield* open(server, link)
+      const email = server.mailer.sent.at(-1)!
+      assert.include(email.html, "C &amp; C++ &lt;ADVANCED&gt;")
+      const page = yield* open(server, email.text.match(/https:\/\/\S+/)![0])
       assert.include(page.html, "C &amp; C++ &lt;ADVANCED&gt;")
     }))
 })
