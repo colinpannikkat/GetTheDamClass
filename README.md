@@ -50,20 +50,26 @@ Run these in `apps/extension/`. `pnpm typecheck`, `pnpm test` and `pnpm build` a
 
 ### Running the server
 
-`apps/server` is a Cloudflare Worker that will replace the backend. For now it only answers `GET /` with a hello.
+`apps/server` is the Cloudflare Worker that will replace the backend: sign-in by emailed code, and starting, listing and stopping alerts. (The check every minute that sends the alerts comes next.) The extension does not use it yet.
 
 ```sh
 cd apps/server
 pnpm dev                       # runs the Worker locally, at http://localhost:5173
 ```
 
-`pnpm dev` keeps running. From a second terminal:
+`pnpm dev` first brings the local database up to date (it applies `migrations/` to a SQLite file under `.cloudflare/state`), then runs the Worker in workerd, the same runtime Cloudflare uses, and reloads it as you edit. Nothing is emailed locally: every email is printed in that terminal instead. To try signing in, from a second terminal:
 
 ```sh
-curl http://localhost:5173/    # {"message":"Hello from GetTheDamClass"}
+curl -X POST http://localhost:5173/sign-in/code -H 'content-type: application/json' \
+  -d '{"email":"you@example.com"}'
+# The code appears in the first terminal. Then:
+curl -X POST http://localhost:5173/sign-in -H 'content-type: application/json' \
+  -d '{"email":"you@example.com","code":"123456"}'
+# {"token":"..."}: send it as `Authorization: Bearer ...` to the other endpoints, such as
+curl http://localhost:5173/alerts -H 'authorization: Bearer ...'
 ```
 
-`pnpm dev` (`cf dev`) runs the Worker in workerd, the same runtime Cloudflare uses, and reloads it as you edit. `pnpm typecheck`, `pnpm test` and `pnpm build` work there as they do in the extension.
+The endpoints are listed in `packages/shared/src/Api.ts`. Subscribing (`POST /alerts` with `{"term":"202702","crn":"33940"}`) asks the university's real class search. To start over, delete `apps/server/.cloudflare/state`. `pnpm typecheck`, `pnpm test` and `pnpm build` work there as they do in the extension; the tests use a SQLite database in Node and never reach the network.
 
 ## How it is built
 
@@ -107,12 +113,28 @@ apps/extension/           The browser extension.
   public/icons/           The extension's icons, copied into the build as they are.
   wxt.config.ts           Extension name, permissions, icons; build plugins.
   vitest.config.ts        Test setup (with vitest.setup.ts).
-apps/server/              The Cloudflare Worker that will replace the backend. Only a hello for now.
-  src/Api.ts              The endpoints, defined with Effect's HttpApi.
-  src/index.ts            The Worker: answers each request with the handlers for those endpoints.
-  cloudflare.config.ts    The Worker's name and settings for Cloudflare.
+apps/server/              The Cloudflare Worker that will replace the backend.
+  src/index.ts            The Worker: plugs the server into Cloudflare's bindings.
+  src/server.ts           The whole server as one layer: API handlers, unsubscribe page, CORS.
+  src/signIn.ts           Sign-in codes, and the sign-in endpoints.
+  src/tokens.ts           Sign-in tokens, and the middleware that checks them.
+  src/account.ts          Signing out and deleting the account.
+  src/alerts.ts           Starting, listing and stopping alerts.
+  src/unsubscribe.ts      The unsubscribe link in emails, and the page it opens.
+  src/University.ts       Service: the university's class search, and reading its pages.
+  src/Mailer.ts           Service: sending email (or printing it, locally).
+  src/emails.ts           What every email says.
+  src/database.ts         The database client (D1).
+  src/secrets.ts          Random codes, tokens and keys, and their hashes.
+  src/html.ts             Escaping text for HTML.
+  migrations/             The database tables, as SQL run in order.
+  test/                   What the tests share: the server in-process, SQLite, fakes, saved university pages.
+  cloudflare.config.ts    The Worker's name, settings and bindings for Cloudflare.
   vite.config.ts          Builds and runs the Worker, with Cloudflare's Vite plugin.
   vitest.config.ts        Test setup.
+packages/shared/          What the extension and the server share, used as TypeScript source.
+  src/Api.ts              The API: every endpoint, defined once with Effect's HttpApi.
+  src/domain.ts           The data (Term, Crn, EmailAddress, Alert) and every API error.
 ```
 
 There is no background script. The extension only needs the `storage` permission, and no access to any website beyond the content script on the class search.
