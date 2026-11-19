@@ -43,7 +43,7 @@ export function SignInForm({ email: knownEmail = "", autoFocus = false, onSigned
         type="email"
         name="email"
         autoComplete="email"
-        placeholder="you@oregonstate.edu"
+        placeholder="you@example.com"
         required
         autoFocus={autoFocus && knownEmail === ""}
         value={email}
