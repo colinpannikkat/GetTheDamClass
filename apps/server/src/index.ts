@@ -1,7 +1,7 @@
 /**
  * The Worker: Cloudflare calls its `fetch` for every request, and its
  * `scheduled` for every run of a cron trigger (the check every minute and the
- * daily job; see cron.ts).
+ * daily job; see scheduled.ts).
  *
  * This file only plugs the server (server.ts) and the jobs (scheduled.ts)
  * into Cloudflare: the database, email and settings come from the bindings in

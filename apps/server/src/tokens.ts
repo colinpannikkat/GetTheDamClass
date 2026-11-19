@@ -46,11 +46,14 @@ export const endToken = Effect.fn("endToken")(function*(tokenId: number) {
   yield* sql`DELETE FROM tokens WHERE id = ${tokenId}`
 }, dieOnSqlError)
 
-/** Remove the tokens nobody has used for a year, for the daily job (cleanup.ts). */
+/** Remove the tokens nobody has used for a year, for the daily job (cleanup.ts). How many were removed. */
 export const deleteUnusedTokens = Effect.fn("deleteUnusedTokens")(function*() {
   const sql = yield* SqlClient.SqlClient
   const now = yield* Clock.currentTimeMillis
-  yield* sql`DELETE FROM tokens WHERE last_used_at <= ${now - Duration.toMillis(UNUSED_TOKEN_LIFETIME)}`
+  const deleted = yield* sql`
+    DELETE FROM tokens WHERE last_used_at <= ${now - Duration.toMillis(UNUSED_TOKEN_LIFETIME)} RETURNING id
+  `
+  return deleted.length
 })
 
 const notSignedIn = new NotSignedIn({ message: "You're not signed in. Sign in with your email to continue." })

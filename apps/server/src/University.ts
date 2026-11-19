@@ -36,12 +36,14 @@ export interface Seats {
 export const isVacant = (seats: Seats): boolean => seats.enrolled < seats.capacity
 
 /**
- * The first and last day of one of a class's meeting times, as ISO dates
- * ("2027-01-04"). A class can have several: a lecture and a lab, say.
+ * The days a class's meeting times start and end, as ISO dates ("2027-01-04").
+ * A class can have several meeting times (a lecture and a lab, say), and one
+ * can lack either date, so the two lists need not pair up. Both are empty for
+ * a class without dates.
  */
 export interface MeetingDates {
-  readonly start: string
-  readonly end: string
+  readonly starts: ReadonlyArray<string>
+  readonly ends: ReadonlyArray<string>
 }
 
 /** A term as the class search lists it. */
@@ -63,9 +65,12 @@ export class University extends Context.Service<University, {
   classTitle(term: Term, crn: Crn): Effect.Effect<string, LookupError>
   /** How full a class is right now. */
   seats(term: Term, crn: Crn): Effect.Effect<Seats, LookupError>
-  /** The dates a class meets. Empty for a class without dates. */
-  meetingDates(term: Term, crn: Crn): Effect.Effect<ReadonlyArray<MeetingDates>, UniversityUnavailable>
-  /** The newest terms the class search offers, newest first. */
+  /** The dates a class meets. Both lists are empty for a class without dates. */
+  meetingDates(term: Term, crn: Crn): Effect.Effect<MeetingDates, UniversityUnavailable>
+  /**
+   * The newest terms the class search offers, newest first. At least one of
+   * them is open: an answer without one fails as `UniversityUnavailable`.
+   */
   terms(): Effect.Effect<ReadonlyArray<ListedTerm>, UniversityUnavailable>
 }>()("getthedamclass/University") {
   /** The real implementation, on whatever `HttpClient` is provided (`fetch` in the Worker). */
@@ -136,7 +141,14 @@ export class University extends Context.Service<University, {
           ).pipe(Effect.map(readMeetingDates)),
         terms: () =>
           json("getTerms", "classSearch/getTerms", { searchTerm: "", offset: "1", max: "20" }, TermsAnswer).pipe(
-            Effect.map((terms) => terms.map(readTerm))
+            Effect.map((terms) => terms.map(readTerm)),
+            // Some term is always open: in November 2026 both the one in
+            // progress and the next were. So a list without one (an empty one too) is
+            // a broken answer, and taken at its word it would refuse every
+            // subscribe and end alerts that should go on.
+            Effect.flatMap((terms) =>
+              terms.some((term) => term.open) ? Effect.succeed(terms) : unavailable("getTerms: no open term in the list")
+            )
           )
       }
     })
@@ -202,13 +214,21 @@ const readSeats = (html: string): Seats | undefined => {
   return enrolled === undefined || capacity === undefined ? undefined : { enrolled, capacity }
 }
 
-/** A date as Banner writes it: "01/04/2027" (month, day, year). */
-const BannerDate = Schema.String.check(Schema.isPattern(/^\d{2}\/\d{2}\/\d{4}$/))
+/**
+ * A date as Banner writes it: "01/04/2027" (month, day, year), of a day that
+ * exists. Without the second check "02/30/2027" would pass, and later count
+ * as March 2.
+ */
+const BannerDate = Schema.String.check(
+  Schema.isPattern(/^\d{2}\/\d{2}\/\d{4}$/),
+  Schema.makeFilter((date) => isCalendarDay(isoDate(date)))
+)
 
 /**
  * What `getFacultyMeetingTimes` answers, reduced to the part we read: one
- * entry per meeting time. A meeting time without dates (one still "to be
- * announced") has `null` for them.
+ * entry per meeting time. A date not known yet (a meeting time still "to be
+ * announced") is `null`, and a meeting time can have one date without the
+ * other.
  */
 const MeetingTimesAnswer = Schema.Struct({
   fmt: Schema.Array(Schema.Struct({
@@ -216,16 +236,28 @@ const MeetingTimesAnswer = Schema.Struct({
   }))
 })
 
-/** The meeting times that have both dates, as ISO dates. */
-const readMeetingDates = (answer: typeof MeetingTimesAnswer.Type): Array<MeetingDates> =>
-  answer.fmt.flatMap(({ meetingTime: { startDate, endDate } }) =>
-    startDate === null || endDate === null ? [] : [{ start: isoDate(startDate), end: isoDate(endDate) }]
-  )
+/** Every start date and every end date the meeting times have, as ISO dates. */
+const readMeetingDates = (answer: typeof MeetingTimesAnswer.Type): MeetingDates => {
+  const times = answer.fmt.map((entry) => entry.meetingTime)
+  return {
+    starts: times.flatMap(({ startDate }) => startDate === null ? [] : [isoDate(startDate)]),
+    ends: times.flatMap(({ endDate }) => endDate === null ? [] : [isoDate(endDate)])
+  }
+}
 
 /** "01/04/2027" as "2027-01-04". */
 const isoDate = (bannerDate: string): string => {
   const [month, day, year] = bannerDate.split("/")
   return `${year}-${month}-${day}`
+}
+
+/**
+ * Whether an ISO date names a day that exists. JavaScript reads "2027-13-04"
+ * as no date at all, and "2027-02-30" as March 2, which the round trip shows.
+ */
+const isCalendarDay = (iso: string): boolean => {
+  const time = Date.parse(iso)
+  return !Number.isNaN(time) && new Date(time).toISOString().startsWith(iso)
 }
 
 /** What `getTerms` answers: `[{ "code": "202702", "description": "Winter 2027" }, ...]`. */

@@ -11,7 +11,7 @@ export interface FakeClass {
   readonly title: string
   readonly seats: Seats
   /** The dates it meets. Without them, a class without dates. */
-  readonly meetings?: ReadonlyArray<MeetingDates>
+  readonly dates?: MeetingDates
 }
 
 export interface FakeUniversity {
@@ -35,6 +35,8 @@ export interface FakeUniversity {
   readonly layer: Layer.Layer<University>
 }
 
+const noDates: MeetingDates = { starts: [], ends: [] }
+
 export const makeFakeUniversity = (
   classes: Record<string, FakeClass>,
   terms: ReadonlyArray<ListedTerm>
@@ -51,7 +53,10 @@ export const makeFakeUniversity = (
       // The real one has no answer for "no such class"; subscribe looks up
       // the title first, which has.
       meetingDates: (term, crn) =>
-        Effect.map(askAboutClass(`meetingDates ${term}/${crn}`), () => university.classes.get(`${term}/${crn}`)?.meetings ?? []),
+        Effect.map(
+          askAboutClass(`meetingDates ${term}/${crn}`),
+          () => university.classes.get(`${term}/${crn}`)?.dates ?? noDates
+        ),
       terms: () => Effect.map(ask("terms"), () => university.terms)
     })
   }

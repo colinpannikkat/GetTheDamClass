@@ -11,54 +11,60 @@ describe("addDeadline", () => {
   it.each([
     {
       title: "starting on a Monday: the Sunday ending its second week",
-      meetings: [{ start: "2027-01-04", end: "2027-03-12" }],
+      dates: { starts: ["2027-01-04"], ends: ["2027-03-12"] },
       deadline: "2027-01-17"
     },
     {
       title: "starting midweek: counted from the next Monday",
-      meetings: [{ start: "2027-01-06", end: "2027-03-12" }],
+      dates: { starts: ["2027-01-06"], ends: ["2027-03-12"] },
       deadline: "2027-01-24"
     },
     {
       title: "starting on a Sunday: counted from the next day",
-      meetings: [{ start: "2027-01-03", end: "2027-03-12" }],
+      dates: { starts: ["2027-01-03"], ends: ["2027-03-12"] },
       deadline: "2027-01-17"
     },
     {
       // Monday 2027-06-21 to Sunday 2027-07-25 is 35 days: five whole weeks.
       title: "running five weeks: the Sunday ending its first week",
-      meetings: [{ start: "2027-06-21", end: "2027-07-25" }],
+      dates: { starts: ["2027-06-21"], ends: ["2027-07-25"] },
       deadline: "2027-06-27"
     },
     {
       // Monday 2027-06-21 to Monday 2027-07-26 is 36 days: it reaches a sixth week.
       title: "reaching into a sixth week: not a short session",
-      meetings: [{ start: "2027-06-21", end: "2027-07-26" }],
+      dates: { starts: ["2027-06-21"], ends: ["2027-07-26"] },
       deadline: "2027-07-04"
     },
     {
       // Monday 2027-06-21 to Friday 2027-07-30: what a six-week session looks like.
       title: "running six weeks, to a Friday: not a short session",
-      meetings: [{ start: "2027-06-21", end: "2027-07-30" }],
+      dates: { starts: ["2027-06-21"], ends: ["2027-07-30"] },
       deadline: "2027-07-04"
     },
     {
       title: "with several meeting times: from the earliest start",
-      meetings: [{ start: "2027-01-11", end: "2027-03-12" }, { start: "2027-01-06", end: "2027-03-10" }],
+      dates: { starts: ["2027-01-11", "2027-01-06"], ends: ["2027-03-12", "2027-03-10"] },
       deadline: "2027-01-24"
     },
     {
       // Each meeting time alone is short; together they run eight weeks.
       title: "with several meeting times: its length runs to the latest end",
-      meetings: [{ start: "2027-07-19", end: "2027-08-13" }, { start: "2027-06-21", end: "2027-07-16" }],
+      dates: { starts: ["2027-07-19", "2027-06-21"], ends: ["2027-08-13", "2027-07-16"] },
+      deadline: "2027-07-04"
+    },
+    {
+      title: "without an end date: not taken for a short session",
+      dates: { starts: ["2027-06-21"], ends: [] },
       deadline: "2027-07-04"
     }
-  ])("a class $title", ({ deadline, meetings }) => {
-    assert.strictEqual(addDeadline(meetings), deadline)
+  ])("a class $title", ({ dates, deadline }) => {
+    assert.strictEqual(addDeadline(dates), deadline)
   })
 
-  it("a class without dates has none", () => {
-    assert.isUndefined(addDeadline([]))
+  it("a class without a start date has none", () => {
+    assert.isUndefined(addDeadline({ starts: [], ends: [] }))
+    assert.isUndefined(addDeadline({ starts: [], ends: ["2027-03-12"] }))
   })
 })
 

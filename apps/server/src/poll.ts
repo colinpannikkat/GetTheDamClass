@@ -4,20 +4,33 @@
  * back, email each student who watches it. The `classes` table holds what the
  * last check saw (`vacant`); only a change from that sends email.
  *
- * One class failing to load does not stop the others. It keeps its recorded
- * state and its alerts, and the next run tries it again.
+ * One class failing (the university not answering, say) does not stop the
+ * others. It keeps its recorded state and its alerts, and the next run tries
+ * it again. Each run logs one line: how many classes it checked, and how many
+ * of them changed or failed.
  *
  * How many classes one run can check. Cloudflare bounds a run started by a
- * cron trigger (https://developers.cloudflare.com/workers/platform/limits/,
- * read in November 2026):
+ * cron trigger (https://developers.cloudflare.com/workers/platform/limits/
+ * and https://developers.cloudflare.com/d1/platform/limits/, read in
+ * November 2026):
  *
  * - Subrequests: 50 per run on the Workers Free plan, 10,000 on Paid. Each
- *   class is one request to the university. D1 queries count separately (50
- *   Free, 1,000 Paid): one for the list, and two for each class that changed.
+ *   class is one request to the university.
+ * - D1 queries: 50 per run on Free, 1,000 on Paid. One reads the watch list.
+ *   A class that has not changed costs none, and one that has costs two (its
+ *   watchers, then recording the change), so on Paid about 500 classes can
+ *   change in one run. Past that a class's queries fail: it is logged, and
+ *   its change waits for the next run.
+ * - Requests to Cloudflare's own services: 1,000 per run on Free, 10,000 by
+ *   default on Paid. Each D1 query is one, and each alert email another: one
+ *   per watcher of a changed class. A class sends its emails one after
+ *   another and holds one of the `CONCURRENCY` places until it is done, so a
+ *   class with many watchers slows the checks of the others. (Emailing
+ *   students needs the Paid plan anyway.)
  * - CPU time: 10 ms per run on Free, 30 seconds by default on Paid. Waiting
  *   for the university does not count; reading its pages does, a little.
- * - Wall time: 15 minutes per run. At most 6 connections can be open at once,
- *   which `CONCURRENCY` stays under.
+ * - Wall time: 15 minutes per run. At most 6 connections can be waiting for
+ *   an answer at once, which `CONCURRENCY` stays under.
  *
  * So on Free about 45 watched classes fit, if the CPU limit allows that many.
  * On Paid the clock is what counts. A run checking one class took about 0.17
@@ -103,7 +116,21 @@ const sendAlert = Effect.fn("pollClasses.sendAlert")(
   }
 )
 
-/** Check one class, and if its state changed, record it and email its watchers. */
+/** What checking one class came to, for the line each run logs. */
+type Outcome = "unchanged" | "changed" | "failed"
+
+/**
+ * Check one class, and if its state changed, record it and email its
+ * watchers.
+ *
+ * The watchers are read before the change is recorded: once it is, no later
+ * run sees it again, so a failure in between would cost every watcher their
+ * email. Read first, a failure leaves the change for the next run.
+ *
+ * It never fails. Any failure is logged and counted instead, so that one
+ * class cannot stop the others: `Effect.forEach` would interrupt the classes
+ * still being checked, perhaps halfway through emailing their watchers.
+ */
 const checkClass = Effect.fn("pollClasses.checkClass")(
   function*(watched: WatchedClass) {
     const university = yield* University
@@ -115,27 +142,45 @@ const checkClass = Effect.fn("pollClasses.checkClass")(
         ))
     )
     if (seats === undefined) {
-      return
+      return "failed"
     }
     const vacant = isVacant(seats)
+    // Most classes have not changed, and this costs them no database
+    // statement at all, which is what keeps a run within D1's limit.
     if (vacant === (watched.vacant === 1)) {
-      return
+      return "unchanged"
     }
+    const watchers = yield* watchersOf(watched)
     if (!(yield* recordChange(watched, vacant))) {
-      return
+      return "unchanged"
     }
-    for (const watcher of yield* watchersOf(watched)) {
+    for (const watcher of watchers) {
       yield* sendAlert(watched, vacant, watcher.email, watcher.unsubscribeKey)
     }
+    return "changed"
   },
-  (effect, watched) => Effect.annotateLogs(effect, { term: watched.term, crn: watched.crn })
+  (effect, watched) =>
+    effect.pipe(
+      Effect.catchCause((cause) =>
+        Effect.as(Effect.logError("Could not check a class; the next run tries again", cause), "failed" as const)
+      ),
+      Effect.annotateLogs({ term: watched.term, crn: watched.crn })
+    )
 )
 
 /**
- * The check every minute. A failed query (the database down) ends the run as
- * a failure, which Cloudflare logs; the next minute's run starts afresh.
+ * The check every minute. Only a failure to read the watch list (the database
+ * down) ends the run as a failure, which Cloudflare logs; the next minute's
+ * run starts afresh. Each run logs one line with its counts, so a quiet log
+ * still shows the check is running.
  */
 export const pollClasses = Effect.fn("pollClasses")(function*() {
   const classes = yield* watchedClasses()
-  yield* Effect.forEach(classes, checkClass, { concurrency: CONCURRENCY, discard: true })
+  const outcomes: ReadonlyArray<Outcome> = yield* Effect.forEach(classes, checkClass, { concurrency: CONCURRENCY })
+  const count = (outcome: Outcome) => outcomes.filter((each) => each === outcome).length
+  yield* Effect.logInfo("Checked the watched classes:", {
+    checked: classes.length,
+    changed: count("changed"),
+    failed: count("failed")
+  })
 })

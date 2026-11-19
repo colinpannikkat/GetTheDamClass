@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
-import { INTRO_TO_CS, makeTestServer } from "../test/TestServer"
+import { INTRO_TO_CS, makeTestServer, type TestServer } from "../test/TestServer"
 
 // The page behind the link in emails, requested the way a browser would,
 // against the whole server in this process (see test/TestServer.ts).
@@ -15,7 +15,7 @@ const subscribed = Effect.gen(function*() {
 })
 
 /** Request a page, and read it. */
-const open = (server: Effect.Success<ReturnType<typeof makeTestServer>>, url: string, method = "GET") =>
+const open = (server: TestServer, url: string, method = "GET") =>
   Effect.promise(async () => {
     const response = await server.fetch(url, { method })
     return { status: response.status, type: response.headers.get("content-type"), html: await response.text() }

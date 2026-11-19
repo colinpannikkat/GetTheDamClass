@@ -78,7 +78,7 @@ curl 'http://localhost:5173/cdn-cgi/local/scheduled?cron=*+*+*+*+*'     # the ch
 curl 'http://localhost:5173/cdn-cgi/local/scheduled?cron=0+11+*+*+*'    # the daily cleanup
 ```
 
-Each answers `ok` or `exception`; what they log, and any alert emails, appear in the `pnpm dev` terminal. To look into the local database meanwhile, `POST` SQL as `{"sql":"SELECT * FROM classes"}` to `http://localhost:5173/cdn-cgi/local/explorer/api/d1/database/00000000-0000-4000-8000-000000000000/raw`. The check asks the real university about every watched class, so run it sparingly.
+Each answers `ok` or `exception`; what they log (one line per run, with its counts), and any alert emails, appear in the `pnpm dev` terminal. To look into the local database meanwhile, `POST` SQL as `{"sql":"SELECT * FROM classes"}` to `http://localhost:5173/cdn-cgi/local/explorer/api/d1/database/00000000-0000-4000-8000-000000000000/raw`. Both jobs ask the real university: the check about every watched class, and the cleanup for its term list (one request), so run them sparingly.
 
 To start over, delete `apps/server/.cloudflare/state`; do so too after a change to the tables in `migrations/`. `pnpm typecheck`, `pnpm test` and `pnpm build` work there as they do in the extension; the tests use a SQLite database in Node and never reach the network.
 
@@ -134,8 +134,7 @@ apps/server/              The Cloudflare Worker that will replace the backend.
   src/termRule.ts         Which terms and dates take alerts: open terms, and each class's add deadline.
   src/poll.ts             The check every minute: seats, and the emails when a class opens or fills.
   src/cleanup.ts          The daily job: ended alerts, old classes, expired codes and tokens.
-  src/scheduled.ts        Which job each cron trigger runs.
-  src/cron.ts             When the two jobs run.
+  src/scheduled.ts        When the two jobs run, and which one each cron trigger starts.
   src/unsubscribe.ts      The unsubscribe link in emails, and the page it opens.
   src/University.ts       Service: the university's class search, and reading its pages.
   src/Mailer.ts           Service: sending email (or printing it, locally).

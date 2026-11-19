@@ -2,8 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect, Exit } from "effect"
 import config from "../cloudflare.config"
 import { INTRO_TO_CS, makeTestServer } from "../test/TestServer"
-import { DAILY, EVERY_MINUTE } from "./cron"
-import { runScheduled } from "./scheduled"
+import { DAILY, EVERY_MINUTE, runScheduled } from "./scheduled"
 
 // Which job each cron trigger runs, told apart by what each job asks the
 // fake university: the check every minute asks for seats, the daily job for

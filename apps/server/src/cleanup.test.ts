@@ -2,7 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { TestClock, TestConsole } from "effect/testing"
 import { setOregonTime } from "../test/oregonTime"
-import { INTRO_TO_CS, makeTestServer, TERMS } from "../test/TestServer"
+import { INTRO_TO_CS, makeTestServer, type TestServer } from "../test/TestServer"
 import { cleanup } from "./cleanup"
 
 // The daily job, run on the same services as the whole server in this
@@ -10,8 +10,6 @@ import { cleanup } from "./cleanup"
 // through the API. INTRO_TO_CS's add deadline is Sunday 2027-01-17. (Tests
 // stay within the year of signing in, unless they are about that year: past
 // it, the job signs the student out.)
-
-type TestServer = Effect.Success<ReturnType<typeof makeTestServer>>
 
 /** Another class in the same term, with a later deadline: Sunday 2027-01-24. */
 const LATE_START = { term: "202702", crn: "12345" } as const
@@ -25,7 +23,7 @@ const signedIn = Effect.gen(function*() {
   server.university.classes.set("202702/12345", {
     title: "DATA STRUCTURES",
     seats: { enrolled: 60, capacity: 60 },
-    meetings: [{ start: "2027-01-11", end: "2027-03-12" }]
+    dates: { starts: ["2027-01-11"], ends: ["2027-03-12"] }
   })
   server.university.classes.set("202701/55555", { title: "INTERNSHIP", seats: { enrolled: 0, capacity: 10 } })
   const api = yield* server.client(yield* server.signIn("student@example.com"))
@@ -94,11 +92,26 @@ describe("cleanup: alerts", () => {
       assert.include((yield* TestConsole.logLines).join("\n"), "Could not read the term list")
     }))
 
-  it.effect("when the term list has no open term at all: removes nothing, taking it for trouble", () =>
+  it.effect("a class with dates keeps its alerts until its deadline, even once its term is closed", () =>
+    Effect.gen(function*() {
+      const { server, api } = yield* signedIn
+      yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
+      closeTerm(server, "202702")
+
+      yield* setOregonTime("2027-01-12T03:00")
+      yield* server.run(cleanup())
+      assert.deepStrictEqual(yield* alertsOf(api), ["202702/33940"])
+
+      yield* setOregonTime("2027-01-18T03:00")
+      yield* server.run(cleanup())
+      assert.deepStrictEqual(yield* alertsOf(api), [])
+    }))
+
+  it.effect("a term missing from the list counts as open: a broken answer can leave one out", () =>
     Effect.gen(function*() {
       const { server, api } = yield* signedIn
       yield* api.alerts.subscribe({ payload: NO_DATES })
-      server.university.terms = TERMS.map((term) => ({ ...term, open: false }))
+      server.university.terms = server.university.terms.filter((term) => term.code !== "202701")
 
       yield* server.run(cleanup())
 
@@ -107,7 +120,7 @@ describe("cleanup: alerts", () => {
 })
 
 describe("cleanup: classes", () => {
-  it.effect("removes classes nobody watches once their term is not open, and keeps those of open terms", () =>
+  it.effect("removes classes nobody watches once their term is closed, and keeps those of open terms", () =>
     Effect.gen(function*() {
       const { server, api } = yield* signedIn
       for (const payload of [INTRO_TO_CS, NO_DATES]) {
@@ -121,6 +134,37 @@ describe("cleanup: classes", () => {
       closeTerm(server, "202701")
       yield* server.run(cleanup())
       assert.deepStrictEqual(yield* recordedClasses(server), ["202702/33940"])
+    }))
+
+  it.effect("keeps them while their term is missing from the list", () =>
+    Effect.gen(function*() {
+      const { server, api } = yield* signedIn
+      yield* api.alerts.subscribe({ payload: NO_DATES })
+      yield* api.alerts.unsubscribe({ params: NO_DATES })
+      server.university.terms = server.university.terms.filter((term) => term.code !== "202701")
+
+      yield* server.run(cleanup())
+
+      assert.deepStrictEqual(yield* recordedClasses(server), ["202701/55555"])
+    }))
+})
+
+describe("cleanup: the log", () => {
+  it.effect("ends each run with one line saying how much each removal removed", () =>
+    Effect.gen(function*() {
+      const { server, api } = yield* signedIn
+      yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
+      yield* api.alerts.subscribe({ payload: NO_DATES })
+      yield* api.alerts.unsubscribe({ params: NO_DATES })
+      closeTerm(server, "202701")
+      // Past INTRO_TO_CS's deadline, and the sign-in code has long expired.
+      yield* setOregonTime("2027-01-18T03:00")
+
+      yield* server.run(cleanup())
+
+      const logged = yield* TestConsole.logLines
+      assert.include(logged, "Daily cleanup done. Removed:")
+      assert.deepInclude(logged, { signInCodes: 1, tokens: 0, alerts: 1, classes: 1 })
     }))
 })
 

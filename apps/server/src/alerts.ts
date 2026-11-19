@@ -145,6 +145,37 @@ const sendConfirmation = Effect.fn("subscribe.sendConfirmation")(function*(to: E
 const alreadySubscribed = new AlreadySubscribed({ message: "You already get alerts for this class." })
 
 /**
+ * The rest of `subscribe`, for when `joinWatchedClass` added nothing: the
+ * student already watches the class, or nobody does, or its add deadline has
+ * passed. A class nobody watches is recorded first. Returns the class as
+ * recorded.
+ */
+const recordClassAndAddAlert = Effect.fn("subscribe.recordClassAndAddAlert")(
+  function*(accountId: number, term: Term, crn: Crn, key: string, today: string) {
+    if (yield* hasAlert(accountId, term, crn)) {
+      return yield* alreadySubscribed
+    }
+    // Between the statements below others can start or stop watching the
+    // class too, and that is harmless: the class's state is either written
+    // while nobody watches it (so nobody's state is replaced), or left as the
+    // check every minute keeps it, which is what anyone joining a watched
+    // class gets.
+    if (!(yield* isWatched(term, crn))) {
+      yield* recordClass(term, crn)
+    }
+    const recorded = yield* recordedClass(term, crn)
+    if (recorded.addDeadline !== null && today > recorded.addDeadline) {
+      return yield* addDeadlinePassed({ title: recorded.title, crn }, recorded.addDeadline)
+    }
+    if (!(yield* addAlert(accountId, term, crn, key))) {
+      // The same student, from another browser, got there first.
+      return yield* alreadySubscribed
+    }
+    return recorded
+  }
+)
+
+/**
  * Start alerts for a class, and email the student a confirmation with an
  * unsubscribe link.
  *
@@ -164,29 +195,10 @@ export const subscribe = Effect.fn("subscribe")(function*(signedIn: SignedIn["Se
   yield* requireOpenTerm(term)
   const today = yield* todayInOregon
   const key = yield* randomKey(16)
-  const joined = yield* joinWatchedClass(signedIn.accountId, term, crn, key, today)
-  if (!joined) {
-    if (yield* hasAlert(signedIn.accountId, term, crn)) {
-      return yield* alreadySubscribed
-    }
-    // Nobody watches the class, or its add deadline has passed. Between the
-    // statements below others can start or stop watching it too, and that is
-    // harmless: the class's state is either written while nobody watches it
-    // (so nobody's state is replaced), or left as the check every minute
-    // keeps it, which is what anyone joining a watched class gets.
-    if (!(yield* isWatched(term, crn))) {
-      yield* recordClass(term, crn)
-    }
-    const recorded = yield* recordedClass(term, crn)
-    if (recorded.addDeadline !== null && today > recorded.addDeadline) {
-      return yield* addDeadlinePassed({ title: recorded.title, crn }, recorded.addDeadline)
-    }
-    if (!(yield* addAlert(signedIn.accountId, term, crn, key))) {
-      // The same student, from another browser, got there first.
-      return yield* alreadySubscribed
-    }
-  }
-  const alert = { term, crn, title: (yield* recordedClass(term, crn)).title } satisfies Alert
+  const recorded = (yield* joinWatchedClass(signedIn.accountId, term, crn, key, today))
+    ? yield* recordedClass(term, crn)
+    : yield* recordClassAndAddAlert(signedIn.accountId, term, crn, key, today)
+  const alert = { term, crn, title: recorded.title } satisfies Alert
   yield* sendConfirmation(signedIn.email, alert, key)
   return alert
 })

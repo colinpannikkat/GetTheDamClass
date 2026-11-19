@@ -31,11 +31,11 @@ export default defineConfig(({ mode }) => {
       // ones dated on or before this. Move it forward on purpose, and test.
       compatibilityDate: "2026-11-17",
       // The check every minute and the daily job, written out as in
-      // src/cron.ts, which says why at these times (scheduled.test.ts checks
-      // that the two agree). They cannot be imported from there: Cloudflare's
-      // Vite plugin keeps every file this config imports away from the
-      // Worker. Locally they do not run by themselves; see "Running the
-      // server" in the README.
+      // src/scheduled.ts, which says why at these times (scheduled.test.ts
+      // checks that the two agree). They cannot be imported from there:
+      // Cloudflare's Vite plugin keeps every file this config imports away
+      // from the Worker. Locally they do not run by themselves; see "Running
+      // the server" in the README.
       triggers: [triggers.scheduled({ schedule: "* * * * *" }), triggers.scheduled({ schedule: "0 11 * * *" })],
       env: {
         // TODO(production): the real database's ID goes here instead of

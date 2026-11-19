@@ -37,7 +37,7 @@ const defaultClasses: Record<string, FakeClass> = {
   "202702/33940": {
     title: "INTRO TO COMPUTER SCIENCE I",
     seats: { enrolled: 60, capacity: 60 },
-    meetings: [{ start: "2027-01-04", end: "2027-03-12" }]
+    dates: { starts: ["2027-01-04"], ends: ["2027-03-12"] }
   }
 }
 
@@ -116,3 +116,6 @@ export const makeTestServer = Effect.fn("makeTestServer")(function*(classes: Rec
 
   return { fetch, client, signIn, lastCode, mailer, university, sql, run }
 })
+
+/** What `makeTestServer` gives a test. */
+export type TestServer = Effect.Success<ReturnType<typeof makeTestServer>>

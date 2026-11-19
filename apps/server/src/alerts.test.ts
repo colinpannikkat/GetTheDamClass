@@ -2,7 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { TestClock, TestConsole } from "effect/testing"
 import { setOregonTime } from "../test/oregonTime"
-import { INTRO_TO_CS, makeTestServer, PUBLIC_URL, TERMS } from "../test/TestServer"
+import { INTRO_TO_CS, makeTestServer, PUBLIC_URL, TERMS, type TestServer } from "../test/TestServer"
 
 // Through the API, against the whole server in this process (see
 // test/TestServer.ts). The fake university knows INTRO_TO_CS, full (60 of
@@ -21,7 +21,7 @@ const signedIn = (address = email) =>
   })
 
 /** What the database remembers about a class. */
-const classRow = (server: Effect.Success<ReturnType<typeof makeTestServer>>, term: string, crn: string) =>
+const classRow = (server: TestServer, term: string, crn: string) =>
   Effect.gen(function*() {
     const sql = yield* server.sql
     const rows = yield* sql<{ title: string; vacant: number; addDeadline: string | null }>`
@@ -31,7 +31,7 @@ const classRow = (server: Effect.Success<ReturnType<typeof makeTestServer>>, ter
   })
 
 /** Everything in the two tables a subscribe writes to. */
-const storedClassesAndAlerts = (server: Effect.Success<ReturnType<typeof makeTestServer>>) =>
+const storedClassesAndAlerts = (server: TestServer) =>
   Effect.gen(function*() {
     const sql = yield* server.sql
     return { classes: yield* sql`SELECT * FROM classes`, alerts: yield* sql`SELECT * FROM alerts` }
@@ -290,7 +290,7 @@ describe("subscribe: the add deadline", () => {
     title: "TECHNICAL WRITING",
     seats: { enrolled: 30, capacity: 30 },
     // Eight weeks from Monday 2027-06-21, so the deadline is Sunday 2027-07-04.
-    meetings: [{ start: "2027-06-21", end: "2027-08-13" }]
+    dates: { starts: ["2027-06-21"], ends: ["2027-08-13"] }
   }
   const seasons = [
     {

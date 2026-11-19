@@ -128,29 +128,32 @@ describe("meetingDates", () => {
   it.effect("reads the first and last day, as ISO dates", () =>
     Effect.gen(function*() {
       const dates = yield* ask(page(meetingTimes), (university) => university.meetingDates("202702", "33940"))
-      assert.deepStrictEqual(dates, [{ start: "2027-01-04", end: "2027-03-12" }])
+      assert.deepStrictEqual(dates, { starts: ["2027-01-04"], ends: ["2027-03-12"] })
     }))
 
-  it.effect("reads every meeting time, and leaves out those without dates", () =>
+  it.effect("reads every start and every end, also of a meeting time that has only one of them", () =>
     Effect.gen(function*() {
       const answer = meetingTimesWith([
         { startDate: "01/04/2027", endDate: "03/12/2027" },
         { startDate: null, endDate: null },
         { startDate: "01/06/2027", endDate: null },
-        { startDate: "01/11/2027", endDate: "03/05/2027" }
+        { startDate: null, endDate: "03/19/2027" }
       ])
       const dates = yield* ask(page(answer), (university) => university.meetingDates("202702", "33940"))
-      assert.deepStrictEqual(dates, [{ start: "2027-01-04", end: "2027-03-12" }, { start: "2027-01-11", end: "2027-03-05" }])
+      assert.deepStrictEqual(dates, { starts: ["2027-01-04", "2027-01-06"], ends: ["2027-03-12", "2027-03-19"] })
     }))
 
   it.effect("a class without dates: none", () =>
     Effect.gen(function*() {
       const answer = meetingTimesWith([{ startDate: null, endDate: null }])
-      assert.deepStrictEqual(yield* ask(page(answer), (university) => university.meetingDates("202702", "33940")), [])
+      const dates = yield* ask(page(answer), (university) => university.meetingDates("202702", "33940"))
+      assert.deepStrictEqual(dates, { starts: [], ends: [] })
     }))
 
   it.effect.each([
     { title: "a date written another way", answer: meetingTimesWith([{ startDate: "2027-01-04", endDate: "03/12/2027" }]) },
+    { title: "a month that does not exist", answer: meetingTimesWith([{ startDate: "13/04/2027", endDate: "03/12/2027" }]) },
+    { title: "a day the month does not have", answer: meetingTimesWith([{ startDate: "01/04/2027", endDate: "02/30/2027" }]) },
     { title: "not JSON at all", answer: "<html>Service Unavailable</html>" }
   ])("an answer it cannot read ($title): UniversityUnavailable", ({ answer }) =>
     Effect.gen(function*() {
@@ -181,6 +184,16 @@ describe("terms", () => {
         { code: "202701", name: "Fall 2026", open: true },
         { code: "202700", name: "Summer 2026", open: false }
       ])
+    }))
+
+  it.effect.each([
+    { title: "an empty list", answer: "[]" },
+    { title: "every term \"View Only\"", answer: terms.replace(/"description": "(\w+ \d{4})"/g, `"description": "$1 (View Only)"`) }
+  ])("a list without an open term ($title): UniversityUnavailable, since one is always open", ({ answer }) =>
+    Effect.gen(function*() {
+      const error = yield* Effect.flip(ask(page(answer), (university) => university.terms()))
+      assert.strictEqual(error._tag, "UniversityUnavailable")
+      assert.match(error.message, /try again/)
     }))
 
   it.effect("an error page: UniversityUnavailable", () =>
