@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
+import { TestConsole } from "effect/testing"
 import { INTRO_TO_CS, makeTestServer, PUBLIC_URL } from "../test/TestServer"
 
 // Through the API, against the whole server in this process (see
@@ -83,6 +84,27 @@ describe("subscribe", () => {
       assert.strictEqual(server.mailer.sent.at(-1)!.to, "other@example.com")
     }))
 
+  it.effect("when another student starts watching while the university is asked: their recorded class stands", () =>
+    Effect.gen(function*() {
+      const { server, api } = yield* signedIn()
+      const other = yield* server.client(yield* server.signIn("other@example.com"))
+
+      // While this student's request waits for the university, the other
+      // student subscribes (seeing the class full), and then the university
+      // renames the class and a seat opens. Writing what this request learns
+      // would hide the open seat from the other student.
+      server.university.meanwhile = Effect.gen(function*() {
+        yield* other.alerts.subscribe({ payload: INTRO_TO_CS })
+        server.university.classes.set("202702/33940", { title: "RENAMED", seats: { enrolled: 59, capacity: 60 } })
+      }).pipe(Effect.orDie)
+      const alert = yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
+
+      assert.deepStrictEqual(yield* classRow(server, "202702", "33940"), { title: TITLE, vacant: 0 })
+      // The title this student is given is the one stored, as in their list.
+      assert.deepStrictEqual(alert, { ...INTRO_TO_CS, title: TITLE })
+      assert.include(server.mailer.sent.at(-1)!.subject, TITLE)
+    }))
+
   it.effect("to a class nobody watches any more: looks it up again, since what was recorded is old", () =>
     Effect.gen(function*() {
       const { server, api } = yield* signedIn()
@@ -147,6 +169,9 @@ describe("subscribe", () => {
       const alert = yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
       assert.deepStrictEqual(alert, { ...INTRO_TO_CS, title: TITLE })
       assert.deepStrictEqual(yield* api.alerts.list(), [alert])
+      const logged = (yield* TestConsole.logLines).join(" ")
+      assert.include(logged, "Could not send a subscription confirmation")
+      assert.include(logged, "Daily sending limit reached")
     }))
 
   it.effect("rejects a term that is not six digits, and a CRN that is not digits", () =>

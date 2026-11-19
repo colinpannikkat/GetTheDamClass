@@ -19,6 +19,12 @@ export interface FakeUniversity {
   down: boolean
   /** Every question asked, as "classTitle 202702/33940" or "seats 202702/33940". */
   readonly calls: Array<string>
+  /**
+   * When set, runs the next time the university is asked something, before
+   * it answers, and is then cleared. For making something happen while a
+   * request waits for the university.
+   */
+  meanwhile: Effect.Effect<void> | undefined
   readonly layer: Layer.Layer<University>
 }
 
@@ -27,6 +33,7 @@ export const makeFakeUniversity = (classes: Record<string, FakeClass>): FakeUniv
     classes: new Map(Object.entries(classes)),
     down: false,
     calls: [],
+    meanwhile: undefined,
     layer: Layer.succeed(University, {
       classTitle: (term, crn) => Effect.map(lookUp("classTitle", term, crn), (found) => found.title),
       seats: (term, crn) => Effect.map(lookUp("seats", term, crn), (found) => found.seats)
@@ -38,15 +45,21 @@ export const makeFakeUniversity = (classes: Record<string, FakeClass>): FakeUniv
     term: string,
     crn: string
   ) =>
-    Effect.suspend((): Effect.Effect<FakeClass, ClassNotFound | UniversityUnavailable> => {
+    Effect.gen(function*() {
       university.calls.push(`${question} ${term}/${crn}`)
+      const meanwhile = university.meanwhile
+      if (meanwhile !== undefined) {
+        university.meanwhile = undefined
+        yield* meanwhile
+      }
       if (university.down) {
-        return Effect.fail(new UniversityUnavailable({ message: "The university is down (in this test)." }))
+        return yield* new UniversityUnavailable({ message: "The university is down (in this test)." })
       }
       const found = university.classes.get(`${term}/${crn}`)
-      return found === undefined
-        ? Effect.fail(new ClassNotFound({ message: `No class ${term}/${crn} (in this test).` }))
-        : Effect.succeed(found)
+      if (found === undefined) {
+        return yield* new ClassNotFound({ message: `No class ${term}/${crn} (in this test).` })
+      }
+      return found
     })
 
   return university

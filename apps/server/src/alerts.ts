@@ -57,12 +57,20 @@ export const subscribe = Effect.fn("subscribe")(function*(signedIn: SignedIn["Se
     // can be left from people who watched it before; it is out of date, so
     // it is replaced.)
     const university = yield* University
-    title = yield* university.classTitle(term, crn)
+    const found = yield* university.classTitle(term, crn)
     const seats = yield* university.seats(term, crn)
+    // Another student may have started watching it while the university was
+    // being asked. Then their recorded state stands, for the same reason as
+    // above: the `WHERE` makes the write happen only if nobody watches it yet,
+    // checked in the same statement so nobody can start watching in between.
     yield* sql`
-      INSERT INTO classes (term, crn, title, vacant) VALUES (${term}, ${crn}, ${title}, ${isVacant(seats) ? 1 : 0})
+      INSERT INTO classes (term, crn, title, vacant) VALUES (${term}, ${crn}, ${found}, ${isVacant(seats) ? 1 : 0})
       ON CONFLICT (term, crn) DO UPDATE SET title = excluded.title, vacant = excluded.vacant
+        WHERE NOT EXISTS (SELECT 1 FROM alerts WHERE alerts.term = classes.term AND alerts.crn = classes.crn)
     `
+    // The title as stored: the other student's, if they got there first.
+    const stored = yield* sql<{ title: string }>`SELECT title FROM classes WHERE term = ${term} AND crn = ${crn}`
+    title = stored[0]!.title
   }
 
   const key = yield* randomKey(16)

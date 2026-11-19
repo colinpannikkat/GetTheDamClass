@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { EmailAddress } from "@getthedamclass/shared/domain"
 import { Effect, Schema } from "effect"
-import { TestClock } from "effect/testing"
+import { TestClock, TestConsole } from "effect/testing"
 import { makeTestServer, PUBLIC_URL } from "../test/TestServer"
 
 // These tests go through the API, with the typed client from
@@ -65,11 +65,21 @@ describe("sendCode", () => {
       yield* api.signIn.sendCode({ payload: { email } })
       const second = server.lastCode(email)
       assert.strictEqual(server.mailer.sent.length, 2)
-      if (first !== second) {
-        const error = yield* Effect.flip(api.signIn.signIn({ payload: { email, code: first } }))
-        assert.strictEqual(error._tag, "InvalidCode")
-      }
+      assert.notStrictEqual(first, second)
+      const error = yield* Effect.flip(api.signIn.signIn({ payload: { email, code: first } }))
+      assert.strictEqual(error._tag, "InvalidCode")
       yield* api.signIn.signIn({ payload: { email, code: second } })
+    }))
+
+  it.effect("signing in does not end the minute: the next code still waits for it", () =>
+    Effect.gen(function*() {
+      const server = yield* makeTestServer()
+      const api = yield* server.client()
+      yield* server.signIn(email)
+      const error = yield* Effect.flip(api.signIn.sendCode({ payload: { email } }))
+      assert.strictEqual(error._tag, "CodeRecentlySent")
+      yield* TestClock.adjust("1 minute")
+      yield* api.signIn.sendCode({ payload: { email } })
     }))
 
   it.effect("counts the minute per address", () =>
@@ -89,6 +99,10 @@ describe("sendCode", () => {
       const error = yield* Effect.flip(api.signIn.sendCode({ payload: { email } }))
       assert.strictEqual(error._tag, "EmailNotSent")
       assert.match(error.message, /try again/)
+      // The student is not told why; the log says, for whoever runs the server.
+      const logged = (yield* TestConsole.logLines).join(" ")
+      assert.include(logged, "Could not send a sign-in code")
+      assert.include(logged, "Sender address not verified")
 
       server.mailer.failure = undefined
       yield* api.signIn.sendCode({ payload: { email } })
@@ -159,6 +173,39 @@ describe("signIn", () => {
       yield* api.signIn.sendCode({ payload: { email } })
       const code = server.lastCode(email)
       yield* api.signIn.signIn({ payload: { email, code } })
+      const error = yield* Effect.flip(api.signIn.signIn({ payload: { email, code } }))
+      assert.strictEqual(error._tag, "InvalidCode")
+    }))
+
+  it.effect("the same code sent twice at the same moment signs in once", () =>
+    Effect.gen(function*() {
+      const server = yield* makeTestServer()
+      const api = yield* server.client()
+      yield* api.signIn.sendCode({ payload: { email } })
+      const code = server.lastCode(email)
+      const results = yield* Effect.all(
+        [1, 2].map(() => Effect.result(api.signIn.signIn({ payload: { email, code } }))),
+        { concurrency: "unbounded" }
+      )
+      assert.deepStrictEqual(results.map((result) => result._tag).sort(), ["Failure", "Success"])
+      const sql = yield* server.sql
+      assert.deepStrictEqual(yield* sql`SELECT COUNT(*) AS tokens FROM tokens`, [{ tokens: 1 }])
+    }))
+
+  it.effect("many codes sent at the same moment are each a try: ten wrong ones cancel the right one sent with them", () =>
+    Effect.gen(function*() {
+      const server = yield* makeTestServer()
+      const api = yield* server.client()
+      yield* api.signIn.sendCode({ payload: { email } })
+      const code = server.lastCode(email)
+      // The requests reach the server in this order, so the right code is
+      // the eleventh try. Checking codes before counting them would let it in.
+      const guesses = [...Array.from({ length: 10 }, () => wrongCodeFor(code)), code]
+      const errors = yield* Effect.all(
+        guesses.map((guess) => Effect.flip(api.signIn.signIn({ payload: { email, code: guess } }))),
+        { concurrency: "unbounded" }
+      )
+      assert.deepStrictEqual(errors.map((error) => error._tag), guesses.map(() => "InvalidCode"))
       const error = yield* Effect.flip(api.signIn.signIn({ payload: { email, code } }))
       assert.strictEqual(error._tag, "InvalidCode")
     }))

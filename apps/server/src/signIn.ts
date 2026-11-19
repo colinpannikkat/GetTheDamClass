@@ -50,10 +50,10 @@ export const sendCode = Effect.fn("sendCode")(function*(email: EmailAddress) {
   // the same moment cannot both get through. It returns a row only when it
   // stored the code.
   const stored = yield* sql`
-    INSERT INTO sign_in_codes (email, code_hash, sent_at, attempts)
-    VALUES (${email}, ${codeHash}, ${now}, 0)
+    INSERT INTO sign_in_codes (email, code_hash, sent_at, attempts, used)
+    VALUES (${email}, ${codeHash}, ${now}, 0, 0)
     ON CONFLICT (email) DO UPDATE
-      SET code_hash = excluded.code_hash, sent_at = excluded.sent_at, attempts = 0
+      SET code_hash = excluded.code_hash, sent_at = excluded.sent_at, attempts = 0, used = 0
       WHERE sign_in_codes.sent_at <= ${now - Duration.toMillis(CODE_INTERVAL)}
     RETURNING email
   `
@@ -86,14 +86,15 @@ export const signIn = Effect.fn("signIn")(function*(email: EmailAddress, code: S
   // Count the try before looking at the code. Counting only wrong ones after
   // checking would let many guesses sent at once all be checked before any of
   // them was counted.
-  const tried = yield* sql<{ codeHash: string; sentAt: number; attempts: number }>`
+  const tried = yield* sql<{ codeHash: string; sentAt: number; attempts: number; used: number }>`
     UPDATE sign_in_codes SET attempts = attempts + 1 WHERE email = ${email}
-    RETURNING code_hash AS codeHash, sent_at AS sentAt, attempts
+    RETURNING code_hash AS codeHash, sent_at AS sentAt, attempts, used
   `
   const pending = tried[0]
   // Every way a code can fail looks the same to the caller (see InvalidCode).
   if (
     pending === undefined ||
+    pending.used === 1 ||
     pending.attempts > MAX_ATTEMPTS ||
     now >= pending.sentAt + Duration.toMillis(CODE_LIFETIME) ||
     pending.codeHash !== (yield* hashSecret(code))
@@ -102,9 +103,11 @@ export const signIn = Effect.fn("signIn")(function*(email: EmailAddress, code: S
   }
 
   // Use the code up. If two requests got this far with the same code, only
-  // one of them deletes it, and only that one signs in.
+  // one of them marks it used, and only that one signs in. The row stays, so
+  // the minute before another code can be sent still counts from this one.
   const used = yield* sql`
-    DELETE FROM sign_in_codes WHERE email = ${email} AND code_hash = ${pending.codeHash}
+    UPDATE sign_in_codes SET used = 1
+    WHERE email = ${email} AND code_hash = ${pending.codeHash} AND used = 0
     RETURNING email
   `
   if (used.length === 0) {

@@ -7,10 +7,15 @@
 -- Times are milliseconds since 1970 (UTC), as JavaScript's Date.now() gives
 -- them. Email addresses are stored trimmed and in lower case, the way the API
 -- hands them over (`EmailAddress` in packages/shared).
+--
+-- `AUTOINCREMENT` on the ids of accounts and tokens means an id is never used
+-- twice. Without it SQLite may give a new row the id of the newest deleted
+-- one, and a request still running for a deleted account (a subscribe waiting
+-- on the university, say) could then act on someone else's new account.
 
 -- One account per email address.
 CREATE TABLE accounts (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT NOT NULL UNIQUE,
   created_at INTEGER NOT NULL
 );
@@ -25,13 +30,16 @@ CREATE TABLE sign_in_codes (
   -- it) are counted from here.
   sent_at INTEGER NOT NULL,
   -- How many times someone tried a code for this address since it was sent.
-  attempts INTEGER NOT NULL DEFAULT 0
+  attempts INTEGER NOT NULL DEFAULT 0,
+  -- 1 once the code has signed someone in. The row is kept rather than
+  -- deleted because its `sent_at` still counts for the one-minute wait.
+  used INTEGER NOT NULL DEFAULT 0
 );
 
 -- Sign-in tokens: one for each browser that signed in. Only a hash of the
 -- token is kept, so a copy of the database signs nobody in.
 CREATE TABLE tokens (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   token_hash TEXT NOT NULL UNIQUE,
   account_id INTEGER NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
   created_at INTEGER NOT NULL,

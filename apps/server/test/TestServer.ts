@@ -9,10 +9,11 @@
  * the classes the test gives it (FakeUniversity.ts).
  *
  * Use it inside `it.effect`. The server then runs on the test's clock, so
- * `TestClock.adjust("15 minutes")` moves time for the server too.
+ * `TestClock.adjust("15 minutes")` moves time for the server too, and logs to
+ * the test's console, so `TestConsole.logLines` holds what the server logged.
  */
 import { Api } from "@getthedamclass/shared/Api"
-import { Clock, Effect, Layer } from "effect"
+import { Clock, Console, Effect, Layer } from "effect"
 import { SecureRandom } from "effect/crypto"
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpRouter } from "effect/http"
 import { HttpApiClient } from "effect/http-api"
@@ -31,6 +32,16 @@ const defaultClasses: Record<string, FakeClass> = {
   "202702/33940": { title: "INTRO TO COMPUTER SCIENCE I", seats: { enrolled: 60, capacity: 60 } }
 }
 
+/**
+ * Randomness the test controls: every draw (a code, a token, a key) is bytes
+ * all of one value, counting up from 1. So every run gets the same ones, and
+ * no two draws are alike for the first 255, far more than a test makes.
+ */
+const countingRandom = () => {
+  let draws = 0
+  return SecureRandom.make((size) => new Uint8Array(size).fill(++draws % 256))
+}
+
 export const makeTestServer = Effect.fn("makeTestServer")(function*(classes: Record<string, FakeClass> = defaultClasses) {
   const mailer = makeRecordingMailer()
   const university = makeFakeUniversity(classes)
@@ -45,8 +56,9 @@ export const makeTestServer = Effect.fn("makeTestServer")(function*(classes: Rec
         mailer.layer,
         university.layer,
         Layer.succeed(PublicUrl, PUBLIC_URL),
-        SecureRandom.layerWebCrypto,
-        Layer.succeed(Clock.Clock, yield* Clock.Clock)
+        Layer.succeed(SecureRandom.SecureRandom, countingRandom()),
+        Layer.succeed(Clock.Clock, yield* Clock.Clock),
+        Layer.succeed(Console.Console, yield* Console.Console)
       ))
     ),
     { disableLogger: true }
