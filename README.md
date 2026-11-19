@@ -2,7 +2,7 @@
 
 Class vacancy notifier Chrome extension for Oregon State University.
 
-On [classes.oregonstate.edu](https://classes.oregonstate.edu), open a class and press **Notify me**: you get an email when a seat opens up. The toolbar popup lists the classes you are watching and lets you stop the alerts.
+On [classes.oregonstate.edu](https://classes.oregonstate.edu), open a class and press **Notify me**: you get an email when a seat opens or the class fills up. **Stop alerts**, next to it, turns that off again. The toolbar popup lists the classes you are watching and lets you stop the alerts there too.
 
 Alerts cover the classes of **one term at a time** (right now Winter 2027), because that is what the backend watches. On a class of any other term the page shows a short note instead of the button. See [Each term](#each-term).
 
@@ -58,7 +58,7 @@ entrypoints/            What the browser loads. WXT turns each folder into part 
     index.tsx           Puts a control into every class-details panel and keeps it there.
     detailsPanel.ts     Everything we know about the page's HTML. START HERE when the
                         university changes its markup and the button disappears.
-    NotifyControl.tsx   The "Notify me" button, its messages and its sign-in popover.
+    NotifyControl.tsx   The "Notify me" button, "Stop alerts", their messages and the sign-in popover.
     fixtures/           Trimmed copies of the real page, for the tests.
   signin/               The sign-in form the class page shows in a frame (see below).
 components/             React components shared by the popup and the pages above.
@@ -88,19 +88,35 @@ There is no background script. The extension only needs the `storage` permission
 
 ### How the parts stay in step
 
-The popup, the button on the class page and the sign-in frame never talk to each other. All three read and write one small record in the browser's extension storage (`lib/AccountStore.ts`): who is signed in, and which CRNs they are watching. Each of them follows that record as it changes, so stopping an alert in the popup turns "Watching" back into "Notify me" on an open class page, and signing in anywhere signs you in everywhere.
+The popup, the button on the class page and the sign-in frame all read and write the browser's extension storage (`lib/AccountStore.ts`): who is signed in, and which CRNs they are watching. Each of them follows it as it changes, so stopping an alert in the popup turns "Watching" back into "Notify me" on an open class page, and signing in anywhere signs you in everywhere.
+
+What is stored, unencrypted, until you sign out (which removes all of it):
+
+| Key | Value | |
+| --- | --- | --- |
+| `email` | `"student@oregonstate.edu"` | The same two keys version 1 used, so its users stay signed in. |
+| `pin` | `"1234"` | |
+| `watch:student@oregonstate.edu:33940` | `true` | One key per watched class, named after the account and the CRN. |
+
+A watched class is a key of its own so that adding one is a single write and removing one a single delete. Nothing reads a list, changes it and writes it back, so two changes made at the same moment (in the popup and on a class page, say) cannot undo each other. And the account is part of the name so that an answer from the server that arrives after someone else signed in is saved for the account that asked, where the other never sees it.
+
+The page trusts that saved list and does not ask the server when a class is opened. If an alert was stopped elsewhere (the Unsubscribe link in an email, another browser), the page still says "Watching" until the popup is next opened, which fetches the real list, or until "Stop alerts" is pressed, which works either way.
 
 ### Why the sign-in form on the class page is in a frame
 
 Whatever a content script draws into a web page, that page's own scripts can read, including every key typed into a field. So the email and PIN are never typed into the university's page. The popover that "Notify me" opens contains an `<iframe>` showing `signin.html`, a page of the extension itself (`entrypoints/signin/`). The class page cannot look inside it. `wxt.config.ts` lists that one page under `web_accessible_resources`, for classes.oregonstate.edu only, which is what allows it to be framed there.
 
+The frame tells the page around it three things, with `window.postMessage` (`entrypoints/signin/messages.ts`): "close me" (Escape was pressed), "I am this tall now", and "signed in". None of them carries what was typed. "Signed in" is what makes the button carry on and set up the alert, so only the form that was actually submitted does that: signing in through the toolbar popup while a popover is open on a class page subscribes to nothing.
+
 ### When the university changes its page
+
+The button is only put on the page when the script can read three things from a class's panel: the CRN, the term, and the bar that holds ADD TO CART. If one of them cannot be found the script shows nothing, rather than a button that might sign a student up for the wrong class. So after a change to the university's markup the button simply disappears.
 
 `entrypoints/content/detailsPanel.ts` holds every selector, with a drawing of the page's structure at the top. Its tests run against `entrypoints/content/fixtures/*.html`. To refresh a fixture: open the section on classes.oregonstate.edu, and in the browser's developer tools run `copy(document.querySelector("main.panels").outerHTML)`. Paste that over the fixture and trim it the way the comment at the top of the file describes. Then run `npm test` and fix `detailsPanel.ts` until it passes.
 
 ## Each term
 
-The backend looks up classes in one hard-coded term (`'term': '202702'` in its `app/loop.py`, three places), and its API cannot tell terms apart. The extension therefore offers alerts only for sections of the term named in `lib/term.ts`. When registration for the next term is about to open:
+The backend looks up classes in one hard-coded term (`'term': '202702'` in its `app/loop.py`, three places), and its API cannot tell terms apart: it is sent a bare CRN, and the same number can be a different class in another term. The extension therefore offers alerts only for sections whose term it can read from the page and which is exactly the one named in `lib/term.ts`. When registration for the next term is about to open:
 
 1. In `lib/term.ts`, change `code` (the `srcdb` value the class search uses, for example `202703`) and `label` ("Spring 2027").
 2. Bump `version` in `package.json` and publish the extension (see [Releasing](#releasing)).
@@ -138,7 +154,7 @@ Each is a class that names the service and lists its functions. Code asks for on
 
 **Errors** are all defined in `lib/domain.ts`. Each has a `_tag`, its name as a string (`"WrongPin"`, `"ClassNotFound"`, `"NetworkError"`, ...), so handling an error is a `switch` on `error._tag`. `lib/errorMessage.ts` holds the sentence shown for each one.
 
-**Workflows** (`lib/workflows.ts`) combine the services into the things a user does. `subscribe(crn)`, for example, reads the saved credentials (failing with `NotSignedIn` if there are none), calls the backend with them, and adds the class to the saved list of watched classes. The user interface calls workflows, never the services directly.
+**Workflows** (`lib/workflows.ts`) combine the services into the things a user does. `subscribe(crn)`, for example, reads the saved credentials (failing with `NotSignedIn` if there are none), calls the backend with them, and saves the class as watched by that account. The user interface calls workflows, never the services directly.
 
 **Components run effects through three hooks** in `lib/react.ts`. They turn an effect into a plain object with a `status` to switch on:
 

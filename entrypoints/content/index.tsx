@@ -101,13 +101,9 @@ function createControl(ctx: ContentScriptContext, panel: Element): Promise<Contr
       const crn = Option.getOrUndefined(readCrn(panel))
       const term = Option.getOrUndefined(readTerm(panel))
       const root = createRoot(container)
-      // (`place` only mounts a control when the panel shows a CRN.)
-      if (crn !== undefined) {
-        // A panel that does not say which term it shows gets the button: the
-        // page may have changed its markup, and a working button that the
-        // server can still refuse beats no button at all.
-        const alertsWork = term === undefined || term === SUPPORTED_TERM.code
-        root.render(alertsWork ? <NotifyControl crn={crn} /> : <OtherTermNote />)
+      // (`place` only mounts a control when the panel shows a CRN and a term.)
+      if (crn !== undefined && term !== undefined) {
+        root.render(term === SUPPORTED_TERM.code ? <NotifyControl crn={crn} /> : <OtherTermNote />)
       }
       return { root, bar: host.nextElementSibling, crn, term }
     },
@@ -128,10 +124,12 @@ function place(ctx: ContentScriptContext, panel: Element, control: Control): voi
   const term = Option.getOrUndefined(readTerm(panel))
   // No bar means the page offers no actions for this section (a past term).
   // No CRN means the panel shows a whole class rather than one section, and
-  // an alert needs a section. In both cases we show nothing rather than a
-  // button that cannot work; picking a section redraws the panel and the
-  // control appears.
-  const wanted = ctx.isValid && panel.isConnected && bar !== null && crn !== undefined
+  // an alert needs a section. No term means we cannot tell which term the CRN
+  // belongs to, and the server would look it up in its own: the same number
+  // can be another class there. In all three cases we show nothing rather
+  // than a button that does the wrong thing. The control appears as soon as
+  // the page has drawn what was missing.
+  const wanted = ctx.isValid && panel.isConnected && bar !== null && crn !== undefined && term !== undefined
 
   const mounted = control.mounted
   if (wanted && mounted !== undefined && mounted.bar === bar && mounted.crn === crn && mounted.term === term) {

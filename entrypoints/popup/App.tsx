@@ -51,7 +51,11 @@ function SignedOut({ afterSigningOut }: { readonly afterSigningOut: boolean }) {
             confirmation email.
           </Message>
         )
-        : <p className="text-ink-muted">Get an email when a seat opens up in a full class at Oregon State.</p>}
+        : (
+          <p className="text-ink-muted">
+            Pick a class at Oregon State and get an email when a seat opens or the class fills up.
+          </p>
+        )}
       <SignInForm />
     </section>
   )

@@ -43,7 +43,11 @@ afterEach(() => {
 })
 
 describe("SignInFrame", () => {
-  it("signs in and saves the account, which is how the class page finds out", async () => {
+  /** The messages posted so far, without the ones about the frame's height. */
+  const postedEvents = () => posted.filter(([message]) => (message as { type: string }).type !== "getthedamclass/resize")
+  const SIGNED_IN = [{ type: "getthedamclass/signed-in" }, "https://classes.oregonstate.edu"]
+
+  it("signs in, saves the account, and then tells the class page that it did (and nothing more)", async () => {
     const sent: Array<Credentials> = []
     await renderFrame((credentials) => Effect.sync(() => void sent.push(credentials)))
     expect(document.activeElement).toBe(email())
@@ -52,8 +56,35 @@ describe("SignInFrame", () => {
     fireEvent.change(pin(), { target: { value: student.pin } })
     fireEvent.click(screen.getByRole("button", { name: "Continue" }))
 
-    await expect.poll(() => fakeBrowser.storage.local.get()).toEqual({ ...student, watching: [] })
+    await expect.poll(postedEvents).toEqual([SIGNED_IN])
+    // Saved before the page was told: it reads the saved sign-in straight away.
+    expect(await fakeBrowser.storage.local.get()).toEqual(student)
     expect(sent).toEqual([student])
+    expect(JSON.stringify(posted)).not.toContain("student")
+    expect(JSON.stringify(posted)).not.toContain(student.pin)
+  })
+
+  it("tells the class page also when the email and PIN are the ones already saved", async () => {
+    // Saving them again changes nothing in storage, so the page would never
+    // hear of this sign-in through storage (see vitest.setup.ts).
+    await fakeBrowser.storage.local.set(student)
+    await renderFrame()
+
+    fireEvent.change(pin(), { target: { value: student.pin } })
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+
+    await expect.poll(postedEvents).toEqual([SIGNED_IN])
+  })
+
+  it("tells the class page nothing when the sign-in is refused", async () => {
+    await renderFrame(() => Effect.fail(new WrongPin({ message: "Wrong pin. Try again!" })))
+
+    fireEvent.change(email(), { target: { value: student.email } })
+    fireEvent.change(pin(), { target: { value: "9876" } })
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+    await screen.findByText(/PIN doesn't match/)
+
+    expect(postedEvents()).toEqual([])
   })
 
   it("never tells the class page what was typed", async () => {

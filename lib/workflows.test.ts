@@ -1,5 +1,5 @@
 import { assert, beforeEach, describe, it } from "@effect/vitest"
-import { Effect, Layer, Option } from "effect"
+import { Effect, Fiber, Latch, Layer, Option } from "effect"
 import { fakeBrowser } from "wxt/testing/fake-browser"
 import { AccountStore } from "./AccountStore"
 import { Api } from "./Api"
@@ -19,6 +19,7 @@ import { listSubscriptions, signIn, signOut, subscribe, unsubscribe } from "./wo
 // a test needs; calling any other function fails the test.
 
 const credentials = { email: "student@oregonstate.edu", pin: "1234" }
+const other = { email: "other@oregonstate.edu", pin: "4321" }
 
 const withFakeApi = (fakeApi: Layer.PartialEffectful<Api["Service"]>) =>
   Effect.provide(Layer.mergeAll(Layer.mock(Api, fakeApi), AccountStore.layer))
@@ -29,12 +30,23 @@ const saved = Effect.gen(function*() {
   return yield* store.get
 })
 
-/** The saved list of watched classes. */
-const watching = Effect.map(saved, (account) => Option.getOrThrow(account).watching)
+/** The classes saved as watched by whoever is signed in now, sorted (storage keeps no order). */
+const watching = Effect.map(saved, (account) => [...Option.getOrThrow(account).watching].sort())
 
 /** As if this user signed in earlier and already watches these classes. */
 const signedInWatching = (...crns: ReadonlyArray<Crn>) =>
-  Effect.promise(() => fakeBrowser.storage.local.set({ ...credentials, watching: crns }))
+  Effect.gen(function*() {
+    const store = yield* AccountStore
+    yield* store.save(credentials)
+    yield* store.watch(credentials.email, crns)
+  })
+
+/** As if someone else signs in on this browser (in the popup, say). */
+const signedInAs = (someone: Credentials) =>
+  Effect.gen(function*() {
+    const store = yield* AccountStore
+    yield* store.save(someone)
+  })
 
 beforeEach(() => {
   fakeBrowser.reset()
@@ -61,19 +73,21 @@ describe("signIn", () => {
       yield* signIn({ email: credentials.email, pin: "5678" })
       assert.deepStrictEqual(yield* watching, ["33940"])
 
-      yield* signIn({ email: "other@oregonstate.edu", pin: "1234" })
+      yield* signIn(other)
       assert.deepStrictEqual(yield* watching, [])
     }).pipe(withFakeApi({ signIn: () => Effect.void })))
 })
 
 describe("signOut", () => {
-  it.effect("forgets the saved credentials and the watch list", () =>
+  it.effect("leaves nothing saved: no credentials, and no watched class of any account", () =>
     Effect.gen(function*() {
       yield* signedInWatching("33940")
+      yield* signedInAs(other)
+      yield* subscribe("53476")
       yield* signOut
       assert.deepStrictEqual(yield* saved, Option.none())
       assert.deepStrictEqual(yield* Effect.promise(() => fakeBrowser.storage.local.get()), {})
-    }).pipe(withFakeApi({})))
+    }).pipe(withFakeApi({ subscribe: () => Effect.void })))
 })
 
 describe("subscribe, unsubscribe and listSubscriptions", () => {
@@ -161,9 +175,103 @@ describe("the saved watch list follows what the server says", () => {
       // 33940 was stopped somewhere else; 39835 was added somewhere else.
       yield* signedInWatching("33940", "53476")
       yield* listSubscriptions
-      assert.deepStrictEqual(yield* watching, ["53476", "39835"])
+      assert.deepStrictEqual(yield* watching, ["39835", "53476"])
     }).pipe(withFakeApi({
       listSubscriptions: () =>
         Effect.succeed([{ crn: "53476", name: "INTRODUCTION TO COMPUTER SCIENCE I" }, { crn: "39835", name: null }])
     })))
+
+  it.effect("listSubscriptions empties the list when the server lists nothing", () =>
+    Effect.gen(function*() {
+      yield* signedInWatching("33940", "53476")
+      yield* listSubscriptions
+      assert.deepStrictEqual(yield* watching, [])
+    }).pipe(withFakeApi({ listSubscriptions: () => Effect.succeed([]) })))
+})
+
+// The server can take seconds to answer, and the popup, every open class page
+// and every sign-in frame work on the same storage at once. In these tests the
+// fake server holds its answer back until the test lets it go.
+describe("while the server is still answering", () => {
+  /** A fake call that says when it was asked, then waits to be let go. */
+  const heldBack = (asked: Latch.Latch, letGo: Latch.Latch) => Effect.andThen(Latch.open(asked), Latch.await(letGo))
+
+  it.effect("subscribe: another account signs in; the class is saved for the account that asked", () => {
+    const asked = Latch.makeUnsafe()
+    const letGo = Latch.makeUnsafe()
+    return Effect.gen(function*() {
+      yield* signedInWatching()
+      const pending = yield* Effect.forkChild(subscribe("33940"))
+      yield* Latch.await(asked)
+
+      yield* signedInAs(other)
+      yield* Latch.open(letGo)
+      yield* Fiber.join(pending)
+
+      // The other account does not watch a class it never asked for...
+      assert.deepStrictEqual(yield* watching, [])
+      // ...and the one that asked finds it when it signs in again.
+      yield* signedInAs(credentials)
+      assert.deepStrictEqual(yield* watching, ["33940"])
+    }).pipe(withFakeApi({ subscribe: () => heldBack(asked, letGo) }))
+  })
+
+  it.effect("listSubscriptions: another account signs in; the list is saved for the account that asked", () => {
+    const asked = Latch.makeUnsafe()
+    const letGo = Latch.makeUnsafe()
+    return Effect.gen(function*() {
+      yield* signedInWatching("33940")
+      const pending = yield* Effect.forkChild(listSubscriptions)
+      yield* Latch.await(asked)
+
+      yield* signedInAs(other)
+      yield* subscribe("12345")
+      yield* Latch.open(letGo)
+      yield* Fiber.join(pending)
+
+      assert.deepStrictEqual(yield* watching, ["12345"])
+      yield* signedInAs(credentials)
+      assert.deepStrictEqual(yield* watching, ["53476"])
+    }).pipe(withFakeApi({
+      subscribe: () => Effect.void,
+      listSubscriptions: () => Effect.as(heldBack(asked, letGo), [{ crn: "53476", name: null }])
+    }))
+  })
+
+  it.effect("two alerts stopped and one started at the same moment: none of the three is lost", () => {
+    const allAsked = Latch.makeUnsafe()
+    let calls = 0
+    // Every call waits until the server has all three, so they all finish together.
+    const held = Effect.suspend(() => Effect.andThen(++calls === 3 ? Latch.open(allAsked) : Effect.void, Latch.await(allAsked)))
+    return Effect.gen(function*() {
+      yield* signedInWatching("33940", "53476")
+
+      yield* Effect.all([unsubscribe("33940"), unsubscribe("53476"), subscribe("39835")], { concurrency: "unbounded" })
+
+      assert.deepStrictEqual(yield* watching, ["39835"])
+    }).pipe(withFakeApi({ subscribe: () => held, unsubscribe: () => held }))
+  })
+
+  it.effect("listSubscriptions: a class subscribed to in the meantime stays saved", () => {
+    const asked = Latch.makeUnsafe()
+    const letGo = Latch.makeUnsafe()
+    return Effect.gen(function*() {
+      yield* signedInWatching("33940", "53476")
+      // The popup opens and asks for the list...
+      const pending = yield* Effect.forkChild(listSubscriptions)
+      yield* Latch.await(asked)
+
+      // ...and before the answer is back, a class page starts another alert.
+      yield* subscribe("39835")
+      yield* Latch.open(letGo)
+      yield* Fiber.join(pending)
+
+      // 33940 was saved before and is not on the server's list: gone. 39835
+      // is not on that (older) list either, but was not saved before: kept.
+      assert.deepStrictEqual(yield* watching, ["39835", "53476"])
+    }).pipe(withFakeApi({
+      subscribe: () => Effect.void,
+      listSubscriptions: () => Effect.as(heldBack(asked, letGo), [{ crn: "53476", name: null }])
+    }))
+  })
 })

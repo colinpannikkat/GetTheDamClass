@@ -4,9 +4,24 @@
  *
  * It is kept in the browser's extension storage (`chrome.storage.local`),
  * which every part of the extension shares: the popup, the "Notify me" control
- * on the class page, and the sign-in form framed inside that page. None of
- * them talks to another directly. Each one follows `changes`, so a sign-in or
- * a stopped alert in one place shows up in the others.
+ * on the class page, and the sign-in form framed inside that page. Each of
+ * them follows `changes`, so a sign-in or a stopped alert in one place shows
+ * up in the others.
+ *
+ * What is stored:
+ *
+ *   email                                  "student@oregonstate.edu"
+ *   pin                                    "1234"
+ *   watch:student@oregonstate.edu:33940    true
+ *
+ * Every watched class is a key of its own, named after the account and the
+ * CRN. That makes two things safe without any locking:
+ *
+ * - Adding a class is one write and removing it one delete. Neither reads the
+ *   list first, so two changes made at the same moment (in the popup and on a
+ *   class page, say) cannot undo each other.
+ * - An answer from the server that arrives after someone else signed in is
+ *   saved under the account that asked, where the other account never sees it.
  */
 import { Context, Effect, Layer, Option, Queue, Schema, Stream } from "effect"
 import { browser } from "wxt/browser"
@@ -15,35 +30,31 @@ import { Credentials, Crn, StorageError } from "./domain"
 export interface Account {
   readonly credentials: Credentials
   /**
-   * The CRNs this user gets alerts for, as far as this browser knows. The
-   * server holds the real list; this copy is brought up to date after every
-   * call to it (see `lib/workflows.ts`), so the class page can show
-   * "Watching" without asking the server.
+   * The CRNs this user gets alerts for, as far as this browser knows, in no
+   * particular order. The server holds the real list; this copy is brought up
+   * to date after every call to it (see `lib/workflows.ts`), so the class
+   * page can show "Watching" without asking the server.
    */
   readonly watching: ReadonlyArray<Crn>
 }
 
 /**
- * The storage keys. Version 1 of the extension used `email` and `pin`, so
- * people who signed in with it stay signed in. Do not rename them.
+ * How the storage key of every class watched by one account starts. The CRN
+ * follows: "watch:student@oregonstate.edu:33940".
  */
-const STORAGE_KEYS = ["email", "pin", "watching"]
+const watchPrefix = (email: string) => `watch:${email}:`
 
 export class AccountStore extends Context.Service<AccountStore, {
   /** The saved account, or `Option.none()` when nobody is signed in. */
   readonly get: Effect.Effect<Option.Option<Account>, StorageError>
-  /**
-   * Remember who is signed in. If it is not the same email as before, the
-   * list of watched classes starts empty.
-   */
+  /** Remember who is signed in. */
   save(credentials: Credentials): Effect.Effect<void, StorageError>
-  /** Forget everything (sign out on this browser). */
+  /** Forget everything, of every account (sign out on this browser). */
   readonly clear: Effect.Effect<void, StorageError>
-  /**
-   * Change the list of watched classes: `update` is given the saved list and
-   * returns the new one. Does nothing when nobody is signed in.
-   */
-  updateWatching(update: (watching: ReadonlyArray<Crn>) => ReadonlyArray<Crn>): Effect.Effect<void, StorageError>
+  /** Note that the account with this email gets alerts for these classes. */
+  watch(email: string, crns: ReadonlyArray<Crn>): Effect.Effect<void, StorageError>
+  /** Note that it no longer gets alerts for these classes. */
+  unwatch(email: string, crns: ReadonlyArray<Crn>): Effect.Effect<void, StorageError>
   /**
    * A stream of the saved account: the current value straight away, then a
    * new value every time it changes, wherever in the extension that happens.
@@ -59,52 +70,44 @@ function makeAccountStore(): AccountStore["Service"] {
   const storage = <A>(call: () => Promise<A>) =>
     Effect.tryPromise({ try: call, catch: (cause) => new StorageError({ cause }) })
 
-  // Anything that is not a valid email and PIN counts as "not signed in", and
-  // anything that is not a list of CRNs as "watching nothing".
+  // Anything that is not a valid email and PIN counts as "not signed in".
   const decodeCredentials = Schema.decodeUnknownOption(Credentials)
-  const decodeWatching = Schema.decodeUnknownOption(Schema.Array(Crn))
+  const isCrn = Schema.is(Crn)
 
-  const get = storage(() => browser.storage.local.get(STORAGE_KEYS)).pipe(
+  // `get()` without a key reads everything this extension has stored.
+  const get = storage(() => browser.storage.local.get()).pipe(
     Effect.map((saved) =>
-      Option.map(decodeCredentials(saved), (credentials): Account => ({
-        credentials,
-        watching: Option.getOrElse(decodeWatching(saved.watching), () => [])
-      }))
+      Option.map(decodeCredentials(saved), (credentials): Account => {
+        // This account's watch keys, with everything but the CRN cut off.
+        const prefix = watchPrefix(credentials.email)
+        const watching = Object.keys(saved)
+          .filter((key) => key.startsWith(prefix))
+          .map((key) => key.slice(prefix.length))
+          .filter(isCrn)
+        return { credentials, watching }
+      })
     )
   )
 
-  const save = Effect.fn("AccountStore.save")(function*(credentials: Credentials) {
-    const saved = yield* get
-    const sameAccount = Option.isSome(saved) && saved.value.credentials.email === credentials.email
-    yield* storage(() =>
-      browser.storage.local.set({
-        email: credentials.email,
-        pin: credentials.pin,
-        // One account's classes must never show as another's.
-        ...(sameAccount ? {} : { watching: [] })
-      })
-    )
-  })
+  // Version 1 of the extension saved these same two keys, so people who
+  // signed in with it stay signed in. Do not rename them.
+  const save = (credentials: Credentials) =>
+    storage(() => browser.storage.local.set({ email: credentials.email, pin: credentials.pin }))
 
-  const clear = storage(() => browser.storage.local.remove(STORAGE_KEYS))
+  const clear = storage(() => browser.storage.local.clear())
 
-  const updateWatching = Effect.fn("AccountStore.updateWatching")(function*(
-    update: (watching: ReadonlyArray<Crn>) => ReadonlyArray<Crn>
-  ) {
-    const saved = yield* get
-    if (Option.isSome(saved)) {
-      const watching = update(saved.value.watching)
-      yield* storage(() => browser.storage.local.set({ watching }))
-    }
-  })
+  const watch = (email: string, crns: ReadonlyArray<Crn>) =>
+    storage(() => browser.storage.local.set(Object.fromEntries(crns.map((crn) => [watchPrefix(email) + crn, true]))))
+
+  const unwatch = (email: string, crns: ReadonlyArray<Crn>) =>
+    storage(() => browser.storage.local.remove(crns.map((crn) => watchPrefix(email) + crn)))
 
   // `Stream.callback` turns a listener-style browser API into a stream: we
   // push a "something changed" signal into `queue`, and the stream emits it.
   const changeSignals = Stream.callback<void>(Effect.fn(function*(queue) {
-    const onChanged = (changed: Record<string, unknown>) => {
-      if (STORAGE_KEYS.some((key) => key in changed)) {
-        Queue.offerUnsafe(queue, undefined)
-      }
+    // Everything in this storage is ours, so any change is worth a new look.
+    const onChanged = () => {
+      Queue.offerUnsafe(queue, undefined)
     }
     // `acquireRelease` pairs "start listening" with "stop listening": the
     // second function runs when the stream's consumer goes away.
@@ -121,5 +124,5 @@ function makeAccountStore(): AccountStore["Service"] {
 
   // A plain object rather than `AccountStore.of(...)`: this function is
   // called while the class above is still being defined.
-  return { get, save, clear, updateWatching, changes }
+  return { get, save, clear, watch, unwatch, changes }
 }

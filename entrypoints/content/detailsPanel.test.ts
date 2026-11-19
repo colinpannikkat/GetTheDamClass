@@ -120,9 +120,28 @@ describe("readTerm", () => {
     expect(readTerm(panel)).toEqual(Option.some("202703"))
   })
 
-  it("is none when the panel does not say", () => {
+  it("falls back to the copy-link in the panel's head when there is no row for the section", () => {
+    for (const [page, term] of [[winterPage, "202702"], [springPage, "202703"]] as const) {
+      const panel = loadPage(page)
+      panel.querySelector(".section--all_sections")!.remove()
+      expect(readTerm(panel)).toEqual(Option.some(term))
+    }
+  })
+
+  it("reads the row alone, before the page has added the copy-link", () => {
+    const panel = loadPage()
+    panel.querySelector(".deep-link")!.remove()
+    expect(readTerm(panel)).toEqual(Option.some("202702"))
+  })
+
+  it("is none when neither is there, or the copy-link names no term", () => {
     const panel = loadPage()
     panel.querySelector(".section--all_sections")!.remove()
+    panel.querySelector(".deep-link")!.setAttribute("data-query-string", "?details&crn=33940")
+    expect(readTerm(panel)).toEqual(Option.none())
+    panel.querySelector(".deep-link")!.remove()
+    // The term's name ("Winter 2027") is still on the page, but not its code.
+    expect(panel.querySelector(".detail-srcdb")?.textContent).toBe("Winter 2027")
     expect(readTerm(panel)).toEqual(Option.none())
   })
 })

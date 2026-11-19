@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
-import { Effect, Layer, ManagedRuntime } from "effect"
+import { Effect, Layer, ManagedRuntime, Option } from "effect"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { fakeBrowser } from "wxt/testing/fake-browser"
 import { Api } from "@/lib/Api"
@@ -35,6 +35,15 @@ function renderPopup(fakeApi: Layer.PartialEffectful<Api["Service"]> = {}) {
 /** As if the user signed in earlier. */
 const signedIn = () => fakeBrowser.storage.local.set(student)
 
+/** The classes saved as watched, which is what the "Notify me" button on the class page goes by. */
+const savedWatching = () =>
+  Effect.runPromise(
+    Effect.gen(function*() {
+      const store = yield* AccountStore
+      return [...Option.getOrThrow(yield* store.get).watching].sort()
+    }).pipe(Effect.provide(AccountStore.layer))
+  )
+
 /** The "Stop" button of a class, found by its full name for screen readers. */
 const stopButton = (subscription: Subscription) =>
   screen.getByRole("button", { name: `Stop alerts for ${subscriptionFullLabel(subscription)}` })
@@ -47,7 +56,7 @@ afterEach(cleanup)
 describe("signed out", () => {
   it("says what the extension does and shows the sign-in form", async () => {
     renderPopup()
-    expect(await screen.findByText(/Get an email when a seat opens up/)).toBeDefined()
+    expect(await screen.findByText(/get an email when a seat opens or the class fills up/)).toBeDefined()
     expect(screen.getByLabelText("Email")).toBeDefined()
     expect(screen.getByRole("button", { name: "Continue" })).toBeDefined()
     expect(screen.queryByText("Sign out")).toBeNull()
@@ -160,7 +169,7 @@ describe("signed in", () => {
   it("saves which classes are watched, for the \"Notify me\" button on the class page", async () => {
     renderPopup({ listSubscriptions: () => Effect.succeed([deepLearning, unnamed]) })
     await screen.findByText("INTRO TO DEEP LEARNING")
-    expect(await fakeBrowser.storage.local.get("watching")).toEqual({ watching: ["39835", "37429"] })
+    expect(await savedWatching()).toEqual(["37429", "39835"])
   })
 })
 
@@ -186,7 +195,7 @@ describe("stopping a class", () => {
     // Keyboard focus moves to the heading instead of vanishing with the row.
     expect(document.activeElement).toBe(heading)
     expect(stopped).toEqual([["39835", student]])
-    expect(await fakeBrowser.storage.local.get("watching")).toEqual({ watching: ["37429"] })
+    expect(await savedWatching()).toEqual(["37429"])
   })
 
   it("tells two sections of one course apart by CRN", async () => {

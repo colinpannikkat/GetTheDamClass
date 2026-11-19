@@ -247,7 +247,7 @@ describe("listSubscriptions", () => {
       assert.deepStrictEqual(subscriptions, [{ crn: "39835", name: "INTRO TO DEEP LEARNING" }])
     }))
 
-  it.effect("quirk: a name of false, null, \"\" or nothing at all becomes null", () =>
+  it.effect("a name that is blank, missing or not text at all becomes null, and the rest of the list still shows", () =>
     Effect.gen(function*() {
       const subscriptions = yield* callApi(
         () =>
@@ -256,7 +256,10 @@ describe("listSubscriptions", () => {
               { crn: 1, name: false },
               { crn: 2, name: null },
               { crn: 3, name: "  " },
-              { crn: 4 }
+              { crn: 4 },
+              { crn: 5, name: 161 },
+              { crn: 6, name: { title: "INTRO TO DEEP LEARNING" } },
+              { crn: 7, name: " INTRO TO DEEP LEARNING " }
             ]
           }),
         (api) => api.listSubscriptions(credentials)
@@ -265,7 +268,10 @@ describe("listSubscriptions", () => {
         { crn: "1", name: null },
         { crn: "2", name: null },
         { crn: "3", name: null },
-        { crn: "4", name: null }
+        { crn: "4", name: null },
+        { crn: "5", name: null },
+        { crn: "6", name: null },
+        { crn: "7", name: "INTRO TO DEEP LEARNING" }
       ])
     }))
 

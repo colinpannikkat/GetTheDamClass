@@ -26,3 +26,17 @@ export function errorMessage(error: AppError): string {
       return "Something went wrong. Please try again."
   }
 }
+
+/** The sentence for a failed "Stop". Two cases need different words there. */
+export function stopErrorMessage(error: AppError): string {
+  switch (error._tag) {
+    case "ClassNotFound":
+      // The server only knows the classes of the current term, so it refuses
+      // to touch an alert left over from an earlier one.
+      return "This class isn't in the current term, so it can't be stopped here. Use the Unsubscribe button in the confirmation email you got for it."
+    case "WrongPin":
+      return "Your saved PIN no longer works. Sign out, then sign in again."
+    default:
+      return errorMessage(error)
+  }
+}

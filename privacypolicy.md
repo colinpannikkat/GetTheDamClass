@@ -1,6 +1,6 @@
 # **Privacy Policy for GetTheDamClass Chrome Extension**
 
-_Last Updated: 24th November 2024_
+_Last Updated: 18th November 2026_
 
 Welcome to **GetTheDamClass**! Your privacy is important to us, and this Privacy Policy explains how we collect, use, and protect your information when you use our Chrome extension.
 
@@ -42,6 +42,7 @@ We do not sell, rent, or share your information with third parties except in the
    - Email addresses and PINs are securely stored in a database.
    - The PIN is hashed and salted prior to being stored.
    - Subscription data is stored to facilitate the notification service.
+   - In your browser, the extension keeps your email address, your 4-digit PIN and the list of class CRN numbers you are watching in the browser's local extension storage, unencrypted, so that it can make requests on your behalf. Signing out in the extension removes them from the browser.
 
 3. **Access Controls**:
    - Access to user data is restricted to authorized personnel only, under strict confidentiality.
@@ -49,7 +50,7 @@ We do not sell, rent, or share your information with third parties except in the
 ## **User Rights**
 
 You have the following rights concerning your data:
-- **Access and Updates**: View and update your email or PIN via the extension interface.
+- **Access**: View the email address you are signed in with and your subscribed classes via the extension interface. The email address and PIN cannot be changed in the extension.
 - **Unsubscribe**: Stop notifications for any class directly from the extension or by contacting us.
 - **Account Deletion**: Request deletion of your account and all associated data by emailing getthedamclass@gmail.com.
 

@@ -15,3 +15,10 @@ nodeConsole.error = (...args: Array<unknown>) => {
     printError(...args)
   }
 }
+
+// A difference between the fake extension storage used in tests (`fakeBrowser`,
+// see vitest.config.ts) and the real one, to keep in mind when writing a test:
+// the fake reports a change (`storage.onChanged`) for every write. Chrome
+// reports none when a write leaves the value as it was, such as saving the
+// email and PIN that are already saved. Code must not wait for a storage
+// change to learn that something was done.

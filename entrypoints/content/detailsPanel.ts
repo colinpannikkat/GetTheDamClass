@@ -14,6 +14,7 @@
  *     <div class="panel panel--kind-details">  one class section
  *       <div class="panel__content">
  *         <div class="panel__head">
+ *           ... <a class="deep-link" data-query-string="?details&srcdb=202702&crn=33940"> ...
  *         <div class="panel__body">
  *           ... <div class="dtl-section">Section 400, CRN 33940</div> ...
  *           ... <a class="course-section course-section--viewing" data-srcdb="202702"> ...
@@ -57,9 +58,13 @@ export const readCrn = (panel: Element): Option.Option<Crn> =>
 
 /**
  * The code of the term that section belongs to ("202702" is Winter 2027), if
- * the panel says. It is read from the section's own row in the "All Sections"
- * table. That row is drawn together with the rest of the panel; the link in
- * the panel's head that also carries the code is added a moment later.
+ * the panel says. Two places carry it (`srcdb` is the page's name for a term):
+ * the section's own row in the "All Sections" table, drawn together with the
+ * rest of the panel, and the "copy link" in the panel's head, which the page
+ * adds a moment later.
  */
 export const readTerm = (panel: Element): Option.Option<string> =>
-  Option.fromNullishOr(panel.querySelector(".course-section--viewing")?.getAttribute("data-srcdb"))
+  Option.fromNullishOr(
+    panel.querySelector(".course-section--viewing")?.getAttribute("data-srcdb")
+      ?? new URLSearchParams(panel.querySelector(".deep-link")?.getAttribute("data-query-string") ?? "").get("srcdb")
+  )

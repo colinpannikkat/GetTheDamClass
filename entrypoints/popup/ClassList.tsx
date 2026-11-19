@@ -10,8 +10,8 @@ import { type Ref, useRef, useState } from "react"
 import { browser } from "wxt/browser"
 import { Button } from "@/components/Button"
 import { Message } from "@/components/Message"
-import { type AppError, type Subscription, subscriptionFullLabel, subscriptionLabel } from "@/lib/domain"
-import { errorMessage } from "@/lib/errorMessage"
+import { type Subscription, subscriptionFullLabel, subscriptionLabel } from "@/lib/domain"
+import { stopErrorMessage } from "@/lib/errorMessage"
 import { useAction } from "@/lib/react"
 import { unsubscribe } from "@/lib/workflows"
 
@@ -101,20 +101,6 @@ function ClassRow({ subscription, onStopped }: {
       </Message>
     </li>
   )
-}
-
-/** Why "Stop" failed. Two cases need different words here than elsewhere. */
-function stopErrorMessage(error: AppError): string {
-  switch (error._tag) {
-    case "ClassNotFound":
-      // The server only knows the classes of the current term, so it refuses
-      // to touch an alert left over from an earlier one.
-      return "This class isn't in the current term, so it can't be stopped here. Use the Unsubscribe button in the confirmation email you got for it."
-    case "WrongPin":
-      return "Your saved PIN no longer works. Sign out, then sign in again."
-    default:
-      return errorMessage(error)
-  }
 }
 
 function EmptyState() {

@@ -46,10 +46,13 @@ const settled = () => new Promise((resolve) => setTimeout(resolve, 20))
 interface Shown {
   /** The section line, or `null` for the overview of a class. */
   readonly section: string | null
-  /** The term of the section's row in "All Sections". Default: Winter 2027. */
+  /** The term of the section's row in "All Sections", or `null` for no row. Default: Winter 2027. */
   readonly term?: string | null
   readonly foot: boolean
 }
+
+/** The section's row in "All Sections", which says which term it belongs to. */
+const sectionRowHtml = (term: string) => `<a class="course-section course-section--viewing" data-srcdb="${term}"></a>`
 
 /** The head, body and foot of a details panel, the way the page builds them. */
 const contentHtml = ({ section, term = "202702", foot }: Shown) => `
@@ -57,7 +60,7 @@ const contentHtml = ({ section, term = "202702", foot }: Shown) => `
   <div class="panel__body">
     <div class="dtl-course-code">CS 161</div>
     ${section === null ? "" : `<div class="dtl-section">${section}</div>`}
-    ${term === null ? "" : `<a class="course-section course-section--viewing" data-srcdb="${term}"></a>`}
+    ${term === null ? "" : sectionRowHtml(term)}
   </div>
   ${
   foot
@@ -236,10 +239,42 @@ describe("content script, terms", () => {
     expect(hostCount()).toBe(1)
   })
 
-  it("keeps the button when the panel does not say which term it shows", async () => {
+  it("shows nothing while the panel does not say which term it shows, and the button once it does", async () => {
+    await fakeBrowser.storage.local.set({ email: "student@oregonstate.edu", pin: "1234" })
     const panel = await startOn(winterPage)
+
+    // The section and ADD TO CART are there; what names the term is not (yet).
     redraw(panel, { section: "Section 400, CRN 33940", term: null, foot: true })
+    await settled()
+    // No button: a press would send a bare CRN, which the server looks up in
+    // its own term, where the same number can be another class.
+    expect(hostCount()).toBe(0)
+    expect(backendRequests).toEqual([])
+
+    panel.querySelector(".panel__body")!.insertAdjacentHTML("beforeend", sectionRowHtml("202702"))
+
     await expect.poll(() => buttonText(panel)).toBe("Notify me")
+    expect(panel.querySelector(HOST)?.nextElementSibling).toBe(findButtonBar(panel))
+    button(panel)!.click()
+    await expect.poll(() => buttonText(panel)).toBe("Watching")
+    expect(backendRequests.map((request) => request.path)).toEqual(["/sub"])
+  })
+
+  it("shows the note once a panel that did not say turns out to be of another term", async () => {
+    const panel = await startOn(winterPage)
+    redraw(panel, { section: "Section 401, CRN 53476", term: null, foot: true })
+    await settled()
+    expect(hostCount()).toBe(0)
+
+    // The copy-link the page adds to the head names the term as well.
+    panel.querySelector(".panel__head")!.insertAdjacentHTML(
+      "beforeend",
+      `<a class="deep-link" data-query-string="?details&amp;srcdb=202703&amp;crn=53476" href="#">link</a>`
+    )
+
+    await expect.poll(() => noteText(panel)).toBe("Seat alerts cover Winter 2027 classes only.")
+    expect(button(panel)).toBeNull()
+    expect(backendRequests).toEqual([])
   })
 })
 
@@ -253,15 +288,28 @@ describe("content script, signing in from the page", () => {
     await expect.poll(() => dialog(panel)).not.toBeNull()
   }
 
-  /** What the framed sign-in page does once the server has accepted the email and PIN. */
-  const finishSignIn = () => fakeBrowser.storage.local.set({ ...student, watching: [] })
+  /**
+   * What the framed sign-in page does once the server has accepted the email
+   * and PIN: save them, then tell the page around it (and nothing more).
+   */
+  async function finishSignIn(frame: Window | null) {
+    await fakeBrowser.storage.local.set(student)
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: { type: "getthedamclass/signed-in" },
+        origin: new URL(fakeBrowser.runtime.getURL("/signin.html")).origin,
+        source: frame
+      })
+    )
+  }
+  const frameOf = (panel: Element) => dialog(panel)!.querySelector("iframe")!.contentWindow
 
   it("subscribes to the section the user pressed on once they have signed in", async () => {
     const panel = await startOn(winterPage)
     await pressSignedOut(panel)
     expect(backendRequests).toEqual([])
 
-    await finishSignIn()
+    await finishSignIn(frameOf(panel))
 
     await expect.poll(() => buttonText(panel)).toBe("Watching")
     expect(backendRequests).toEqual([{ path: "/sub", body: { crn: "33940", ...student } }])
@@ -270,11 +318,12 @@ describe("content script, signing in from the page", () => {
   it("drops the request when the panel has moved on to another section before the sign-in finishes", async () => {
     const panel = await startOn(winterPage)
     await pressSignedOut(panel) // for CRN 33940
+    const frame = frameOf(panel)
 
     // The sign-in is still on its way when the user picks another section.
     redraw(panel, { section: "Section 010, CRN 12345", foot: true })
     await expect.poll(() => buttonText(panel)).toBe("Notify me")
-    await finishSignIn()
+    await finishSignIn(frame)
     await settled()
 
     // Nothing was subscribed: not the section left behind, and above all not
@@ -282,5 +331,17 @@ describe("content script, signing in from the page", () => {
     expect(backendRequests).toEqual([])
     expect(buttonText(panel)).toBe("Notify me")
     expect(dialog(panel)).toBeNull()
+  })
+
+  it("subscribes to nothing when the user signs in somewhere else while a popover is open", async () => {
+    const panel = await startOn(winterPage)
+    await pressSignedOut(panel)
+
+    // The toolbar popup, or another tab, saved a sign-in. Nobody used our form.
+    await fakeBrowser.storage.local.set(student)
+    await settled()
+
+    expect(backendRequests).toEqual([])
+    expect(buttonText(panel)).toBe("Notify me")
   })
 })

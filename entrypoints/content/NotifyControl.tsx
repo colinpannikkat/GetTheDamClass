@@ -3,21 +3,25 @@
  *
  * What the user sees:
  *
- *   [Notify me]      press it
- *   [◌ Notify me]    the request is on its way
- *   [✓ Watching]     alerts are on for this class
+ *   [Notify me]                  press it
+ *   [◌ Notify me]                the request is on its way
+ *   [✓ Watching]  Stop alerts    alerts are on for this class
  *
  * "Watching" is not this control's memory of its last press. It comes from
  * the saved account (`useAccount`), which the popup shares. So it is already
  * there when the user comes back to a class, and it goes back to "Notify me"
  * the moment the alert is stopped in the popup.
  *
+ * That saved list can be behind the server: the alert may have been stopped
+ * with the link in an email, or in another browser. "Stop alerts" puts that
+ * right too, because "it was not on" counts as stopped.
+ *
  * If the user is not signed in (or the saved sign-in stopped working), a small
  * sign-in popover opens above the button, and the alert is set up as soon as
- * they have signed in. Any other failure shows as a message above the button,
- * which can then be pressed again.
+ * they have signed in there. Any other failure shows as a message above the
+ * button, which can then be pressed again.
  *
- * Nothing here touches the network until the button is pressed.
+ * Nothing here touches the network until a button is pressed.
  */
 import { Option, Schema } from "effect"
 import { type RefObject, useEffect, useId, useRef, useState } from "react"
@@ -26,10 +30,10 @@ import { Button } from "@/components/Button"
 import { cx } from "@/components/cx"
 import { Message } from "@/components/Message"
 import type { AppError, Crn } from "@/lib/domain"
-import { errorMessage } from "@/lib/errorMessage"
+import { errorMessage, stopErrorMessage } from "@/lib/errorMessage"
 import { useAccount, useAction } from "@/lib/react"
 import { SUPPORTED_TERM } from "@/lib/term"
-import { subscribe } from "@/lib/workflows"
+import { subscribe, unsubscribe } from "@/lib/workflows"
 import { FrameMessage } from "../signin/messages"
 
 export interface NotifyControlProps {
@@ -63,39 +67,63 @@ const LIKE_THE_PAGE_BUTTONS = "h-[42px]! rounded-none! px-5! font-bold! focus-vi
 
 /**
  * The page puts its buttons in one full-width column when the window is 853px
- * wide or less (see `.button-bar` in its stylesheet). So do we.
+ * wide or less (see `.button-bar` in its stylesheet). So do we: our row is as
+ * wide as the foot then, and the main button takes the room "Stop alerts"
+ * leaves.
  */
-const FULL_WIDTH_WHEN_NARROW = "max-[853px]:w-full"
+const FULL_WIDTH_WHEN_NARROW = "max-[853px]:grow"
 
 /**
- * The button floats left. That lets the page's own button bar, which is the
- * next element in the foot, share the row and keep ADD TO CART on the right.
- * (`relative` makes this the box the sign-in popover is positioned from.)
+ * Our buttons float left as one row. That lets the page's own button bar,
+ * which is the next element in the foot, share the row and keep ADD TO CART
+ * on the right. (`relative` makes this the box the sign-in popover is
+ * positioned from.)
  */
-const BUTTON_PLACE = "relative float-left mr-3.5 max-[853px]:float-none max-[853px]:mr-0 max-[853px]:mb-3.5"
+const BUTTON_PLACE =
+  "relative float-left mr-3.5 flex items-center gap-1 max-[853px]:float-none max-[853px]:mr-0 max-[853px]:mb-3.5"
+
+/**
+ * "Stop alerts": as tall as the buttons, but drawn as a text link. The text is
+ * dark because the usual muted grey is too faint on the grey foot.
+ */
+const QUIET_IN_THE_FOOT = "h-[42px]! rounded-none! px-3! text-ink! underline underline-offset-4 focus-visible:outline-ink!"
 
 /** A message is a row of its own above the button, as wide as its text. */
 const MESSAGE_ROW = "mb-2 w-fit max-w-full rounded-none!"
 
+/** The control's one action: turn the alerts for a section on or off. */
+const setAlerts = (crn: Crn, on: boolean) => (on ? subscribe(crn) : unsubscribe(crn))
+
 export function NotifyControl({ crn }: NotifyControlProps) {
   const account = useAccount()
-  const { state, run } = useAction(subscribe)
+  const { state, run } = useAction(setAlerts)
+  // What the last press asked for: alerts on ("Notify me") or off ("Stop alerts").
+  const [asked, setAsked] = useState(true)
   // Set when the user closed the sign-in popover without signing in.
   const [popoverDismissed, setPopoverDismissed] = useState(false)
   const controlRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
 
   const watching = account.status === "signedIn" && account.watching.includes(crn)
-  const loading = state.status === "loading"
-  // What the last press came to. It stops mattering once the class is watched.
-  const error = state.status === "failure" && !watching ? state.error : null
-  const signInReason = error ? signInReasonOf(error) : null
+  const starting = state.status === "loading" && asked
+  const stopping = state.status === "loading" && !asked
+  // A press asks for `watching` to become `asked`. It is spoken of only while
+  // that explains what is on screen: "done" while it is so, "failed" while it
+  // is not. (The popup or another tab can change `watching` at any time.)
+  const confirmed = state.status === "success" && watching === asked
+  const error = state.status === "failure" && watching !== asked ? state.error : null
+  const signInReason = error && asked ? signInReasonOf(error) : null
   const popoverOpen = signInReason !== null && !popoverDismissed
 
-  /** Ask for alerts for this section. Also runs after signing in. */
-  function notify() {
+  /** Ask for alerts for this section ("Notify me"), or stop them ("Stop alerts"). */
+  async function press(on: boolean) {
+    setAsked(on)
     setPopoverDismissed(false)
-    void run(crn)
+    const result = await run(crn, on)
+    if (!on && result.status === "success") {
+      // "Stop alerts" had the keyboard and is about to disappear.
+      buttonRef.current?.focus()
+    }
   }
 
   function closePopover() {
@@ -104,18 +132,16 @@ export function NotifyControl({ crn }: NotifyControlProps) {
     buttonRef.current?.focus()
   }
 
-  // The sign-in form is in a frame that we cannot look into (see
-  // SignInPopover). We learn that the user signed in the way the popup does:
-  // the saved account changes. If that happens while the popover is open,
-  // carry on with what they pressed the button for.
-  const savedSignIn = account.status === "signedIn" ? `${account.credentials.email} ${account.credentials.pin}` : null
-  useEffect(() => {
-    if (popoverOpen && savedSignIn !== null) {
-      buttonRef.current?.focus()
-      notify()
-    }
-    // Only a change of the saved sign-in runs this, not the popover opening.
-  }, [savedSignIn])
+  /**
+   * The form in our popover was used to sign in: carry on with what the user
+   * pressed the button for. Only that form does this. A sign-in anywhere else
+   * (the toolbar popup, another tab) shows up in `account`, but nobody
+   * pressed anything for this class there.
+   */
+  function continueAfterSignIn() {
+    buttonRef.current?.focus()
+    void press(true)
+  }
 
   if (account.status === "loading") {
     // A few milliseconds. Showing nothing beats showing "Notify me" and then
@@ -125,10 +151,10 @@ export function NotifyControl({ crn }: NotifyControlProps) {
   return (
     <div className="ui-root">
       <Message tone="success" className={MESSAGE_ROW}>
-        {watching && state.status === "success" ? "We'll email you when a seat opens." : null}
+        {confirmed && (asked ? "We'll email you when a seat opens or the class fills up." : "Alerts stopped for this class.")}
       </Message>
       <Message tone="error" className={MESSAGE_ROW}>
-        {error && signInReason === null ? errorMessage(error) : null}
+        {error && signInReason === null && (asked ? errorMessage(error) : stopErrorMessage(error))}
       </Message>
       <div
         ref={controlRef}
@@ -142,18 +168,29 @@ export function NotifyControl({ crn }: NotifyControlProps) {
       >
         <Button
           ref={buttonRef}
-          loading={loading}
-          // Once watching there is nothing left to press here; stopping is
-          // done in the popup.
-          aria-disabled={watching}
+          loading={starting}
+          // Once watching, this button only says so; "Stop alerts" is next to it.
+          aria-disabled={watching || stopping}
           aria-expanded={popoverOpen || undefined}
-          onClick={popoverOpen ? closePopover : notify}
+          onClick={popoverOpen ? closePopover : () => press(true)}
           className={cx(LIKE_THE_PAGE_BUTTONS, FULL_WIDTH_WHEN_NARROW, watching && "text-success!")}
         >
-          {watching ? <CheckIcon /> : !loading && <BellIcon />}
+          {watching ? <CheckIcon /> : !starting && <BellIcon />}
           {watching ? "Watching" : "Notify me"}
         </Button>
-        {popoverOpen && <SignInPopover reason={signInReason} controlRef={controlRef} onClose={closePopover} />}
+        {watching && (
+          <Button variant="quiet" loading={stopping} onClick={() => press(false)} className={QUIET_IN_THE_FOOT}>
+            Stop alerts
+          </Button>
+        )}
+        {popoverOpen && (
+          <SignInPopover
+            reason={signInReason}
+            controlRef={controlRef}
+            onClose={closePopover}
+            onSignedIn={continueAfterSignIn}
+          />
+        )}
       </div>
     </div>
   )
@@ -190,6 +227,8 @@ interface SignInPopoverProps {
   /** The element holding the button and this popover: presses inside it are not "outside". */
   readonly controlRef: RefObject<HTMLElement | null>
   readonly onClose: () => void
+  /** The framed form was used to sign in. */
+  readonly onSignedIn: () => void
 }
 
 /**
@@ -203,12 +242,12 @@ interface SignInPopoverProps {
  * window. The page clips nothing in that direction: the panel's scrolling
  * body is a sibling of the foot, not an ancestor, so the box lies over it.
  */
-function SignInPopover({ reason, controlRef, onClose }: SignInPopoverProps) {
+function SignInPopover({ reason, controlRef, onClose, onSignedIn }: SignInPopoverProps) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const [frameHeight, setFrameHeight] = useState(FRAME_HEIGHT_AT_FIRST)
   const contextId = useId()
 
-  // The two things the framed page tells us (see `signin/messages.ts`).
+  // What the framed page tells us (see `signin/messages.ts`).
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       // Any page or frame can post a message to this window. Only our own
@@ -220,15 +259,18 @@ function SignInPopover({ reason, controlRef, onClose }: SignInPopoverProps) {
       if (Option.isNone(message)) {
         return
       }
-      if (message.value.type === "getthedamclass/close") {
-        onClose()
-      } else {
-        setFrameHeight(message.value.height)
+      switch (message.value.type) {
+        case "getthedamclass/close":
+          return onClose()
+        case "getthedamclass/signed-in":
+          return onSignedIn()
+        case "getthedamclass/resize":
+          return setFrameHeight(message.value.height)
       }
     }
     window.addEventListener("message", onMessage)
     return () => window.removeEventListener("message", onMessage)
-  }, [onClose])
+  }, [onClose, onSignedIn])
 
   // A press anywhere outside the control closes the popover. (A press inside
   // the frame never reaches this document, so it cannot count as outside.)
@@ -261,7 +303,7 @@ function SignInPopover({ reason, controlRef, onClose }: SignInPopoverProps) {
       <p id={contextId} className="px-1 pt-1">
         {reason === "WrongPin"
           ? "Your saved PIN no longer works. Sign in again to get alerts."
-          : "Sign in to get an email when a seat opens in this class."}
+          : "Sign in to get an email when a seat opens or the class fills up."}
       </p>
       <iframe
         ref={frameRef}

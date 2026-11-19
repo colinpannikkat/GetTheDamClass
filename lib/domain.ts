@@ -33,7 +33,11 @@ export type Credentials = typeof Credentials.Type
 /** One class the user wants vacancy alerts for. */
 export interface Subscription {
   readonly crn: Crn
-  /** The course title, or `null` when the server could not look it up. */
+  /**
+   * The course title, or `null` when the server sent a blank one or something
+   * that is not text. (A title it cannot look up at all is not a `null` here:
+   * the server answers that whole request with an error, HTTP 500.)
+   */
   readonly name: string | null
 }
 

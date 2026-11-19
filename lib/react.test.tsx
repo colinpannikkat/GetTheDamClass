@@ -126,11 +126,16 @@ describe("useAccount", () => {
     expect(await screen.findByText("signedIn: student@oregonstate.edu, watching:")).toBeDefined()
 
     // ...asked for alerts for a class there...
-    await fakeBrowser.storage.local.set({ watching: ["33940"] })
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const store = yield* AccountStore
+        yield* store.watch("student@oregonstate.edu", ["33940"])
+      }).pipe(Effect.provide(AccountStore.layer))
+    )
     expect(await screen.findByText("signedIn: student@oregonstate.edu, watching: 33940")).toBeDefined()
 
     // ...and signed out.
-    await fakeBrowser.storage.local.remove(["email", "pin", "watching"])
+    await fakeBrowser.storage.local.clear()
     expect(await screen.findByText("signedOut")).toBeDefined()
   })
 

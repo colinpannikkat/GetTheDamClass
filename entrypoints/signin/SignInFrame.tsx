@@ -5,8 +5,8 @@
  * Why a frame? Anything drawn straight into the university's page can be read
  * by that page's scripts, key by key. A frame showing a page of the extension
  * is closed to them: the email and PIN are typed here, checked here and saved
- * here, and the class page never sees them. It learns that someone signed in
- * the same way the popup does, from the saved account changing.
+ * here, and the class page never sees them. All it is told is that this form
+ * was used to sign in (`messages.ts`).
  */
 import { useEffect, useRef } from "react"
 import { SignInForm } from "@/components/SignInForm"
@@ -55,6 +55,7 @@ export function SignInFrame() {
         autoFocus
         // Someone whose saved PIN stopped working only has to type the new one.
         email={account.status === "signedIn" ? account.credentials.email : undefined}
+        onSignedIn={() => tellClassPage({ type: "getthedamclass/signed-in" })}
       />
     </div>
   )

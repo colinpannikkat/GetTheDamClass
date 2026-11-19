@@ -73,15 +73,15 @@ const decodeMessageBody = Schema.decodeUnknownOption(MessageBody)
 /**
  * The body of a successful `/getsubs` response. `crn` really is a JSON number
  * there (the database column is an integer), although the rest of the API
- * uses strings. `name` should always be the course title; it is read
- * leniently, so that one odd name cannot hide the whole list. Anything that
- * is not text is shown as "no name".
+ * uses strings. `name` is the course title, but it is not checked here: any
+ * value is let through, and whatever is not text is shown as "no name" (see
+ * `listSubscriptions` below). So an odd name can never hide the list.
  */
 const SubscriptionsBody = Schema.Struct({
   subs: Schema.Array(
     Schema.Struct({
       crn: Schema.Union([Schema.Int, Crn]),
-      name: Schema.optional(Schema.Union([Schema.String, Schema.Boolean, Schema.Null]))
+      name: Schema.optional(Schema.Unknown)
     })
   )
 })
