@@ -65,9 +65,10 @@ export class SignInEmailsPerDay extends Context.Service<SignInEmailsPerDay, numb
  * ("2026-11-19"). Cloudflare's own day for its limit starts at another time
  * (`resets_at` in `cf email-sending limits get`; 13:48 UTC when this was
  * written), so one of its days holds the end of one of these and the start
- * of the next. That is good enough because the cap is only about half the
- * limit: a flood leaves the other half for alerts, and taking it all would
- * take the whole cap twice, just before and just after midnight UTC.
+ * of the next. So the most a flood can take from one of Cloudflare's days is
+ * the cap twice: once just before midnight UTC and once just after. That is
+ * why the cap is set to about a third of the limit (cloudflare.config.ts):
+ * even then, a third is left for alerts.
  */
 const utcDay = (millis: number) => DateTime.formatIsoDateUtc(DateTime.makeUnsafe(millis))
 
