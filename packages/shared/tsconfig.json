@@ -1,0 +1,23 @@
+{
+  // This package has no build step: the server and the extension import its
+  // TypeScript as it is (see "exports" in package.json), and their own build
+  // tools compile it. This file only lets `pnpm typecheck` check it on its own.
+  // The code runs in a Worker and in a browser, so it may use neither one's
+  // globals: only the language itself ("lib") and no ambient types.
+  "compilerOptions": {
+    "target": "ES2024",
+    "module": "Preserve",
+    "moduleDetection": "force",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2024"],
+    "types": [],
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true
+  },
+  "include": ["src"]
+}

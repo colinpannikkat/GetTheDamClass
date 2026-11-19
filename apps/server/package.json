@@ -1,0 +1,27 @@
+{
+  "name": "getthedamclass-server",
+  "description": "Cloudflare Worker that emails Oregon State students when a class seat opens",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "cf d1 migrations apply 00000000-0000-4000-8000-000000000000 --local && cf dev",
+    "build": "cf build",
+    "typecheck": "cf workers types && tsc -p src && tsc -p tsconfig.node.json",
+    "test": "vitest run",
+    "postinstall": "cf workers types"
+  },
+  "dependencies": {
+    "@effect/sql-d1": "^4.1.4",
+    "@getthedamclass/shared": "workspace:*",
+    "effect": "^4.1.4"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^2.0.0-rc.1",
+    "@effect/sql-sqlite-node": "^4.1.4",
+    "@effect/vitest": "^4.1.4",
+    "cf": "1.0.0-rc.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
+  }
+}

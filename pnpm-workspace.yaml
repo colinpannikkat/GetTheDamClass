@@ -1,0 +1,10 @@
+packages:
+  - apps/*
+  - packages/*
+
+# pnpm does not run the install scripts of dependencies unless they are listed
+# here. workerd is the Cloudflare Workers runtime that runs apps/server locally
+# (in `cf dev`). Its install script checks that the native binary for this
+# machine arrived, and downloads it if it did not.
+allowBuilds:
+  workerd: true
