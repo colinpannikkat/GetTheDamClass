@@ -16,11 +16,11 @@ The extension talks to its own server, `apps/server` in this repository: a [Clou
 
 ## Adding the Chrome Extension
 
-The version you can install today is the earlier one: v1.0.1 on the [releases page](https://github.com/colinpannikkat/GetTheDamClass/releases), which is also the version in the Chrome Web Store. It signs in with a PIN and uses the old backend. The version this README describes, with sign-in by emailed code and its own server, is not released yet. Until it is, build it from source ([Building it yourself](#building-it-yourself)).
+The version you can install today is the earlier one: [v1.0.1](https://github.com/colinpannikkat/GetTheDamClass/releases/tag/v1.0.1), which is also the version in the Chrome Web Store. It signs in with a PIN and uses the old backend; its source is kept on the [`legacy` branch](https://github.com/colinpannikkat/GetTheDamClass/tree/legacy). The version this README describes, with sign-in by emailed code and its own server, is not released yet. Until it is, build it from source ([Building it yourself](#building-it-yourself)).
 
 To install a release:
 
-1. Download the latest release from the [releases page](https://github.com/colinpannikkat/GetTheDamClass/releases).
+1. Download `dist.zip` from the [latest release](https://github.com/colinpannikkat/GetTheDamClass/releases/latest). (The releases page also lists the tutorial video, which is not the extension.)
 2. Extract the downloaded zip file to a location on your local machine.
 3. Open Chrome and navigate to `chrome://extensions`.
 4. Enable "Developer mode" by toggling the switch in the top right corner.
