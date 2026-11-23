@@ -1,0 +1,29 @@
+{
+  // Checks the Worker's own code: everything in this folder except the tests.
+  // (Tests and config files run in Node; see ../tsconfig.node.json.)
+  // One file from outside comes along: the generated types import
+  // ../cloudflare.config.ts to read the bindings from it, so that file is
+  // checked here too and cannot use Node globals such as `process.env`.
+  // The strict settings are the same ones the extension gets from WXT.
+  "compilerOptions": {
+    "target": "ES2024",
+    "module": "Preserve",
+    "moduleDetection": "force",
+    "moduleResolution": "Bundler",
+    // Only the Workers runtime's own globals (Request, Response, ...), not the
+    // browser's or Node's, so code that would not run in a Worker does not
+    // typecheck either. They come from `.cloudflare/types`, which
+    // `cf workers types` writes (after every install and before a typecheck).
+    "lib": ["ES2024"],
+    "types": [],
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true
+  },
+  "include": [".", "../.cloudflare/types"],
+  "exclude": ["**/*.test.ts"]
+}

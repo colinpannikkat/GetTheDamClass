@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface: #ffffff;
+  --color-surface-muted: #f5f5f3;
+  --color-line: #e3e3df;
+  --color-line-strong: #8a8a85;    /* borders of inputs (3:1 against surface) */
+  --color-ink: #1c1b1a;
+  --color-ink-muted: #5f5e5a;
+  --color-accent: #d73f09;         /* primary buttons; white text on it is 4.6:1 */
+  --color-accent-hover: #b53407;
+  --color-on-accent: #ffffff;
+  --color-accent-ink: #c23808;
+  --color-success: #1a7a3c;
+  --color-success-soft: #e8f5ec;
+  --color-danger: #b42318;
+  --color-danger-soft: #fdecea;
+
+  /* px, not rem: the UI also runs inside the university's page, whose CSS would scale rem.
+     `initial` keeps Tailwind's rem-based defaults from coming back. */
+  --spacing: 4px;
+
+  --text-*: initial;
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 14px;
+  --text-sm--line-height: 20px;
+
+  --radius-*: initial;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+
+  --container-*: initial;
+}
+
+/* Only inside `.theme-system`: UI placed in the (always light) university page leaves it off. */
+@layer theme {
+  @media (prefers-color-scheme: dark) {
+    .theme-system {
+      color-scheme: dark;
+      --color-surface: #1b1b1a;
+      --color-surface-muted: #272725;
+      --color-line: #3a3a37;
+      --color-line-strong: #85857f;
+      --color-ink: #f2f2ef;
+      --color-ink-muted: #b3b2ad;
+      --color-accent-ink: #ff9466;
+      --color-success: #6fd08c;
+      --color-success-soft: #17301f;
+      --color-danger: #ff8f85;
+      --color-danger-soft: #3b1c19;
+    }
+  }
+}
+
+/* Styles on <body> do not reach inside a shadow root, so put `ui-root` on the outermost element. */
+@utility ui-root {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+  color: var(--color-ink);
+  text-align: start;
+  -webkit-font-smoothing: antialiased;
+}

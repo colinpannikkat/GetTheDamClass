@@ -1,0 +1,7 @@
+packages:
+  - apps/*
+  - packages/*
+
+# pnpm skips dependencies' install scripts unless listed; workerd's fetches the native runtime `cf dev` uses.
+allowBuilds:
+  workerd: true

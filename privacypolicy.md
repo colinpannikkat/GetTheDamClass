@@ -1,57 +1,79 @@
 # **Privacy Policy for GetTheDamClass Chrome Extension**
 
-_Last Updated: 24th November 2024_
+_Last Updated: 19th November 2026_
 
 Welcome to **GetTheDamClass**! Your privacy is important to us, and this Privacy Policy explains how we collect, use, and protect your information when you use our Chrome extension.
+
+This policy describes version 2 of the extension, which signs in with an emailed code and has its own server. (Version 1 signed in with a PIN and used an earlier server.)
 
 ## **Information We Collect**
 
 The extension collects the following information:
 
 1. **User-Provided Information**:
-   - **Email Address**: Collected during signup to facilitate email notifications.
-   - **PIN**: A 4-digit code chosen by the user for authentication purposes.
-   
-2. **Automatically Collected Information**:
-   - **Subscribed Class CRN Numbers**: Collected when users subscribe to notifications for specific classes.
-   - **HTTP Logs**: Minimal logs for troubleshooting and performance monitoring.
+   - **Email Address**: Typed when you sign in. It is where your sign-in codes and class alerts are sent, and it identifies your account.
+   - **Sign-in Codes**: To sign in, you type the six-digit code we email you. There is no password or PIN.
 
-The extension does not collect browsing activity, form data, or any additional information not explicitly required for its functionality.
+2. **Automatically Collected Information**:
+   - **Watched Classes**: The term and CRN (class number) of each class you ask alerts for, and the class's title, which the server looks up from Oregon State's class search.
+   - **Sign-in Tokens**: When you sign in, the server gives your browser a random token that it sends with every request, and records when each token was last used.
+   - **Server Logs**: Minimal logs for troubleshooting (see "Data Storage and Security" below).
+
+The extension does not collect browsing activity, form data, or any additional information not explicitly required for its functionality. On classes.oregonstate.edu it only reads the term and CRN of the class you have open, to know which class "Notify me" is for.
 
 ## **How We Use the Information**
 
 The information collected is used solely for providing the core functionality of the extension:
-- To notify users via email about class vacancies for their subscribed courses.
-- To authenticate users and ensure secure access to their subscribed class list.
+- To email you a code when you sign in.
+- To confirm by email that alerts have started, when you start them for a class.
+- To notify you by email when a seat opens in a class you watch, or when it fills up again.
+- To show you, in the extension, the classes you are watching, and to let you stop alerts.
 
 We do not use your information for advertising or other unrelated purposes.
 
 ## **Data Sharing and Disclosure**
 
 We do not sell, rent, or share your information with third parties except in the following cases:
-- **Service Providers**: Trusted entities who assist in managing backend operations, such as servers for email notifications, under strict confidentiality agreements.
+- **Service Providers**: The server runs on Cloudflare (Cloudflare Workers, with its data in a Cloudflare D1 database), and sign-in codes and alert emails are sent through Cloudflare's email service. Cloudflare therefore processes your email address and the data described here on our behalf. In particular:
+  - Cloudflare's email service keeps a record of each email it sends: the sender, the recipient, the subject, and when and whether it was delivered. A sign-in email's subject contains its code, and an alert's subject names the class. Cloudflare's documentation says these records are kept for 31 days. We have turned off the service's option to also keep a copy of each message.
+  - Cloudflare is the network in front of the server, so it processes the IP address of every request to the server, to deliver it and to protect the server (the limit on sign-in requests counts per IP address). It keeps analytics about these requests for a limited time, which its documentation gives as at least 31 days. If your browser cannot load a page from the server, it may also report that failure to Cloudflare, with the page's address, which Cloudflare uses to find network problems.
+- **Oregon State University**: To check for open seats, the server asks Oregon State's public class search about the classes being watched, by term and CRN. Nothing about you is sent with these requests.
 - **Legal Compliance**: When required to comply with applicable laws, regulations, or legal proceedings.
 
 ## **Data Storage and Security**
 
 1. **Data Transmission**:
-   - All data is transmitted over secure channels using HTTPS.
-   - No sensitive data is transmitted in plaintext.
+   - The extension reaches its server only over HTTPS, which encrypts everything sent between your browser and the server. A request sent to the server's address over plain HTTP is answered with a redirect to HTTPS before it reaches the server. The server reaches Oregon State's class search over HTTPS as well.
 
 2. **Data Storage**:
-   - Email addresses and PINs are securely stored in a database.
-   - The PIN is hashed and salted prior to being stored.
-   - Subscription data is stored to facilitate the notification service.
+   - The server stores your email address and when your account was created, and your alerts: for each, the term, the CRN, the class title, when you started it, and a random key used in the "stop these alerts" link in your emails.
+   - Sign-in tokens are long random values, and the server stores only a hash of each, not the token itself, with when it was issued and when it was last used. Sign-in codes are six digits, also stored only as hashes; a code stops working after 15 minutes, once it has been used, after five wrong tries, or when a newer code is sent to the same address. For each code, the server also keeps the address it was sent to, when it was sent, and how many times someone tried to use it. This record is kept for the last code sent to each address, whether or not an account was ever made with it. The server also counts how many sign-in emails it sent each day; the count is a date and a number, and says nothing about who the emails went to.
+   - In your browser, the extension keeps your email address, your sign-in token, and which classes (term and CRN) you are watching, in the browser's local extension storage, unencrypted, so that it can make requests on your behalf. While you are signing in, it also remembers the address you asked a code for, and when you asked. Signing in, choosing "Use a different email" or signing out removes it straight away, and so can a failed request for a code; otherwise, once 15 minutes have passed since you asked (how long a code works), the extension removes it the next time any part of it runs (you open its popup, or a class on classes.oregonstate.edu). Signing out in the extension removes all of this from the browser. One exception: a request to start an alert that is still in progress at the moment you sign out saves your email address and that class's term and CRN when it finishes, and they stay until the next time you sign out. And two cases where a browser is signed out without you pressing "Sign out": the server stops accepting its token (you deleted your account from another browser, or the token went unused for a year), or the extension is updated from a version that signed in with a PIN. That browser then keeps your email address, to fill in the sign-in form, until you sign in and out again there or remove the extension.
+   - Earlier versions of the extension kept a 4-digit PIN in your browser. The current version deletes it from your browser the first time it runs after the update.
 
-3. **Access Controls**:
+3. **Server Logs**:
+   - For each request, the server logs the method, the path (for example `/alerts/202702/33940`), and the result. Cloudflare stores each line with its time and the request's address, with the part after a `?` removed (so the key in a "stop these alerts" link is not kept). These lines do not contain your email address, sign-in code, token, or IP address. They are kept for 7 days.
+   - When something goes wrong, the server logs what happened, such as a class it could not check or an email that could not be sent. When Cloudflare's email service refuses a message, the reason it gives is logged as it is, and we cannot rule out that such a reason names the address the email was for.
+   - The page that a "stop these alerts" link opens sends nothing to analytics: it runs no scripts, and tells your browser not to pass the page's address on to other sites.
+
+4. **Automatic Removal**: A job on the server runs once a day and removes:
+   - Sign-in tokens that have not been used for a year, which signs that browser out.
+   - Sign-in codes whose 15 minutes are over. The whole record goes with the code: the address, when the code was asked for, and the number of tries.
+   - The daily counts of sign-in emails, once they are more than a week old.
+   - Alerts whose class's add deadline has passed (or, for a class without dates, whose term has closed in Oregon State's class search). You are not emailed about this; the class just leaves your list. What the server knew about a class nobody is watching any more (its title, its add deadline and whether it had a seat) goes too, once its term has closed. This needs Oregon State's list of terms: on a day the job cannot read it, these alerts stay until a later day's run can, so an alert can outlast its deadline by a day or more.
+
+   Your account and email address stay until you delete your account.
+
+5. **Access Controls**:
    - Access to user data is restricted to authorized personnel only, under strict confidentiality.
 
 ## **User Rights**
 
 You have the following rights concerning your data:
-- **Access and Updates**: View and update your email or PIN via the extension interface.
-- **Unsubscribe**: Stop notifications for any class directly from the extension or by contacting us.
-- **Account Deletion**: Request deletion of your account and all associated data by emailing getthedamclass@gmail.com.
+- **Access**: View the email address you are signed in with and the classes you are watching in the extension's popup.
+- **Stop Alerts**: Stop alerts for any class from the extension (on the class page or in the popup), or with the link in any email about that class.
+- **Sign Out**: Signing out removes everything the extension saved in your browser, and then asks the server to end your browser's sign-in token. If the server cannot be reached, or does not answer within a few seconds, the browser is signed out all the same, and the token stays on the server, held by no browser, until it is removed after a year without use. Your account and its alerts stay, and the alerts keep running.
+- **Account Deletion**: Use "Delete my account" in the extension's popup. It deletes your account, all its alerts and every sign-in token on the server, and removes what the extension saved in the browser you delete it from. Any other browser you were signed in on is signed out the next time it contacts the server, and keeps your email address as described under "Data Storage". The database service keeps the means to restore the database to an earlier moment for up to 30 days, as a safeguard against losing everyone's data; deleted data is gone from the service but could be brought back by such a restore within that time. The record of the last sign-in code sent to your address is not part of the account: the first daily run after that code's 15 minutes are over removes it (see "Automatic Removal"). You can also ask us to delete your account by emailing getthedamclass@gmail.com.
 
 ## **Cookies and Tracking**
 
@@ -59,7 +81,7 @@ This extension does not use cookies or tracking technologies.
 
 ## **Changes to This Privacy Policy**
 
-We may update this policy from time to time to reflect changes in functionality or legal requirements. Any updates will be posted within the extension and on our website.
+We may update this policy from time to time to reflect changes in functionality or legal requirements. Updates are made to this file, `privacypolicy.md`, in the extension's repository on GitHub (https://github.com/colinpannikkat/GetTheDamClass), with the date at the top changed; its history there shows every change.
 
 ## **Contact Us**
 
