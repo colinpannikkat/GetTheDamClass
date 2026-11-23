@@ -72,7 +72,8 @@ const refusal = { message: Schema.String }
 
 /**
  * The request has no sign-in token, or one the server does not know: it was
- * never issued, that browser signed out, or the account was deleted.
+ * never issued, that browser signed out, the account was deleted, or the
+ * token went unused for a year.
  */
 export class NotSignedIn extends Schema.TaggedError<NotSignedIn>()("NotSignedIn", refusal, {
   httpApiStatus: 401

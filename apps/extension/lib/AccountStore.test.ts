@@ -129,7 +129,7 @@ describe("get", () => {
 describe("updating from a version that signed in with a PIN", () => {
   it.effect("removes the PIN and the old server's watched classes, keeps the email, and is signed out", () =>
     Effect.gen(function*() {
-      // What version 2 saved, before the store is first used.
+      // What a version that signed in with a PIN saved, before the store is first used.
       yield* setRaw({
         email,
         pin: "1234",

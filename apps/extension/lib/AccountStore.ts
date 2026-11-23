@@ -159,7 +159,7 @@ export class AccountStore extends Context.Service<AccountStore, {
   /**
    * The real implementation. Tests use it too, with WXT's in-memory `browser`.
    *
-   * Building it first removes what versions 1 and 2 of the extension saved
+   * Building it first removes what versions that signed in with a PIN saved
    * for the old server, which every part of the extension does as soon as it
    * starts: the PIN, kept as it was typed, and the watched classes, which
    * were alerts on the old server and are not on the new one. The email

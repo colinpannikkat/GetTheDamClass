@@ -42,7 +42,7 @@ tutorial-vid/
                      too, but git ignores them.
   assets/            What the video is made from: the two Chrome recordings
                      (3072x1728, 60 fps, no pointer), the narration with its
-                     music (script-audio.wav), the icon.
+                     music (script-audio.wav), the icon, the backdrop's grain.
   src/               The code that makes the video.
     index.tsx          Registers the two cuts.
     Horizontal.tsx     The 1920x1080 cut: framing, camera moves, intro, email card, end card.

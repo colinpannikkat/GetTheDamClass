@@ -20,7 +20,7 @@ The version you can install today is the earlier one: [v1.0.1](https://github.co
 
 To install a release:
 
-1. Download `dist.zip` from the [latest release](https://github.com/colinpannikkat/GetTheDamClass/releases/latest). (The releases page also lists the tutorial video, which is not the extension.)
+1. Download the zip attached to the [latest release](https://github.com/colinpannikkat/GetTheDamClass/releases/latest). (The releases page also lists the tutorial video, which is not the extension.)
 2. Extract the downloaded zip file to a location on your local machine.
 3. Open Chrome and navigate to `chrome://extensions`.
 4. Enable "Developer mode" by toggling the switch in the top right corner.
@@ -203,7 +203,7 @@ A watched class is a key of its own so that adding one is a single write and rem
 
 When the server answers a request with `NotSignedIn` (the token was ended: the account was deleted from another browser, or the token went unused for a year), the extension removes `token` and that account's `watch:` keys, and keeps `email`, so every part of it shows the sign-in form with the address filled in. The `watch:` keys go because the account may be gone: kept, they would show "Watching" again after signing in with the same address, to a new account without those alerts. If the account does still exist, the popup lists its alerts again when it is next opened.
 
-Versions that signed in with a PIN also stored a `pin` key, and `watch:` keys for alerts on the old backend. The first time any part of the extension starts after an update in place, it removes both (see `AccountStore.layer`); the email stays.
+Version 1 also stored a `pin` key. Builds of this rewrite from before it had its own server signed in with a PIN too, and kept `watch:` keys for alerts on the old backend; none was released. The first time any part of the extension starts after an update in place from either, it removes both kinds of key (see `AccountStore.layer`); the email stays.
 
 Signing out forgets everything in the browser first, and only then asks the server to end the token (giving it 5 seconds), so it works with the server down and with the popup closed straight after. A token the server was not told about stays there, held by no browser, until it has gone unused for a year.
 
@@ -233,6 +233,7 @@ The button is only put on the page when the script can read three things from a 
 2. `pnpm typecheck && pnpm test`
 3. `pnpm zip` in `apps/extension/`, which writes `apps/extension/.output/getthedamclass-<version>-chrome.zip`.
 4. Attach the zip to a new release on GitHub, and upload it to the Chrome Web Store.
+5. Update "Adding the Chrome Extension" above, which says which version can be installed today.
 
 ## Deployment
 
