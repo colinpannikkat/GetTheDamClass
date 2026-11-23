@@ -1,23 +1,3 @@
-/**
- * The daily job: removing what is no longer needed.
- *
- * - Sign-in codes that have expired, tokens nobody has used for a year, and
- *   the counts of sign-in emails older than a week.
- * - Alerts that have ended (see termRule.ts): those whose class's add
- *   deadline has passed, and those of a class without a deadline once the
- *   university lists its term as "View Only". Nobody is emailed about it; the
- *   alert just leaves the student's list.
- * - Classes nobody watches, once the university lists their term as "View
- *   Only".
- *
- * Alerts and classes depend on the university's term list, which this job
- * asks for. If it cannot be read, none of them are removed, and the next
- * day's run tries again. Codes, tokens and counts do not depend on the
- * university and are removed regardless.
- *
- * Each removal is one statement over the whole table. The run ends with one
- * line in the log saying how much each removed.
- */
 import type { Term } from "@getthedamclass/shared/domain"
 import { Effect } from "effect"
 import { SqlClient } from "effect/sql"
@@ -25,14 +5,7 @@ import { deleteExpiredCodes, deleteOldEmailCounts } from "./signIn"
 import { closedTerms, todayInOregon } from "./termRule"
 import { deleteUnusedTokens } from "./tokens"
 
-/**
- * Remove the alerts whose class's add deadline was before `today`, and those
- * of a class without a deadline (NULL) whose term is closed. How many were
- * removed.
- *
- * A class with a deadline goes by its deadline alone, even once its term is
- * closed: that is the project owner's rule.
- */
+// A class with a deadline goes by its deadline alone, even once its term is closed (the owner's rule).
 const deleteEndedAlerts = Effect.fn("cleanup.deleteEndedAlerts")(
   function*(closed: ReadonlyArray<Term>, today: string) {
     const sql = yield* SqlClient.SqlClient
@@ -49,15 +22,8 @@ const deleteEndedAlerts = Effect.fn("cleanup.deleteEndedAlerts")(
   }
 )
 
-/**
- * Remove the classes nobody watches, in closed terms. How many were removed.
- *
- * Only those: `subscribe` (alerts.ts) records a class and then adds the alert
- * in two statements, and removing an unwatched class in between would make
- * that subscribe fail. A closed term takes no subscribes, so its classes can
- * go safely. In an open term an unwatched class is harmless: subscribe takes
- * it as out of date and records it afresh.
- */
+// Closed terms only: `subscribe` records a class and then adds the alert in two statements, and removing
+// the class in between would make it fail. In an open term `subscribe` re-records a stale class anyway.
 const deleteUnwatchedClasses = Effect.fn("cleanup.deleteUnwatchedClasses")(
   function*(closed: ReadonlyArray<Term>) {
     const sql = yield* SqlClient.SqlClient
@@ -71,7 +37,6 @@ const deleteUnwatchedClasses = Effect.fn("cleanup.deleteUnwatchedClasses")(
   }
 )
 
-/** Read the term list, and remove the alerts and classes that have ended by it. */
 const deleteEndedAlertsAndClasses = Effect.fn("cleanup.deleteEndedAlertsAndClasses")(function*() {
   const closed = yield* closedTerms()
   const alerts = yield* deleteEndedAlerts(closed, yield* todayInOregon)
@@ -79,7 +44,6 @@ const deleteEndedAlertsAndClasses = Effect.fn("cleanup.deleteEndedAlertsAndClass
   return { alerts, classes }
 })
 
-/** The daily job. */
 export const cleanup = Effect.fn("cleanup")(function*() {
   const signInCodes = yield* deleteExpiredCodes()
   const signInEmailCounts = yield* deleteOldEmailCounts()

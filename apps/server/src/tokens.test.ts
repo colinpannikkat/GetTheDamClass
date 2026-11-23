@@ -4,9 +4,6 @@ import { Effect, Schema } from "effect"
 import { TestClock } from "effect/testing"
 import { makeTestServer, PUBLIC_URL } from "../test/TestServer"
 
-// Through the API, against the whole server in this process (see
-// test/TestServer.ts).
-
 const email = "student@oregonstate.edu"
 
 describe("requests without a valid token", () => {

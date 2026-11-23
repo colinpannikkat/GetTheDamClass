@@ -1,24 +1,5 @@
-/**
- * The unsubscribe link in emails, and the page it opens.
- *
- * The link works without signing in: its secret key (`unsubscribe_key` in
- * the `alerts` table) is the permission. It is a page for a person, not part
- * of the API in packages/shared:
- *
- *   GET  /unsubscribe?key=...   names the class, with a "Stop alerts" button
- *   POST /unsubscribe?key=...   (the button) stops the alert
- *
- * Opening the link changes nothing on purpose. Mail scanners and link
- * previewers open links in emails by themselves (Microsoft's Safe Links does
- * it for every OSU inbox), and that must not cost a student their alert. Only
- * a person pressing the button sends the POST.
- *
- * The key travels in the query string rather than the path because the
- * server's request log leaves the query string out, and so does what
- * Cloudflare stores with each log line (`redactQueryString` in
- * cloudflare.config.ts): the key should not end up in logs. The pages'
- * headers (PAGE_HEADERS below) keep it from leaving the page.
- */
+// Opening the link changes nothing on purpose: mail scanners open links by themselves, so only the
+// button's POST stops the alert. The key is in the query string because the logs leave it out.
 import type { Crn } from "@getthedamclass/shared/domain"
 import { Context, Effect, Layer } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
@@ -26,19 +7,11 @@ import { SqlClient } from "effect/sql"
 import { dieOnSqlError } from "./database"
 import { ACCENT, classLabel, escapeHtml } from "./html"
 
-/**
- * The address the server is reached at from outside, such as
- * "https://api.getthedamclass.ajinkya.dev". Links in emails start with it. It
- * comes from configuration (`PUBLIC_URL` in cloudflare.config.ts), not from
- * the request, because emails are also sent when no request is being served.
- */
 export class PublicUrl extends Context.Service<PublicUrl, string>()("getthedamclass/PublicUrl") {}
 
-/** The link that stops the alert with this key. */
 export const unsubscribeUrl = (key: string) =>
   PublicUrl.use((base) => Effect.succeed(new URL(`/unsubscribe?key=${encodeURIComponent(key)}`, base).href))
 
-/** The class an unsubscribe key belongs to, if its alert still exists. */
 const findAlert = Effect.fn("unsubscribe.findAlert")(function*(key: string) {
   const sql = yield* SqlClient.SqlClient
   const rows = yield* sql<{ title: string; crn: Crn }>`
@@ -49,19 +22,16 @@ const findAlert = Effect.fn("unsubscribe.findAlert")(function*(key: string) {
   return rows[0]
 }, dieOnSqlError)
 
-/** Stop the alert with this key. */
 const deleteAlert = Effect.fn("unsubscribe.deleteAlert")(function*(key: string) {
   const sql = yield* SqlClient.SqlClient
   yield* sql`DELETE FROM alerts WHERE unsubscribe_key = ${key}`
 }, dieOnSqlError)
 
-/** The `key` in the query string, or "" without one (which matches no alert). */
 const requestKey = Effect.map(HttpServerRequest.ParsedSearchParams, (params) => {
   const key = params["key"]
   return typeof key === "string" ? key : ""
 })
 
-/** The page the link opens: it names the class and asks. */
 const showConfirmation = Effect.fn("unsubscribe.showConfirmation")(function*(key: string) {
   const alert = yield* findAlert(key)
   if (alert === undefined) {
@@ -77,7 +47,6 @@ const showConfirmation = Effect.fn("unsubscribe.showConfirmation")(function*(key
   )
 })
 
-/** What the button does: stops the alert, and says so. */
 const stopAlert = Effect.fn("unsubscribe.stopAlert")(function*(key: string) {
   const alert = yield* findAlert(key)
   if (alert === undefined) {
@@ -92,34 +61,21 @@ const stopAlert = Effect.fn("unsubscribe.stopAlert")(function*(key: string) {
   )
 })
 
-/** The page and the button's POST, as routes for the server's router. */
 export const UnsubscribePage = Layer.mergeAll(
   HttpRouter.add("GET", "/unsubscribe", Effect.flatMap(requestKey, showConfirmation)),
   HttpRouter.add("POST", "/unsubscribe", Effect.flatMap(requestKey, stopAlert))
 )
 
-/**
- * Sent with every one of these pages. The page's address holds the key that
- * stops the alert, so nothing on it may send that address anywhere. Cloudflare
- * can add its Web Analytics script to any HTML page on the zone, and that
- * script reports the page it runs on; these headers stop it and anything like it.
- */
+// The page's address holds the key, so nothing on it may send that address anywhere (Cloudflare can
+// inject its Web Analytics script into any HTML page).
 const PAGE_HEADERS = {
-  // No `Referer` with the page's address (and its key) on any request the page
-  // makes, nor on a link followed from it.
   "referrer-policy": "no-referrer",
-  // The page has no scripts of its own, only inline styles and a form that
-  // posts back to this server, so allow exactly that: no script runs (an added
-  // one included), nothing is fetched, and the form can only post here.
-  // `form-action` does not fall back to `default-src`, so it is set apart.
+  // `form-action` does not fall back to `default-src`.
   "content-security-policy":
     "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-  // Neither the browser nor anything between keeps a copy of a page that holds
-  // a key, or one that answered for a key.
   "cache-control": "no-store"
 }
 
-/** A small page of its own. `body` is HTML already. */
 const page = (status: number, title: string, body: string) =>
   HttpServerResponse.text(
     `<!DOCTYPE html>
@@ -139,10 +95,6 @@ ${body}
     { status, contentType: "text/html", headers: PAGE_HEADERS }
   )
 
-/**
- * For a key whose alert is gone: stopped already (with this link, in the
- * extension, or by deleting the account), or a link that was never right.
- */
 const alreadyStoppedPage = page(
   404,
   "Already stopped",

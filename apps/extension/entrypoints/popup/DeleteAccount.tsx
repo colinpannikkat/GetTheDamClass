@@ -1,11 +1,3 @@
-/**
- * "Delete my account", at the bottom of the signed-in popup.
- *
- * Hard to press by accident: a small link, and then a box that says what
- * deleting does, where "Delete account" has to be pressed as well. The
- * keyboard lands on "Cancel" in that box, so a second Enter does nothing
- * harmful.
- */
 import { useId, useState } from "react"
 import { Button } from "@/components/Button"
 import { Message } from "@/components/Message"
@@ -14,7 +6,6 @@ import { useAction } from "@/lib/react"
 import { deleteAccount } from "@/lib/workflows"
 
 export function DeleteAccount({ onDeleted }: {
-  /** The account is gone, and so is everything this browser saved. */
   readonly onDeleted: () => void
 }) {
   const [confirming, setConfirming] = useState(false)
@@ -46,8 +37,7 @@ export function DeleteAccount({ onDeleted }: {
         <Button variant="danger" size="sm" loading={state.status === "loading"} onClick={handleDelete}>
           Delete account
         </Button>
-        {/* Once deleting has started it cannot be called back, so "Cancel"
-            must not look as if it could: it would only hide the box. */}
+        {/* Deleting cannot be called back once started, so "Cancel" must not look as if it could. */}
         <Button size="sm" autoFocus aria-disabled={state.status === "loading"} onClick={() => setConfirming(false)}>
           Cancel
         </Button>

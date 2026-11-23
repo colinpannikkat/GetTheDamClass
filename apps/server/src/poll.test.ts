@@ -6,19 +6,9 @@ import { INTRO_TO_CS, makeTestServer, type TestServer } from "../test/TestServer
 import { pollClasses } from "./poll"
 import { University } from "./University"
 
-// The check every minute, run on the same services as the whole server in
-// this process (see test/TestServer.ts), after students subscribed through
-// the API. The fake university knows INTRO_TO_CS, full, unless a test says
-// otherwise.
-
 const TITLE = "INTRO TO COMPUTER SCIENCE I"
 const DATA_STRUCTURES = { term: "202702", crn: "12345" } as const
 
-/**
- * A server where each of these students watches INTRO_TO_CS (and so the
- * class is recorded as full), and their signed-in clients. The emails sent
- * so far (codes, confirmations) are cleared.
- */
 const watching = (...emails: Array<string>) =>
   Effect.gen(function*() {
     const server = yield* makeTestServer()
@@ -32,13 +22,11 @@ const watching = (...emails: Array<string>) =>
     return { server, students }
   })
 
-/** Have the university report this many of the class's 60 seats taken. */
 const setEnrolled = (server: TestServer, key: string, enrolled: number) => {
   const known = server.university.classes.get(key)!
   server.university.classes.set(key, { ...known, seats: { enrolled, capacity: 60 } })
 }
 
-/** The recorded state of a class: 1 with a free seat, 0 when full. */
 const recordedVacant = (server: TestServer, term: string, crn: string) =>
   Effect.gen(function*() {
     const sql = yield* server.sql
@@ -46,11 +34,6 @@ const recordedVacant = (server: TestServer, term: string, crn: string) =>
     return rows[0]!.vacant
   })
 
-/**
- * Run the check, and return the SQL of every statement it sent to the
- * database. Effect traces each statement as a span carrying its SQL, so a
- * tracer that keeps the spans sees them all.
- */
 const pollCountingStatements = (server: TestServer) =>
   Effect.gen(function*() {
     const spans: Array<Tracer.NativeSpan> = []
@@ -68,7 +51,6 @@ const pollCountingStatements = (server: TestServer) =>
     })
   })
 
-/** The key in each student's unsubscribe link for INTRO_TO_CS, by address. */
 const unsubscribeKeys = (server: TestServer) =>
   Effect.gen(function*() {
     const sql = yield* server.sql
@@ -80,7 +62,6 @@ const unsubscribeKeys = (server: TestServer) =>
     return new Map(rows.map((row) => [row.email, row.key]))
   })
 
-/** The unsubscribe link in an email. */
 const linkIn = (text: string) => text.match(/https:\/\/api\.test\/unsubscribe\?\S+/)![0]
 
 describe("pollClasses", () => {
@@ -97,7 +78,6 @@ describe("pollClasses", () => {
       for (const email of sent) {
         assert.strictEqual(email.subject, `Seat open: ${TITLE} (CRN 33940)`)
       }
-      // Each link stops its own student's alert, and only that one.
       for (const [index, student] of students.entries()) {
         const email = sent.find((email) => email.to === student.email)!
         const response = yield* Effect.promise(() => server.fetch(linkIn(email.text), { method: "POST" }))
@@ -131,8 +111,6 @@ describe("pollClasses", () => {
 
       assert.deepStrictEqual(server.university.calls.at(-1), "seats 202702/33940")
       assert.deepStrictEqual(server.mailer.sent, [])
-      // D1 allows a run a set number of statements (see poll.ts), so a class
-      // that has not changed must not cost one.
       assert.strictEqual(statements.length, 1)
       assert.match(statements[0]!, /^\s*SELECT term, crn, title, vacant FROM classes/)
     }))
@@ -145,9 +123,6 @@ describe("pollClasses", () => {
       const statements = yield* pollCountingStatements(server)
 
       assert.strictEqual(server.mailer.sent.length, 2)
-      // One statement both records the change and reads who to email, so
-      // nothing can happen between the two (see `recordChange` in poll.ts).
-      // The limits note there counts on it too.
       assert.strictEqual(statements.length, 2)
       assert.match(statements[1]!, /^\s*UPDATE classes SET vacant/)
     }))
@@ -159,12 +134,10 @@ describe("pollClasses", () => {
       server.mailer.sent.length = 0
       setEnrolled(server, "202702/33940", 59)
 
-      // While the run waits for the university, after it read the watch
-      // list, one student stops watching the class and another starts.
       server.university.meanwhile = Effect.gen(function*() {
         yield* students[1]!.api.alerts.unsubscribe({ params: INTRO_TO_CS })
         yield* joining.alerts.subscribe({ payload: INTRO_TO_CS })
-        server.mailer.sent.length = 0 // their confirmation
+        server.mailer.sent.length = 0
       }).pipe(Effect.orDie)
       yield* server.run(pollClasses())
 
@@ -190,9 +163,6 @@ describe("pollClasses", () => {
       const { server } = yield* watching("student@example.com")
       setEnrolled(server, "202702/33940", 59)
 
-      // While this run waits for the university, a second run (the next
-      // minute's, say) checks the class and sends the email. Both read the
-      // class as full before either recorded the change.
       server.university.meanwhile = server.run(pollClasses()).pipe(Effect.orDie)
       yield* server.run(pollClasses())
 
@@ -206,7 +176,6 @@ describe("pollClasses", () => {
       yield* students[0]!.api.alerts.subscribe({ payload: DATA_STRUCTURES })
       server.mailer.sent.length = 0
 
-      // INTRO_TO_CS opens, but the university no longer finds it.
       setEnrolled(server, "202702/33940", 59)
       const intro = server.university.classes.get("202702/33940")!
       server.university.classes.delete("202702/33940")
@@ -217,12 +186,10 @@ describe("pollClasses", () => {
       assert.deepStrictEqual(server.mailer.sent.map((email) => email.subject), ["Seat open: DATA STRUCTURES (CRN 12345)"])
       assert.strictEqual(yield* recordedVacant(server, "202702", "33940"), 0)
       assert.strictEqual((yield* students[0]!.api.alerts.list()).length, 2)
-      // The warning, and which class it is about (as the log's annotations).
       const logged = yield* TestConsole.logLines
       assert.include(logged, "Could not check a class: the university has no class with this CRN in this term")
       assert.deepInclude(logged, { term: "202702", crn: "33940" })
 
-      // Once it loads again, its change is noticed after all.
       server.university.classes.set("202702/33940", intro)
       yield* server.run(pollClasses())
       assert.strictEqual(server.mailer.sent.at(-1)!.subject, `Seat open: ${TITLE} (CRN 33940)`)
@@ -244,8 +211,6 @@ describe("pollClasses", () => {
   it.effect("an outage logs one line per class, with the reason, the term and the CRN", () =>
     Effect.gen(function*() {
       const { server } = yield* watching("student@example.com")
-      // The real University, on a `fetch` that answers every request with
-      // HTTP 503, since the line that says why comes from University.ts.
       const failing = University.layer.pipe(
         Layer.provide(FetchHttpClient.layer),
         Layer.provide(Layer.succeed(FetchHttpClient.Fetch, () => Promise.resolve(new Response("", { status: 503 }))))
@@ -254,8 +219,6 @@ describe("pollClasses", () => {
 
       yield* server.run(pollClasses().pipe(Effect.provide(failing)))
 
-      // Each log line starts with its time and level, as in
-      // "[16:00:00.000] WARN (#43):".
       const logged = (yield* TestConsole.logLines).slice(before)
       const warnings = logged.filter((line) => /^\[[\d:.]+\] (WARN|ERROR)/.test(String(line)))
       assert.strictEqual(warnings.length, 1)
@@ -269,9 +232,7 @@ describe("pollClasses", () => {
       const sql = yield* server.sql
       setEnrolled(server, "202702/33940", 59)
 
-      // The statement that records the change is the check's only query of
-      // `accounts` (it reads the watchers too), so hiding the table makes
-      // that one statement fail, as a database error would.
+      // The change's statement is the check's only query of `accounts`, so hiding the table fails just that one.
       server.university.meanwhile = Effect.orDie(sql`ALTER TABLE accounts RENAME TO hidden_accounts`)
       yield* server.run(pollClasses())
       assert.deepStrictEqual(server.mailer.sent, [])
@@ -292,8 +253,6 @@ describe("pollClasses", () => {
       setEnrolled(server, "202702/33940", 59)
       setEnrolled(server, "202702/12345", 59)
 
-      // The first class asked about, INTRO_TO_CS (recorded first), fails
-      // with a defect, as a bug would.
       server.university.meanwhile = Effect.die(new Error("A bug (in this test)"))
       yield* server.run(pollClasses())
 
@@ -303,7 +262,6 @@ describe("pollClasses", () => {
       assert.isTrue(logged.some((line) => String(line).startsWith("Checking a class failed")))
       assert.deepInclude(logged, { term: "202702", crn: "33940" })
 
-      // It keeps its change for the next run.
       yield* server.run(pollClasses())
       assert.strictEqual(server.mailer.sent.length, 2)
     }))

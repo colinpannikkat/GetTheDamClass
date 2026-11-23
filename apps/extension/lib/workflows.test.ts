@@ -26,43 +26,33 @@ import {
   unsubscribe
 } from "./workflows"
 
-// The workflows run here with a fake Api and the real AccountStore (on WXT's
-// in-memory `browser`). `Layer.mock` builds a service from just the functions
-// a test needs; calling any other function fails the test.
-
 const email = "student@oregonstate.edu"
 const other = "other@oregonstate.edu"
 const token = "student-token"
 const otherToken = "other-token"
 
 const intro: ClassId = { term: "202702", crn: "33940" }
-/** The same CRN in another term: another class. */
 const introInFall: ClassId = { term: "202701", crn: "33940" }
 const ethics: ClassId = { term: "202702", crn: "53476" }
 const deepLearning: ClassId = { term: "202702", crn: "39835" }
 
-/** An alert as the server lists it. */
 const alertFor = (classId: ClassId) => ({ ...classId, title: `CLASS ${classId.crn}` })
 
 const withFakeApi = (fakeApi: Layer.PartialEffectful<Api["Service"]>) =>
   Effect.provide(Layer.mergeAll(Layer.mock(Api, fakeApi), AccountStore.layer))
 
-/** What is saved in the browser right now. */
 const saved = Effect.gen(function*() {
   const store = yield* AccountStore
   return yield* store.get
 })
 
-/** Everything in storage, as the browser holds it. */
 const raw = Effect.promise(() => fakeBrowser.storage.local.get())
 
-/** The classes saved as watched by whoever is signed in now, sorted (storage keeps no order). */
 const watching = Effect.map(saved, (account) => {
   assert.strictEqual(account.status, "signedIn")
   return account.status === "signedIn" ? account.watching.map(({ term, crn }) => `${term}/${crn}`).sort() : []
 })
 
-/** As if this user signed in earlier and already watches these classes. */
 const signedInWatching = (...classes: ReadonlyArray<ClassId>) =>
   Effect.gen(function*() {
     const store = yield* AccountStore
@@ -70,7 +60,6 @@ const signedInWatching = (...classes: ReadonlyArray<ClassId>) =>
     yield* store.watch(email, classes)
   })
 
-/** As if someone else signs in on this browser (in the popup, say). */
 const signedInAs = (someone: string, theirToken: string) =>
   Effect.gen(function*() {
     const store = yield* AccountStore
@@ -84,7 +73,6 @@ beforeEach(() => {
 })
 
 describe("requestCode", () => {
-  /** How many codes the fake server was asked for in the test so far. */
   let sent = 0
   beforeEach(() => {
     sent = 0
@@ -94,14 +82,9 @@ describe("requestCode", () => {
   const emailNotSent = new EmailNotSent({ message: "We couldn't send it." })
   const noAnswer = new NetworkError({ cause: "offline" })
 
-  /**
-   * How a failed `requestCode` ended: why, and which step the form is back
-   * at. (`assert.deepStrictEqual` compares errors by their message only.)
-   */
   const whyNotSent = (error: Effect.Error<ReturnType<typeof requestCode>>) =>
     error._tag === "CodeNotSent" ? [error.reason._tag, error.codeStepFor] : [error._tag]
 
-  /** The fake server: the first code goes out, and every later one fails with `error`. */
   const firstSentThen = (error: CodeNotSent["reason"]) => ({
     sendCode: () => (sent++ === 0 ? Effect.void : Effect.fail(error))
   })
@@ -283,7 +266,6 @@ describe("signOut", () => {
       yield* signedInWatching(intro)
       const pending = yield* Effect.forkChild(signOut())
       yield* Latch.await(asked)
-      // Signed out already, while the server has not answered.
       assert.deepStrictEqual(yield* raw, {})
 
       yield* TestClock.adjust("5 seconds")
@@ -339,7 +321,6 @@ describe("subscribe, unsubscribe and listAlerts", () => {
       assert.strictEqual((yield* Effect.flip(subscribe(intro)))._tag, "NotSignedIn")
       assert.strictEqual((yield* Effect.flip(unsubscribe(intro)))._tag, "NotSignedIn")
       assert.strictEqual((yield* Effect.flip(listAlerts()))._tag, "NotSignedIn")
-      // An empty fake: any call to the server would have failed this test.
     }).pipe(withFakeApi({})))
 
   it.effect("send the saved token, and the class's term and CRN", () => {
@@ -398,8 +379,6 @@ describe("a sign-in the server no longer accepts", () => {
 
   it.effect("forgets the classes saved as watched by that account, and only those: its alerts may be gone", () =>
     Effect.gen(function*() {
-      // Deleted in another browser, then the same address signs in again here:
-      // a new account, with none of the old one's alerts.
       yield* signedInWatching(intro)
       const store = yield* AccountStore
       yield* store.watch(other, [ethics])
@@ -487,8 +466,6 @@ describe("the saved watch list follows what the server says", () => {
 
   it.effect("listAlerts replaces the list with the server's, term and all", () =>
     Effect.gen(function*() {
-      // 33940 in Winter was stopped somewhere else; the same CRN in Fall and
-      // 39835 were added somewhere else.
       yield* signedInWatching(intro, ethics)
       yield* listAlerts()
       assert.deepStrictEqual(yield* watching, ["202701/33940", "202702/39835", "202702/53476"])
@@ -504,11 +481,7 @@ describe("the saved watch list follows what the server says", () => {
     }).pipe(withFakeApi({ listAlerts: () => Effect.succeed([]) })))
 })
 
-// The server can take seconds to answer, and the popup, every open class page
-// and every sign-in frame work on the same storage at once. In these tests the
-// fake server holds its answer back until the test lets it go.
 describe("while the server is still answering", () => {
-  /** A fake call that says when it was asked, then waits to be let go. */
   const heldBack = (asked: Latch.Latch, letGo: Latch.Latch) => Effect.andThen(Latch.open(asked), Latch.await(letGo))
 
   it.effect("subscribe: another account signs in; the class is saved for the account that asked", () => {
@@ -523,9 +496,7 @@ describe("while the server is still answering", () => {
       yield* Latch.open(letGo)
       yield* Fiber.join(pending)
 
-      // The other account does not watch a class it never asked for...
       assert.deepStrictEqual(yield* watching, [])
-      // ...and the one that asked finds it when it signs in again.
       yield* signedInAs(email, token)
       assert.deepStrictEqual(yield* watching, ["202702/33940"])
     }).pipe(withFakeApi({ subscribe: () => Effect.as(heldBack(asked, letGo), alertFor(intro)) }))
@@ -556,7 +527,6 @@ describe("while the server is still answering", () => {
   it.effect("two alerts stopped and one started at the same moment: none of the three is lost", () => {
     const allAsked = Latch.makeUnsafe()
     let calls = 0
-    // Every call waits until the server has all three, so they all finish together.
     const held = Effect.suspend(() => Effect.andThen(++calls === 3 ? Latch.open(allAsked) : Effect.void, Latch.await(allAsked)))
     return Effect.gen(function*() {
       yield* signedInWatching(intro, ethics)
@@ -572,17 +542,13 @@ describe("while the server is still answering", () => {
     const letGo = Latch.makeUnsafe()
     return Effect.gen(function*() {
       yield* signedInWatching(intro, ethics)
-      // The popup opens and asks for the list...
       const pending = yield* Effect.forkChild(listAlerts())
       yield* Latch.await(asked)
 
-      // ...and before the answer is back, a class page starts another alert.
       yield* subscribe(deepLearning)
       yield* Latch.open(letGo)
       yield* Fiber.join(pending)
 
-      // 33940 was saved before and is not on the server's list: gone. 39835
-      // is not on that (older) list either, but was not saved before: kept.
       assert.deepStrictEqual(yield* watching, ["202702/39835", "202702/53476"])
     }).pipe(withFakeApi({
       subscribe: (_token, classId) => Effect.succeed(alertFor(classId)),
@@ -595,16 +561,13 @@ describe("while the server is still answering", () => {
     const letGo = Latch.makeUnsafe()
     return Effect.gen(function*() {
       yield* signedInWatching(intro, ethics)
-      // The popup opens and asks for the list...
       const pending = yield* Effect.forkChild(listAlerts())
       yield* Latch.await(asked)
 
-      // ...and before the answer is back, a class page stops one alert.
       yield* unsubscribe(intro)
       yield* Latch.open(letGo)
       yield* Fiber.join(pending)
 
-      // The server's (older) list still has 33940. It must not come back.
       assert.deepStrictEqual(yield* watching, ["202702/53476"])
     }).pipe(withFakeApi({
       unsubscribe: () => Effect.void,

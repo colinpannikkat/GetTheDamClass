@@ -2,13 +2,10 @@ import { type ComponentProps, useId } from "react"
 import { cx } from "./cx"
 
 export interface TextFieldProps extends Omit<ComponentProps<"input">, "id"> {
-  /** The visible label, linked to the input for screen readers. */
   readonly label: string
-  /** Optional help text under the input. */
   readonly hint?: string
 }
 
-/** A labelled text input. Accepts every prop of `<input>`. */
 export function TextField({ label, hint, className, ...inputProps }: TextFieldProps) {
   const id = useId()
   const hintId = `${id}-hint`

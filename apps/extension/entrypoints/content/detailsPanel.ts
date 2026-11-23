@@ -1,12 +1,5 @@
 /**
- * Finding our way around the class search page (classes.oregonstate.edu).
- *
- * Everything the content script knows about the page's HTML is in this file,
- * so when the university changes its markup this is the place to fix. The
- * functions only read; the files in `fixtures/` are copies of the real page
- * they are tested against (the README says how to refresh them).
- *
- * The page is one long-lived document that slides "panels" in and out:
+ * Everything the content script knows about the page's HTML. The page slides panels in and out:
  *
  *   <main class="panels">                      the stack of panels
  *     <div class="panel panel--kind-root">     search form
@@ -22,58 +15,29 @@
  *           <div class="cart-controls button-bar button-bar--right-align">
  *             <button class="btn">ADD TO CART</button>
  *
- * Three things about it that the code depends on:
- *
- * - There can be several details panels at once. Following a link to another
- *   class from inside a details panel adds a second one and slides the first
- *   aside without removing it. So the CRN is always looked up inside one
- *   panel, never in the whole document.
- * - A details panel is kept while the user moves between sections, but the
- *   head, body and foot inside it are thrown away and built again every time.
- * - The foot, and with it the button bar, is only there when the section can
- *   be added to a cart: not for past terms, and not on the overview of a
- *   class with several sections (which has no CRN either).
+ * There can be several details panels at once, so the CRN is always looked up inside one panel.
+ * Head, body and foot are rebuilt on every section change. The foot exists only when the section
+ * can be added to a cart.
  */
 import { type Crn, Term } from "@getthedamclass/shared/domain"
 import { Option, Schema } from "effect"
 
-/** The element all panels are direct children of, or `null` on any other page. */
 export const findPanelStack = (root: ParentNode): Element | null => root.querySelector("main.panels")
 
-/** Every class-details panel currently in the stack. */
 export const findDetailsPanels = (stack: Element): Array<Element> =>
   Array.from(stack.querySelectorAll(".panel--kind-details"))
 
-/**
- * The bar holding the panel's own buttons (ADD TO CART), or `null` when the
- * panel has none. `.panel__foot` matters: the page also uses `.button-bar`
- * for the buttons of forms and dialogs.
- */
+// `.panel__foot` matters: the page also uses `.button-bar` for the buttons of forms and dialogs.
 export const findButtonBar = (panel: Element): Element | null => panel.querySelector(".panel__foot .button-bar")
 
-/** The CRN of the section a details panel shows right now, if it shows one. */
 export const readCrn = (panel: Element): Option.Option<Crn> =>
   parseCrn(panel.querySelector(".dtl-section")?.textContent ?? "")
 
-/**
- * Find the CRN in the page's section line.
- *
- *   parseCrn("Section 001, CRN 39835")  // Option.some("39835")
- *   parseCrn("Section 001")             // Option.none()
- */
 export const parseCrn = (text: string): Option.Option<Crn> =>
-  // "CRN", then up to three characters that are not digits (a space, ": "),
-  // then the digits we want.
   Option.fromNullishOr(text.match(/\bCRN\D{0,3}(\d+)/i)?.[1])
 
-/**
- * The code of the term that section belongs to ("202702" is Winter 2027), if
- * the panel says. Two places carry it (`srcdb` is the page's name for a term):
- * the section's own row in the "All Sections" table, drawn together with the
- * rest of the panel, and the "copy link" in the panel's head, which the page
- * adds a moment later. Anything but a term code (six digits) counts as not
- * saying.
- */
+// Two places carry it: the section's row in "All Sections", and the head's "copy link", which the
+// page adds a moment later.
 export const readTerm = (panel: Element): Option.Option<Term> =>
   Option.fromNullishOr(
     panel.querySelector(".course-section--viewing")?.getAttribute("data-srcdb")

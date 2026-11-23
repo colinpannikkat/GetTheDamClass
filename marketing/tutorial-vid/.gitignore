@@ -1,3 +1,2 @@
-# The rendered videos are published as a GitHub release, not committed
-# (see ../README.md). `npm run render:*` writes them here.
+# The rendered videos are published as a GitHub release, not committed.
 videos/*.mp4

@@ -4,11 +4,7 @@ import { CHUNKS, STAGES, WORDS } from "./captions"
 import { T } from "./edit"
 import { color, ease, font, FPS, prog } from "./theme"
 
-/** The small pieces both videos use: the backdrop, the icon, headline type, and the captions. */
-
-/* ---------- Backdrop ---------- */
-
-/** The dark canvas: one warm glow that drifts slowly, and a little grain against banding. */
+// The grain is against banding.
 export const Backdrop: React.FC = () => {
   const t = useCurrentFrame() / FPS
   const x = 50 + Math.sin(t * 0.21) * 6
@@ -37,9 +33,6 @@ export const Backdrop: React.FC = () => {
   )
 }
 
-/* ---------- Icon ---------- */
-
-/** The extension's icon on its white tile, as the popup shows it. */
 export const IconTile: React.FC<{ readonly size: number; readonly style?: CSSProperties }> = ({ size, style }) => (
   <div
     style={{
@@ -58,12 +51,6 @@ export const IconTile: React.FC<{ readonly size: number; readonly style?: CSSPro
   </div>
 )
 
-/* ---------- Headline type ---------- */
-
-/**
- * One word that rises out of a mask at time `at` (seconds). The mask is the
- * word's own box, padded so descenders are not cut.
- */
 export const RevealWord: React.FC<{
   readonly at: number
   readonly children: ReactNode
@@ -96,7 +83,6 @@ export const RevealWord: React.FC<{
   )
 }
 
-/** A line of big display type. Children are usually `RevealWord`s. */
 export const Headline: React.FC<{
   readonly size: number
   readonly children: ReactNode
@@ -120,28 +106,18 @@ export const Headline: React.FC<{
   </div>
 )
 
-/* ---------- Captions and the step label ---------- */
-
-/** When each caption line comes in and when it leaves (seconds). */
 const windows = CHUNKS.map((chunk, i) => {
   const start = WORDS[chunk.from]!.s - 0.16
   const lastEnd = WORDS[chunk.to]!.e
   const next = CHUNKS[i + 1]
   const nextStart = next ? WORDS[next.from]!.s - 0.16 : lastEnd + 0.5
-  // A line stays until the next one arrives, unless the pause is long.
   const end = nextStart - lastEnd > 1.1 ? lastEnd + 0.6 : nextStart
-  // The last line leaves with the email card.
   return { start, end: Math.min(end, T.emailOut + 0.1) }
 })
 
-/**
- * The caption under the browser. It never moves: each line sits in the same
- * place, dim at first, and its words light up as they are spoken.
- */
 export const Captions: React.FC<{
   readonly top: number
   readonly size: number
-  /** Set on a narrow canvas: lines wrap, balanced, inside this width. */
   readonly wrapWidth?: number
 }> = ({ top, size, wrapWidth }) => {
   const frame = useCurrentFrame()
@@ -157,7 +133,6 @@ export const Captions: React.FC<{
         const { start, end } = windows[i]!
         if (t < start - 0.05 || t > end + 0.3) return null
         const enter = prog(frame, start, start + 0.3, ease.out)
-        // Gone just before the next line arrives, so two lines never overlap.
         const exit = prog(frame, end - 0.17, end - 0.02, ease.in)
         const words = WORDS.slice(chunk.from, chunk.to + 1)
         return (
@@ -200,7 +175,6 @@ export const Captions: React.FC<{
   )
 }
 
-/** The small line above the caption: three bars and the name of the step. */
 export const StageLabel: React.FC<{ readonly top: number; readonly size: number }> = ({ top, size }) => {
   const frame = useCurrentFrame()
   const t = frame / FPS

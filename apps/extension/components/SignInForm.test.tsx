@@ -13,10 +13,6 @@ import { SignInForm } from "./SignInForm"
 const email = "student@oregonstate.edu"
 const token = "student-token"
 
-/**
- * The form the way the popup and the sign-in frame use it: started from what
- * is saved. Storage is WXT's in-memory `browser`.
- */
 function SavedSignInForm({ autoFocus, onSignedIn }: { readonly autoFocus: boolean; readonly onSignedIn?: () => void }) {
   const account = useAccount()
   if (account.status !== "signedOut") {
@@ -27,11 +23,6 @@ function SavedSignInForm({ autoFocus, onSignedIn }: { readonly autoFocus: boolea
   )
 }
 
-/**
- * Render the form with a fake server, and wait for its first field. Like the
- * frame, it asks for the keyboard; `{ autoFocus: false }` renders it the way
- * the popup does.
- */
 async function renderForm(
   fakeApi: Layer.PartialEffectful<Api["Service"]>,
   onSignedIn?: () => void,
@@ -60,14 +51,11 @@ function enterCode(typed: string) {
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }))
 }
 
-/** As if a code was asked for this many minutes ago (in the popup, which was then closed). */
 const askedMinutesAgo = (minutes: number) =>
   fakeBrowser.storage.local.set({ codeRequest: { email, requestedAt: Date.now() - minutes * 60_000 } })
 
-/** The text of every error message on screen. */
 const errors = () => screen.getAllByRole("alert").map((alert) => alert.textContent).join("")
 
-/** Wait a moment, before checking that something did NOT happen. */
 const settled = () => new Promise((resolve) => setTimeout(resolve, 20))
 
 beforeEach(() => {
@@ -102,7 +90,6 @@ describe("the email step", () => {
 
     askForCode(email)
 
-    // The hint changes once the server has answered.
     await screen.findByText(`Check ${email} for the code. It works for 15 minutes.`)
     await settled()
     expect(screen.queryByText(`We sent a new code to ${email}.`)).toBeNull()
@@ -134,9 +121,6 @@ describe("the email step", () => {
   })
 
   it("moves to the code step, and shows the server's sentence there, when a code went to this address less than a minute ago", async () => {
-    // That code may be in the inbox (asked for in the popup, which was closed
-    // before the answer came), or already used, in which case no email is
-    // coming: the sentence says why, and when to ask again.
     const sentence =
       "A code went to this address less than a minute ago. Please wait a minute before asking for another."
     await renderForm({ sendCode: () => Effect.fail(new CodeRecentlySent({ message: sentence })) })
@@ -253,15 +237,11 @@ describe("the code step", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send a new code" }))
 
     expect(await screen.findByText(sentence)).toBeDefined()
-    // Still at the code step, with what was typed: the earlier code works,
-    // for 15 minutes from when it was asked for.
     expect(codeField().value).toBe("012345")
     expect(await fakeBrowser.storage.local.get()).toEqual(before)
   })
 
   it("goes back to the email step, with the server's sentence and the address, when the new code's email could not be sent", async () => {
-    // The server replaced the earlier code before the email failed, and then
-    // forgot the new one: no code works for this address any more.
     await askedMinutesAgo(2)
     await renderForm({ sendCode: () => Effect.fail(new EmailNotSent({ message: "We couldn't send the email." })) })
 
@@ -275,8 +255,6 @@ describe("the code step", () => {
   it("shows why a new code failed on the email step, when the form was left open past the code's 15 minutes", async () => {
     await askedMinutesAgo(14)
     await renderForm({ sendCode: () => Effect.fail(new NetworkError({ cause: "offline" })) })
-    // Two minutes on: nothing has read the saved request since, so the form
-    // still shows its code step.
     const later = Date.now() + 2 * 60_000
     vi.spyOn(Date, "now").mockReturnValue(later)
 
@@ -288,8 +266,6 @@ describe("the code step", () => {
   })
 
   it("lets a late refusal of a new code change nothing once the student went on to a different email", async () => {
-    // The server is asked once the new request is saved, and answers when
-    // the test says.
     let asked = () => {}
     const serverAsked = new Promise<void>((resolve) => (asked = resolve))
     let refuse = () => {}
@@ -360,7 +336,6 @@ describe("the code step", () => {
 describe("closed and opened again", () => {
   it("opens at the code step for the address typed, while the code still works, with the keyboard in its field", async () => {
     await askedMinutesAgo(14)
-    // The popup does not ask for the keyboard; the code step takes it all the same.
     await renderForm({}, undefined, { autoFocus: false })
     expect(codeField()).toBeDefined()
     expect(screen.getByText(`Check ${email} for the code. It works for 15 minutes.`)).toBeDefined()
@@ -368,8 +343,6 @@ describe("closed and opened again", () => {
   })
 
   it("opens at the code step when it was closed before the server answered", async () => {
-    // The student switched to their inbox straight away, and the browser
-    // closed the popup, and everything running in it, before the answer came.
     const view = await renderForm({ sendCode: () => Effect.never })
     askForCode(email)
     await settled()

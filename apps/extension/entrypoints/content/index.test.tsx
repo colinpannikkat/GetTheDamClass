@@ -8,25 +8,17 @@ import springPage from "./fixtures/spring-2027-section.html?raw"
 import winterPage from "./fixtures/winter-2027-section.html?raw"
 import contentScript from "./index"
 
-// These tests start the content script on a fixture page and then change the
-// page the way the real one does. `NotifyControl.test.tsx` covers what the
-// control itself does. The fixtures are a Winter 2027 and a Spring 2027
-// section.
-
 const HOST = "getthedamclass-notify"
 
 let ctx: ContentScriptContext
-/** Every request the script sent to the server, with its token and JSON body. */
 let serverRequests: Array<{
   readonly method: string
   readonly path: string
   readonly authorization: string | null
   readonly body: unknown
 }>
-/** What the fake server answers a subscribe with. Default: the alert. */
 let subscribeReply: (body: { readonly term: string; readonly crn: string }) => Response
 
-/** Load a fixture, start the script, and wait for the first control. */
 async function startOn(pageHtml: string) {
   document.body.innerHTML = pageHtml
   ctx = new ContentScriptContext("content", { matches: [], cssInjectionMode: "ui" })
@@ -37,28 +29,22 @@ async function startOn(pageHtml: string) {
 
 const hostCount = () => document.querySelectorAll(HOST).length
 
-/** What our control shows in a panel, read through its shadow root. */
 const shadow = (panel: Element) => panel.querySelector(HOST)?.shadowRoot
 const button = (panel: Element) => shadow(panel)?.querySelector("button") ?? null
 const buttonText = (panel: Element) => button(panel)?.textContent
 const dialog = (panel: Element) => shadow(panel)?.querySelector("[role=dialog]") ?? null
 const messageText = (panel: Element) => shadow(panel)?.querySelector("[role=alert] p")?.textContent
 
-/** Let the observer and React catch up, before checking that something did NOT happen. */
 const settled = () => new Promise((resolve) => setTimeout(resolve, 20))
 
 interface Shown {
-  /** The section line, or `null` for the overview of a class. */
   readonly section: string | null
-  /** The term of the section's row in "All Sections", or `null` for no row. Default: Winter 2027. */
   readonly term?: string | null
   readonly foot: boolean
 }
 
-/** The section's row in "All Sections", which says which term it belongs to. */
 const sectionRowHtml = (term: string) => `<a class="course-section course-section--viewing" data-srcdb="${term}"></a>`
 
-/** The head, body and foot of a details panel, the way the page builds them. */
 const contentHtml = ({ section, term = "202702", foot }: Shown) => `
   <div class="panel__head"><h2>CS 161</h2></div>
   <div class="panel__body">
@@ -72,7 +58,6 @@ const contentHtml = ({ section, term = "202702", foot }: Shown) => `
     : ""
 }`
 
-/** Redraw a details panel the way the page does: throw away its head, body and foot, and build new ones. */
 function redraw(panel: Element, shown: Shown) {
   panel.querySelector(".panel__content")!.innerHTML = contentHtml(shown)
 }
@@ -112,7 +97,6 @@ describe("content script", () => {
     const panel = await startOn(winterPage)
     expect(panel.querySelector(HOST)?.nextElementSibling).toBe(findButtonBar(panel))
     await expect.poll(() => buttonText(panel)).toBe("Notify me")
-    // The page's own bar is left exactly as it was.
     expect(findButtonBar(panel)!.children).toHaveLength(1)
     expect(serverRequests).toEqual([])
   })
@@ -121,7 +105,7 @@ describe("content script", () => {
     const panel = await startOn(winterPage)
 
     redraw(panel, { section: "Section 400, CRN 51625", foot: true })
-    expect(hostCount()).toBe(0) // The page threw ours away with the old foot.
+    expect(hostCount()).toBe(0)
     await expect.poll(() => panel.querySelector(HOST)?.nextElementSibling).toBe(findButtonBar(panel))
 
     redraw(panel, { section: "Section 401, CRN 53476", foot: true })
@@ -132,8 +116,6 @@ describe("content script", () => {
   it("adds the control again when the page replaces more of the panel than its head, body and foot", async () => {
     const panel = await startOn(winterPage)
 
-    // Not what the page does today, but nothing here should depend on which
-    // element inside the panel the page chooses to rebuild.
     panel.innerHTML = `<div class="panel__content">${contentHtml({ section: "Section 400, CRN 51625", foot: true })}</div>`
     expect(hostCount()).toBe(0)
 
@@ -144,11 +126,11 @@ describe("content script", () => {
   it("shows nothing when the panel has no button bar or no CRN, and comes back when it has both", async () => {
     const panel = await startOn(winterPage)
 
-    redraw(panel, { section: "Section 400, CRN 70742", term: "202700", foot: false }) // a past term
+    redraw(panel, { section: "Section 400, CRN 70742", term: "202700", foot: false })
     await settled()
     expect(hostCount()).toBe(0)
 
-    redraw(panel, { section: null, term: null, foot: true }) // a class overview: no section chosen
+    redraw(panel, { section: null, term: null, foot: true })
     await settled()
     expect(hostCount()).toBe(0)
 
@@ -174,8 +156,6 @@ describe("content script", () => {
     await expect.poll(() => buttonText(panel)).toBe("Notify me")
     const buttonBefore = button(panel)
 
-    // Not what the page does today (it always rebuilds the foot too), but if
-    // it ever keeps the bar, the control must not carry over to the new section.
     panel.querySelector(".dtl-section")!.textContent = "Section 400, CRN 51625"
 
     await expect.poll(() => button(panel) !== null && button(panel) !== buttonBefore).toBe(true)
@@ -188,7 +168,6 @@ describe("content script", () => {
     await expect.poll(() => buttonText(panel)).toBe("Notify me")
     const buttonBefore = button(panel)
 
-    // The real page adds its "copy link" button to the head a moment after drawing the panel.
     panel.querySelector(".panel__head")!.insertAdjacentHTML("beforeend", `<a class="deep-link" href="#">link</a>`)
     await settled()
 
@@ -200,10 +179,9 @@ describe("content script", () => {
     const panel = await startOn(winterPage)
     const host = panel.querySelector(HOST)!
 
-    panel.remove() // the user pressed Back
+    panel.remove()
 
     expect(hostCount()).toBe(0)
-    // Not just gone with the panel: taken out and unmounted.
     await expect.poll(() => host.isConnected || host.parentElement !== null).toBe(false)
   })
 
@@ -228,7 +206,6 @@ describe("content script", () => {
 })
 
 describe("content script, terms", () => {
-  /** Signed in, press "Notify me" on the panel, and wait for "Watching". */
   async function subscribeOn(panel: Element) {
     await expect.poll(() => buttonText(panel)).toBe("Notify me")
     button(panel)!.click()
@@ -267,7 +244,6 @@ describe("content script, terms", () => {
     const panel = await startOn(winterPage)
     await subscribeOn(panel)
 
-    // The page moves to the same CRN in Spring.
     redraw(panel, { section: "Section 400, CRN 33940", term: "202703", foot: true })
 
     await expect.poll(() => buttonText(panel)).toBe("Notify me")
@@ -282,10 +258,8 @@ describe("content script, terms", () => {
     await fakeBrowser.storage.local.set(student)
     const panel = await startOn(winterPage)
 
-    // The section and ADD TO CART are there; what names the term is not (yet).
     redraw(panel, { section: "Section 400, CRN 33940", term: null, foot: true })
     await settled()
-    // No button: a CRN alone does not say which class it is.
     expect(hostCount()).toBe(0)
     expect(serverRequests).toEqual([])
 
@@ -314,17 +288,12 @@ describe("content script, terms", () => {
 })
 
 describe("content script, signing in from the page", () => {
-  /** Press "Notify me" while signed out, and wait for the sign-in popover. */
   async function pressSignedOut(panel: Element) {
     await expect.poll(() => buttonText(panel)).toBe("Notify me")
     button(panel)!.click()
     await expect.poll(() => dialog(panel)).not.toBeNull()
   }
 
-  /**
-   * What the framed sign-in page does once the server has accepted the code:
-   * save the sign-in, then tell the page around it (and nothing more).
-   */
   async function finishSignIn(frame: Window | null) {
     await fakeBrowser.storage.local.set(student)
     window.dispatchEvent(
@@ -355,17 +324,14 @@ describe("content script, signing in from the page", () => {
 
   it("drops the request when the panel has moved on to another section before the sign-in finishes", async () => {
     const panel = await startOn(winterPage)
-    await pressSignedOut(panel) // for CRN 33940
+    await pressSignedOut(panel)
     const frame = frameOf(panel)
 
-    // The sign-in is still on its way when the user picks another section.
     redraw(panel, { section: "Section 010, CRN 12345", foot: true })
     await expect.poll(() => buttonText(panel)).toBe("Notify me")
     await finishSignIn(frame)
     await settled()
 
-    // Nothing was subscribed: not the section left behind, and above all not
-    // the one that happens to be on screen now.
     expect(serverRequests).toEqual([])
     expect(buttonText(panel)).toBe("Notify me")
     expect(dialog(panel)).toBeNull()
@@ -375,7 +341,6 @@ describe("content script, signing in from the page", () => {
     const panel = await startOn(winterPage)
     await pressSignedOut(panel)
 
-    // The toolbar popup, or another tab, saved a sign-in. Nobody used our form.
     await fakeBrowser.storage.local.set(student)
     await settled()
 

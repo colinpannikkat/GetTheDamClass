@@ -5,15 +5,8 @@ import { T } from "./edit"
 import { color, ease, f, font, FPS, prog } from "./theme"
 import { Walkthrough, type WalkLayout } from "./Walkthrough"
 
-/**
- * The vertical video (1080 x 1920, for Shorts, Reels and TikTok). It plays the
- * same takes at the same times as the horizontal one (see edit.ts);
- * only the framing differs. The footage shows through a near-square window, so the
- * camera sits closer and follows one panel at a time.
- *
- * Apps draw their own interface over the top ~250 px, the bottom ~400 px and
- * the lower right edge, so everything that matters stays between.
- */
+// Apps draw their own interface over the top ~250 px, the bottom ~400 px and the lower right edge,
+// so everything that matters stays between.
 export const V = {
   width: 1080,
   height: 1920,
@@ -23,26 +16,25 @@ export const V = {
   captionTop: 1354
 }
 
-/** The camera. Times are seconds in the finished video; positions are footage points. */
 const CAMERA = [
-  { t: 6.65, dur: 0.75, x: 292, y: 150, s: 2.4 }, // the address bar
-  { t: 8.02, dur: 0.68, x: 240, y: 330, s: 1.9 }, // the site, at its search panel
-  { t: 8.75, dur: 0.6, x: 175, y: 340, s: 2.5 }, // the keyword and the term
-  { t: 10.98, dur: 0.5, x: 175, y: 400, s: 2.5 }, // down to Search
-  { t: 11.5, dur: 0.45, x: 432, y: 330, s: 1.75 }, // the results
-  { t: 12.25, dur: 0.65, x: 1000, y: 330, s: 1.5 }, // the course details
+  { t: 6.65, dur: 0.75, x: 292, y: 150, s: 2.4 },
+  { t: 8.02, dur: 0.68, x: 240, y: 330, s: 1.9 },
+  { t: 8.75, dur: 0.6, x: 175, y: 340, s: 2.5 },
+  { t: 10.98, dur: 0.5, x: 175, y: 400, s: 2.5 },
+  { t: 11.5, dur: 0.45, x: 432, y: 330, s: 1.75 },
+  { t: 12.25, dur: 0.65, x: 1000, y: 330, s: 1.5 },
   { t: 12.9, dur: 0.95, x: 1000, y: 334, s: 1.55 },
-  { t: 13.85, dur: 1.45, x: 1000, y: 480, s: 1.55 }, // down to All Sections
-  { t: 15.6, dur: 0.7, x: 962, y: 446, s: 1.9 }, // the rows
-  { t: 16.5, dur: 0.75, x: 985, y: 340, s: 1.6 }, // back to the top of the panel
-  { t: 17.85, dur: 0.7, x: 892, y: 215, s: 2.2 }, // "Section 020, CRN 33846"
+  { t: 13.85, dur: 1.45, x: 1000, y: 480, s: 1.55 },
+  { t: 15.6, dur: 0.7, x: 962, y: 446, s: 1.9 },
+  { t: 16.5, dur: 0.75, x: 985, y: 340, s: 1.6 },
+  { t: 17.85, dur: 0.7, x: 892, y: 215, s: 2.2 },
   { t: 18.55, dur: 1.3, x: 892, y: 215, s: 2.28 },
-  { t: 19.85, dur: 0.9, x: 880, y: 650, s: 2.0 }, // Notify me
-  { t: 21.3, dur: 0.5, x: 872, y: 640, s: 2.6 }, // the sign-in form
-  { t: 25.1, dur: 0.8, x: 884, y: 770, s: 2.5 }, // Watching
+  { t: 19.85, dur: 0.9, x: 880, y: 650, s: 2.0 },
+  { t: 21.3, dur: 0.5, x: 872, y: 640, s: 2.6 },
+  { t: 25.1, dur: 0.8, x: 884, y: 770, s: 2.5 },
   { t: 25.9, dur: 2.65, x: 884, y: 770, s: 2.62 },
-  { t: 28.55, dur: 0.95, x: 1290, y: 200, s: 2.0 }, // up to the toolbar
-  { t: 30.5, dur: 0.7, x: 1223, y: 215, s: 2.6 }, // the popup
+  { t: 28.55, dur: 0.95, x: 1290, y: 200, s: 2.0 },
+  { t: 30.5, dur: 0.7, x: 1223, y: 215, s: 2.6 },
   { t: 31.2, dur: 3.2, x: 1223, y: 215, s: 2.7 }
 ]
 
@@ -53,8 +45,6 @@ const TALL: WalkLayout = {
   pointer: 52
 }
 
-/* ---------- The intro ---------- */
-
 const at = (i: number) => WORDS[i]!.s - 0.07
 
 const exitStyle = (frame: number, from: number, to: number) => {
@@ -62,12 +52,10 @@ const exitStyle = (frame: number, from: number, to: number) => {
   return { opacity: 1 - p, transform: `translateY(${-60 * p}px) scale(${1 - 0.03 * p})` }
 }
 
-/** Type scenes sit a little above the middle, where a phone's eye line is and apps draw nothing. */
 const stage = { alignItems: "center", justifyContent: "center", paddingBottom: 150 } as const
 
 const SIZE = 156
 
-/** 0.0 - 2.78  "Tired of not getting the class you want?" */
 const Hook: React.FC = () => {
   const frame = useCurrentFrame()
   const chip = prog(frame, 0.02, 0.5)
@@ -118,7 +106,6 @@ const Hook: React.FC = () => {
   )
 }
 
-/** 2.75 - 4.14  "Install the extension" */
 const Install: React.FC = () => {
   const frame = useCurrentFrame()
   const pop = spring({ frame: frame - f(2.74), fps: FPS, config: { damping: 14, stiffness: 170, mass: 0.7 } })
@@ -172,7 +159,6 @@ const Install: React.FC = () => {
   )
 }
 
-/** 4.0 - 6.3  "and you only have three easy steps left." */
 const ThreeSteps: React.FC = () => {
   const frame = useCurrentFrame()
   const three = spring({ frame: frame - f(at(15) - 0.02), fps: FPS, config: { damping: 13, stiffness: 190, mass: 0.8 } })
@@ -233,17 +219,11 @@ const Intro: React.FC = () => {
   )
 }
 
-/* ---------- The email card ---------- */
-
 const WIDTH = 944
 const HEAD = 330
 const BODY = 486
 
-/**
- * 32.2 - 35.5  "and you will get an email the moment a seat opens."
- * The server's real seat-opened email (apps/server/src/emails.ts), as in the
- * horizontal video, laid out for a narrow screen: the subject takes two lines.
- */
+// The server's real seat-opened email (apps/server/src/emails.ts), laid out for a narrow screen.
 const EmailScene: React.FC = () => {
   const frame = useCurrentFrame()
   if (frame < f(T.emailIn) || frame > f(T.emailOut + 0.4)) return null
@@ -254,7 +234,6 @@ const EmailScene: React.FC = () => {
   const ping = prog(frame, T.emailIn + 0.3, T.emailIn + 1.0, ease.out)
 
   const height = HEAD + BODY * open
-  // Centred on the browser window behind it, whether closed or open.
   const top = V.frame.y + (V.frame.h - height) / 2
 
   return (
@@ -346,10 +325,7 @@ const EmailScene: React.FC = () => {
   )
 }
 
-/* ---------- The end card ---------- */
 
-
-/** 35.6 - 37.2  "What are you waiting for?" */
 const Question: React.FC = () => {
   const frame = useCurrentFrame()
   if (frame > f(T.lockupIn + 0.1)) return null
@@ -408,7 +384,6 @@ const nameLine = {
   whiteSpace: "nowrap"
 } as const
 
-/** 37.2 - end  "Get the Dam Class!", held through the music. */
 const Lockup: React.FC = () => {
   const frame = useCurrentFrame()
   if (frame < f(T.lockupIn - 0.05)) return null
@@ -483,9 +458,6 @@ const Outro: React.FC = () => {
   )
 }
 
-/* ---------- The video ---------- */
-
-/** The name above the browser, so a viewer who lands mid-video knows what this is. */
 const BrandChip: React.FC = () => {
   const frame = useCurrentFrame()
   const on = prog(frame, T.windowIn + 0.2, T.windowIn + 0.7) * (1 - prog(frame, T.emailOut - 0.05, T.emailOut + 0.2, ease.in))

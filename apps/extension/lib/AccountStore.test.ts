@@ -5,30 +5,19 @@ import { fakeBrowser } from "wxt/testing/fake-browser"
 import { AccountStore, type CodeRequest, type Saved } from "./AccountStore"
 import type { ClassId } from "./domain"
 
-// In tests, WXT swaps the extension API for `fakeBrowser`, an in-memory copy
-// of it (see vitest.config.ts). So this exercises the real AccountStore
-// against a fake `chrome.storage`.
-//
-// `it.effect` runs on a test clock that starts at 0 (1970), so "now" is 0
-// until a test moves it forward.
-
 const email = "student@oregonstate.edu"
 const other = "other@oregonstate.edu"
 const token = "token-of-this-browser"
 const intro = { term: "202702", crn: "33940" }
-/** The same CRN in another term: another class. */
 const introInFall = { term: "202701", crn: "33940" }
 const ethics = { term: "202702", crn: "53476" }
 
-/** Run an effect that uses the store. */
 const withStore = <A, E, R>(effect: Effect.Effect<A, E, R | AccountStore>) =>
   effect.pipe(Effect.provide(AccountStore.layer))
 
-/** Put something straight into storage, the way another part of the extension (or an older version) would. */
 const setRaw = (items: Record<string, unknown>) => Effect.promise(() => fakeBrowser.storage.local.set(items))
 const raw = Effect.promise(() => fakeBrowser.storage.local.get())
 
-/** What is saved, with the watch list sorted (storage keeps no order). */
 const saved = Effect.gen(function*() {
   const store = yield* AccountStore
   const value: Saved = yield* store.get
@@ -37,7 +26,6 @@ const saved = Effect.gen(function*() {
     : value
 }).pipe(Effect.map((value): Saved => value))
 
-/** What `get` gives for `student@...` signed in with `token`. */
 const signedIn = (watching: ReadonlyArray<ClassId> = []): Extract<Saved, { status: "signedIn" }> => ({
   status: "signedIn",
   email,
@@ -46,7 +34,6 @@ const signedIn = (watching: ReadonlyArray<ClassId> = []): Extract<Saved, { statu
   codeRequest: undefined
 })
 
-/** What `get` gives for nobody signed in. */
 const signedOut = (fields: { readonly email?: string; readonly codeRequest?: CodeRequest } = {}): Saved => ({
   status: "signedOut",
   email: fields.email,
@@ -318,7 +305,6 @@ describe("watch and unwatch", () => {
       yield* store.save(email, token)
       yield* store.watch(email, [intro, ethics])
 
-      // The popup stops two alerts while a class page starts a third.
       yield* Effect.all([
         store.unwatch(email, [intro]),
         store.unwatch(email, [ethics]),
@@ -330,14 +316,9 @@ describe("watch and unwatch", () => {
 })
 
 describe("changes", () => {
-  /**
-   * Follow `changes` in the background and collect what it emits in a queue,
-   * so a test can wait for "the next value" with `Queue.take`.
-   */
   const startFollowing = Effect.gen(function*() {
     const store = yield* AccountStore
     const seen = yield* Queue.unbounded<Saved>()
-    // `forkScoped`: run in the background until the test ends.
     yield* Effect.forkScoped(Stream.runForEach(store.changes, (value) => Queue.offer(seen, value)))
     return { store, seen }
   })
@@ -373,15 +354,12 @@ describe("changes", () => {
       const { seen } = yield* startFollowing
       assert.deepStrictEqual(yield* Queue.take(seen), signedOut())
 
-      // Not through this store: what a sign-in in the popup, or in the
-      // sign-in frame, looks like from the "Notify me" control.
       yield* setRaw({ email, token })
       assert.deepStrictEqual(yield* Queue.take(seen), signedIn())
     })))
 
   it.effect("stops listening when nobody follows any more", () =>
     Effect.gen(function*() {
-      // `Effect.scoped` ends the background follower when the block finishes.
       yield* Effect.scoped(withStore(Effect.gen(function*() {
         const { seen } = yield* startFollowing
         yield* Queue.take(seen)

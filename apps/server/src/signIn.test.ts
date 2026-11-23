@@ -5,13 +5,8 @@ import { TestClock, TestConsole } from "effect/testing"
 import { INTRO_TO_CS, makeTestServer, PUBLIC_URL, type TestServer } from "../test/TestServer"
 import { pollClasses } from "./poll"
 
-// These tests go through the API, with the typed client from
-// packages/shared, against the whole server in this process (see
-// test/TestServer.ts). The code is read from the email the server "sent".
-
 const email = "student@oregonstate.edu"
 
-/** A code that is surely not the right one. */
 const wrongCodeFor = (code: string) => String((Number(code) + 1) % 1_000_000).padStart(6, "0")
 
 describe("sendCode", () => {
@@ -31,8 +26,6 @@ describe("sendCode", () => {
   it.effect("sends to the address trimmed and in lower case", () =>
     Effect.gen(function*() {
       const server = yield* makeTestServer()
-      // A plain request, because the typed client only sends addresses it
-      // has already cleaned up this way (with `EmailAddress`).
       const response = yield* Effect.promise(() =>
         server.fetch(`${PUBLIC_URL}/sign-in/code`, {
           method: "POST",
@@ -79,7 +72,6 @@ describe("sendCode", () => {
       yield* server.signIn(email)
       const error = yield* Effect.flip(api.signIn.sendCode({ payload: { email } }))
       assert.strictEqual(error._tag, "CodeRecentlySent")
-      // The code in their inbox is used up, so the sentence must not send them there.
       assert.notInclude(error.message, "inbox")
       yield* TestClock.adjust("1 minute")
       yield* api.signIn.sendCode({ payload: { email } })
@@ -102,7 +94,6 @@ describe("sendCode", () => {
       const error = yield* Effect.flip(api.signIn.sendCode({ payload: { email } }))
       assert.strictEqual(error._tag, "EmailNotSent")
       assert.match(error.message, /try again/)
-      // The student is not told why; the log says, for whoever runs the server.
       const logged = (yield* TestConsole.logLines).join(" ")
       assert.include(logged, "Could not send a sign-in code")
       assert.include(logged, "Sender address not verified")
@@ -125,12 +116,6 @@ describe("sendCode", () => {
 })
 
 describe("sendCode, when the request is dropped while the email is being sent", () => {
-  // As when the extension's popup closes the moment the student switches to
-  // their inbox. The server must not stop between storing the code and
-  // sending it (or forgetting it, if the email fails): it would then hold a
-  // code nobody received, and refuse another for a minute.
-
-  /** Ask for a code, drop the request while the mailer is sending, and wait for the server to finish. */
   const askAndDrop = (server: TestServer) =>
     Effect.gen(function*() {
       const sending = Latch.makeUnsafe()
@@ -175,7 +160,6 @@ describe("sendCode, when the request is dropped while the email is being sent", 
 describe("sendCode, past the day's cap on sign-in emails", () => {
   const TOO_MANY = "Too many sign-in emails were sent today. Please try again tomorrow."
 
-  /** Ask for a code, and return "sent", or the error's tag. */
   const ask = (server: TestServer, address: string) =>
     Effect.gen(function*() {
       const api = yield* server.client()
@@ -185,7 +169,6 @@ describe("sendCode, past the day's cap on sign-in emails", () => {
       )
     })
 
-  /** The sign-in codes stored, by address. */
   const storedCodes = (server: TestServer) =>
     Effect.gen(function*() {
       const sql = yield* server.sql
@@ -210,7 +193,6 @@ describe("sendCode, past the day's cap on sign-in emails", () => {
       const server = yield* makeTestServer({ signInEmailsPerDay: 1 })
       assert.strictEqual(yield* ask(server, "a@example.com"), "sent")
       const code = server.lastCode("a@example.com")
-      // Past the minute, so only the cap stands in the way of a new code.
       yield* TestClock.adjust("2 minutes")
       assert.strictEqual(yield* ask(server, "a@example.com"), "EmailNotSent")
       const api = yield* server.client()
@@ -243,13 +225,9 @@ describe("sendCode, past the day's cap on sign-in emails", () => {
       yield* ask(server, "a@example.com")
       assert.strictEqual(yield* ask(server, "b@example.com"), "EmailNotSent")
 
-      // Ten seconds before midnight UTC (still the afternoon of the same day
-      // in Oregon): still refused.
       yield* TestClock.setTime(Date.parse("2026-11-19T23:59:50Z"))
       assert.strictEqual(yield* ask(server, "b@example.com"), "EmailNotSent")
 
-      // Midnight UTC, less than a minute after the refusal: the code goes
-      // out, and it works.
       yield* TestClock.setTime(Date.parse("2026-11-20T00:00:00Z"))
       assert.strictEqual(yield* ask(server, "b@example.com"), "sent")
       const api = yield* server.client()
@@ -266,7 +244,6 @@ describe("sendCode, past the day's cap on sign-in emails", () => {
       assert.strictEqual(results.filter((result) => result === "sent").length, 1)
       assert.strictEqual(results.filter((result) => result === "EmailNotSent").length, 9)
       assert.strictEqual(server.mailer.sent.length, 3)
-      // Only the address that got its email keeps a code.
       assert.strictEqual((yield* storedCodes(server)).length, 3)
     }))
 
@@ -276,7 +253,6 @@ describe("sendCode, past the day's cap on sign-in emails", () => {
       for (const address of ["a@example.com", "b@example.com", "c@example.com", "d@example.com"]) {
         yield* ask(server, address)
       }
-      // Each log line comes as its parts: the time and level, the message, the data.
       const logged = yield* TestConsole.logLines
       const reached = logged.flatMap((part, i) =>
         String(part).includes("Reached the day's cap on sign-in emails") ? [logged[i - 1]] : []
@@ -382,8 +358,7 @@ describe("signIn", () => {
       const api = yield* server.client()
       yield* api.signIn.sendCode({ payload: { email } })
       const code = server.lastCode(email)
-      // The requests reach the server in this order, so the right code is
-      // the eleventh try. Checking codes before counting them would let it in.
+      // The requests reach the server in this order, so the right code is the eleventh try.
       const guesses = [...Array.from({ length: 10 }, () => wrongCodeFor(code)), code]
       const errors = yield* Effect.all(
         guesses.map((guess) => Effect.flip(api.signIn.signIn({ payload: { email, code: guess } }))),

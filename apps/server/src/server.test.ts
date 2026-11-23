@@ -2,11 +2,6 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { makeTestServer, PUBLIC_URL } from "../test/TestServer"
 
-// What a browser sees when the extension calls the server from another
-// origin: from its own pages, and from its content script on the class
-// search. The extension has no host permissions, so these are ordinary
-// cross-origin requests to the browser.
-
 const origins = ["chrome-extension://abcdefghijklmnopabcdefghijklmnop", "https://classes.oregonstate.edu"]
 
 describe("CORS", () => {

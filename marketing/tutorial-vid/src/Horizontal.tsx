@@ -5,11 +5,6 @@ import { T } from "./edit"
 import { color, ease, f, font, FOOTAGE, FPS, prog } from "./theme"
 import { Walkthrough, type WalkLayout } from "./Walkthrough"
 
-/**
- * The horizontal video (1920 x 1080, for YouTube and anywhere with a landscape
- * player). The whole Chrome window fits, at half the recording's pixels, with
- * the caption under it.
- */
 export const H = {
   width: 1920,
   height: 1080,
@@ -18,26 +13,25 @@ export const H = {
   captionTop: 964
 }
 
-/** The camera. Times are seconds in the finished video; positions are footage points. */
 const CAMERA = [
-  { t: 6.65, dur: 0.75, x: 330, y: 150, s: 2.0 }, // the address bar
-  { t: 8.02, dur: 0.68, x: 768, y: 432, s: 1.0 }, // the whole site
-  { t: 8.75, dur: 0.6, x: 175, y: 340, s: 2.1 }, // the search panel
-  { t: 10.98, dur: 0.5, x: 175, y: 400, s: 2.1 }, // follow it down to Search
-  { t: 11.5, dur: 0.6, x: 380, y: 330, s: 1.75 }, // the results
-  { t: 12.25, dur: 0.65, x: 960, y: 330, s: 1.5 }, // the course details
-  { t: 12.9, dur: 0.95, x: 960, y: 334, s: 1.54 }, // (a slow drift while it is read)
-  { t: 13.85, dur: 1.45, x: 1050, y: 470, s: 1.62 }, // down to All Sections
-  { t: 15.6, dur: 0.7, x: 1010, y: 440, s: 2.0 }, // the rows
-  { t: 16.5, dur: 0.75, x: 1000, y: 300, s: 1.7 }, // back to the top of the panel
-  { t: 17.85, dur: 0.7, x: 880, y: 205, s: 2.7 }, // "Section 020, CRN 33846"
+  { t: 6.65, dur: 0.75, x: 330, y: 150, s: 2.0 },
+  { t: 8.02, dur: 0.68, x: 768, y: 432, s: 1.0 },
+  { t: 8.75, dur: 0.6, x: 175, y: 340, s: 2.1 },
+  { t: 10.98, dur: 0.5, x: 175, y: 400, s: 2.1 },
+  { t: 11.5, dur: 0.6, x: 380, y: 330, s: 1.75 },
+  { t: 12.25, dur: 0.65, x: 960, y: 330, s: 1.5 },
+  { t: 12.9, dur: 0.95, x: 960, y: 334, s: 1.54 },
+  { t: 13.85, dur: 1.45, x: 1050, y: 470, s: 1.62 },
+  { t: 15.6, dur: 0.7, x: 1010, y: 440, s: 2.0 },
+  { t: 16.5, dur: 0.75, x: 1000, y: 300, s: 1.7 },
+  { t: 17.85, dur: 0.7, x: 880, y: 205, s: 2.7 },
   { t: 18.55, dur: 1.3, x: 880, y: 205, s: 2.8 },
-  { t: 19.85, dur: 0.9, x: 1010, y: 650, s: 1.9 }, // Notify me
-  { t: 21.3, dur: 0.5, x: 872, y: 650, s: 2.3 }, // the sign-in form
-  { t: 25.1, dur: 0.8, x: 850, y: 770, s: 2.7 }, // Watching
+  { t: 19.85, dur: 0.9, x: 1010, y: 650, s: 1.9 },
+  { t: 21.3, dur: 0.5, x: 872, y: 650, s: 2.3 },
+  { t: 25.1, dur: 0.8, x: 850, y: 770, s: 2.7 },
   { t: 25.9, dur: 2.65, x: 850, y: 770, s: 2.84 },
-  { t: 28.55, dur: 0.95, x: 1240, y: 200, s: 1.9 }, // up to the toolbar
-  { t: 30.5, dur: 0.7, x: 1223, y: 200, s: 2.3 }, // the popup
+  { t: 28.55, dur: 0.95, x: 1240, y: 200, s: 1.9 },
+  { t: 30.5, dur: 0.7, x: 1223, y: 200, s: 2.3 },
   { t: 31.2, dur: 3.2, x: 1223, y: 200, s: 2.4 }
 ]
 
@@ -48,17 +42,13 @@ const WIDE: WalkLayout = {
   pointer: 40
 }
 
-/* ---------- The intro ---------- */
-
 const at = (i: number) => WORDS[i]!.s - 0.07
 
-/** A block that leaves upward between `from` and `to`. */
 const exitStyle = (frame: number, from: number, to: number) => {
   const p = prog(frame, from, to, ease.in)
   return { opacity: 1 - p, transform: `translateY(${-46 * p}px) scale(${1 - 0.03 * p})` }
 }
 
-/** 0.0 - 2.75  "Tired of not getting the class you want?" */
 const Hook: React.FC = () => {
   const frame = useCurrentFrame()
   const chip = prog(frame, 0.02, 0.5)
@@ -114,7 +104,6 @@ const Hook: React.FC = () => {
   )
 }
 
-/** 2.75 - 4.05  "Install the extension" */
 const Install: React.FC = () => {
   const frame = useCurrentFrame()
   const pop = spring({ frame: frame - f(2.74), fps: FPS, config: { damping: 14, stiffness: 170, mass: 0.7 } })
@@ -176,7 +165,6 @@ const Install: React.FC = () => {
   )
 }
 
-/** 4.0 - 6.35  "and you only have three easy steps left." */
 const ThreeSteps: React.FC = () => {
   const frame = useCurrentFrame()
   const three = spring({ frame: frame - f(at(15) - 0.02), fps: FPS, config: { damping: 13, stiffness: 190, mass: 0.8 } })
@@ -242,20 +230,13 @@ const Intro: React.FC = () => {
   )
 }
 
-/* ---------- The email card ---------- */
-
 const CLASS = "DATA STRUCTURES (CRN 33846)"
 
 const WIDTH = 1060
 const HEAD = 218
 const BODY = 368
 
-/**
- * 32.2 - 35.5  "and you will get an email the moment a seat opens."
- * The card is the server's real seat-opened email (apps/server/src/emails.ts):
- * same subject, same sentences, same button. It lands as a notification, then
- * opens.
- */
+// The server's real seat-opened email (apps/server/src/emails.ts): keep subject, sentences and button in step.
 const EmailScene: React.FC = () => {
   const frame = useCurrentFrame()
   if (frame < f(T.emailIn) || frame > f(T.emailOut + 0.4)) return null
@@ -287,7 +268,6 @@ const EmailScene: React.FC = () => {
           transform: `translateY(${(1 - drop) * -150 - exit * 30}px) scale(${0.92 + 0.08 * drop - 0.04 * exit})`
         }}
       >
-        {/* The inbox line: who, when, subject. */}
         <div style={{ height: HEAD, padding: "38px 44px 0", boxSizing: "border-box" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
             <div style={{ position: "relative" }}>
@@ -330,7 +310,6 @@ const EmailScene: React.FC = () => {
           </div>
         </div>
 
-        {/* The message itself. */}
         <div style={{ height: BODY, backgroundColor: "#f4f4f4", padding: "30px 44px 44px", boxSizing: "border-box" }}>
           <div
             style={{
@@ -367,10 +346,7 @@ const EmailScene: React.FC = () => {
   )
 }
 
-/* ---------- The end card ---------- */
 
-
-/** 35.6 - 37.2  "What are you waiting for?" */
 const Question: React.FC = () => {
   const frame = useCurrentFrame()
   if (frame > f(T.lockupIn + 0.1)) return null
@@ -398,7 +374,6 @@ const Question: React.FC = () => {
   )
 }
 
-/** A word of the name that lands with a little weight as it is said. */
 const Punch: React.FC<{ readonly at: number; readonly children: string; readonly accent?: boolean }> = ({ at: time, children, accent }) => {
   const frame = useCurrentFrame()
   const p = spring({ frame: frame - f(time), fps: FPS, config: { damping: 13, stiffness: 210, mass: 0.7 } })
@@ -417,7 +392,6 @@ const Punch: React.FC<{ readonly at: number; readonly children: string; readonly
   )
 }
 
-/** 37.2 - end  "Get the Dam Class!", held through the music. */
 const Lockup: React.FC = () => {
   const frame = useCurrentFrame()
   if (frame < f(T.lockupIn - 0.05)) return null
@@ -515,8 +489,6 @@ const Outro: React.FC = () => {
     </AbsoluteFill>
   )
 }
-
-/* ---------- The video ---------- */
 
 export const TutorialHorizontal: React.FC = () => {
   const frame = useCurrentFrame()

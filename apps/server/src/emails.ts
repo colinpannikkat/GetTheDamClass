@@ -1,16 +1,8 @@
-/**
- * What every email says. Each function returns the subject and the body twice:
- * as plain text, and as simple HTML.
- *
- * The HTML uses inline `style` attributes and nothing else: most mail clients
- * drop `<style>` blocks and ignore CSS variables, so anything fancier comes
- * out differently in every inbox.
- */
+// Inline `style` attributes only: most mail clients drop `<style>` blocks and ignore CSS variables.
 import type { Crn } from "@getthedamclass/shared/domain"
 import { ACCENT, classLabel, escapeHtml } from "./html"
 import type { Email } from "./Mailer"
 
-/** The HTML around every message. `body` is HTML already. */
 const layout = (body: string) =>
   `<!DOCTYPE html>
 <html lang="en">
@@ -29,7 +21,6 @@ const button = (href: string, label: string) =>
     escapeHtml(label)
   }</a></p>`
 
-/** The six-digit code that signs a student in. */
 export const signInCodeEmail = (to: string, code: string): Email => ({
   to,
   subject: `Your GetTheDamClass code: ${code}`,
@@ -48,14 +39,12 @@ export const signInCodeEmail = (to: string, code: string): Email => ({
   )
 })
 
-/** The class an email about one alert is about, and the link that stops that alert. */
 interface AlertDetails {
   readonly title: string
   readonly crn: Crn
   readonly unsubscribeUrl: string
 }
 
-/** Sent right after a student starts alerts for a class. */
 export const subscriptionConfirmedEmail = (to: string, alert: AlertDetails): Email => {
   const label = classLabel(alert)
   return {
@@ -75,17 +64,8 @@ export const subscriptionConfirmedEmail = (to: string, alert: AlertDetails): Ema
   }
 }
 
-/**
- * Where students register: the class search the extension runs on. The
- * button in the seat-opened email goes there, so a student on a phone is one
- * tap away from the class.
- */
 const CLASS_SEARCH_URL = "https://classes.oregonstate.edu/"
 
-/**
- * The end of both alert emails: how to stop them. A plain link rather than a
- * button, so it does not compete with what the email is for.
- */
 const stopAlerts = (unsubscribeUrl: string) => ({
   text: ["To stop these alerts, use the extension or open this link:", unsubscribeUrl],
   html: `<p style="margin:24px 0 0;font-size:14px;color:#666666;">To stop these alerts, use the extension or <a href="${
@@ -93,10 +73,6 @@ const stopAlerts = (unsubscribeUrl: string) => ({
   }" style="color:#666666;">open this link</a>.</p>`
 })
 
-/**
- * Sent when a watched class goes from full to having a free seat. Seats go
- * fast, so the subject says it all, and the CRN stands out to copy.
- */
 export const seatOpenedEmail = (to: string, alert: AlertDetails): Email => {
   const label = classLabel(alert)
   const footer = stopAlerts(alert.unsubscribeUrl)
@@ -121,7 +97,6 @@ export const seatOpenedEmail = (to: string, alert: AlertDetails): Email => {
   }
 }
 
-/** Sent when a watched class that had a free seat is full again. */
 export const classFullEmail = (to: string, alert: AlertDetails): Email => {
   const label = classLabel(alert)
   const footer = stopAlerts(alert.unsubscribeUrl)

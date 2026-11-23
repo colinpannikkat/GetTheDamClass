@@ -4,15 +4,9 @@ import { TestClock, TestConsole } from "effect/testing"
 import { setOregonTime } from "../test/oregonTime"
 import { INTRO_TO_CS, makeTestServer, PUBLIC_URL, TERMS, type TestServer } from "../test/TestServer"
 
-// Through the API, against the whole server in this process (see
-// test/TestServer.ts). The fake university knows INTRO_TO_CS, full (60 of
-// 60 seats taken), and the terms in TERMS, unless a test says otherwise. The
-// clock starts in 1970, long before INTRO_TO_CS's add deadline.
-
 const email = "student@oregonstate.edu"
 const TITLE = "INTRO TO COMPUTER SCIENCE I"
 
-/** A server, and a signed-in client for it. */
 const signedIn = (address = email) =>
   Effect.gen(function*() {
     const server = yield* makeTestServer()
@@ -20,7 +14,6 @@ const signedIn = (address = email) =>
     return { server, api }
   })
 
-/** What the database remembers about a class. */
 const classRow = (server: TestServer, term: string, crn: string) =>
   Effect.gen(function*() {
     const sql = yield* server.sql
@@ -30,14 +23,12 @@ const classRow = (server: TestServer, term: string, crn: string) =>
     return rows[0]
   })
 
-/** Everything in the two tables a subscribe writes to. */
 const storedClassesAndAlerts = (server: TestServer) =>
   Effect.gen(function*() {
     const sql = yield* server.sql
     return { classes: yield* sql`SELECT * FROM classes`, alerts: yield* sql`SELECT * FROM alerts` }
   })
 
-/** The university's answers for the whole lookup of a class nobody watches yet. */
 const LOOKUP = ["classTitle 202702/33940", "seats 202702/33940", "meetingDates 202702/33940"]
 
 describe("subscribe", () => {
@@ -95,9 +86,6 @@ describe("subscribe", () => {
       yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
       const callsBefore = server.university.calls.length
 
-      // A seat opens, and before the check every minute notices it, another
-      // student subscribes. Recording the free seat now would mean the first
-      // student never hears about it.
       server.university.classes.set("202702/33940", { title: TITLE, seats: { enrolled: 59, capacity: 60 } })
       const other = yield* server.client(yield* server.signIn("other@example.com"))
       const alert = yield* other.alerts.subscribe({ payload: INTRO_TO_CS })
@@ -113,10 +101,6 @@ describe("subscribe", () => {
       const { server, api } = yield* signedIn()
       const other = yield* server.client(yield* server.signIn("other@example.com"))
 
-      // While this student's request waits for the university, the other
-      // student subscribes (seeing the class full), and then the university
-      // renames the class and a seat opens. Writing what this request learns
-      // would hide the open seat from the other student.
       server.university.meanwhile = Effect.gen(function*() {
         yield* other.alerts.subscribe({ payload: INTRO_TO_CS })
         server.university.classes.set("202702/33940", { title: "RENAMED", seats: { enrolled: 59, capacity: 60 } })
@@ -128,7 +112,6 @@ describe("subscribe", () => {
         vacant: 0,
         addDeadline: "2027-01-17"
       })
-      // The title this student is given is the one stored, as in their list.
       assert.deepStrictEqual(alert, { ...INTRO_TO_CS, title: TITLE })
       assert.include(server.mailer.sent.at(-1)!.subject, TITLE)
     }))
@@ -165,13 +148,10 @@ describe("subscribe", () => {
   it.effect("from two browsers at once: one alert, and the later request is AlreadySubscribed", () =>
     Effect.gen(function*() {
       const { server, api } = yield* signedIn()
-      // A second browser signs in (the next code can be sent after a minute).
       yield* TestClock.adjust("1 minute")
       const secondBrowser = yield* server.client(yield* server.signIn(email))
       const emails = server.mailer.sent.length
 
-      // While this request waits for the university, the other browser
-      // subscribes to the same class, and so is first.
       server.university.meanwhile = secondBrowser.alerts.subscribe({ payload: INTRO_TO_CS }).pipe(Effect.asVoid, Effect.orDie)
       const error = yield* Effect.flip(api.alerts.subscribe({ payload: INTRO_TO_CS }))
 
@@ -271,7 +251,6 @@ describe("subscribe: the term", () => {
       const { server, api } = yield* signedIn()
       yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
 
-      // Registration for Winter 2027 closes.
       server.university.terms = TERMS.map((term) => term.code === "202702" ? { ...term, open: false } : term)
       const other = yield* server.client(yield* server.signIn("other@example.com"))
       const error = yield* Effect.flip(other.alerts.subscribe({ payload: INTRO_TO_CS }))
@@ -282,9 +261,7 @@ describe("subscribe: the term", () => {
 })
 
 describe("subscribe: the add deadline", () => {
-  // INTRO_TO_CS's add deadline is Sunday 2027-01-17. A summer class shows
-  // the same in daylight-saving time, when Oregon is 7 hours behind UTC
-  // rather than 8.
+  // A summer class: in daylight-saving time Oregon is 7 hours behind UTC, not 8.
   const SUMMER_2027 = { code: "202800", name: "Summer 2027", open: true }
   const SUMMER_CLASS = {
     title: "TECHNICAL WRITING",
@@ -309,7 +286,6 @@ describe("subscribe: the add deadline", () => {
     }
   ]
 
-  /** A signed-in student, with the summer class and its term known too. */
   const withSummerClass = (address = email) =>
     Effect.gen(function*() {
       const { server, api } = yield* signedIn(address)
@@ -381,7 +357,6 @@ describe("unsubscribe", () => {
       yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
       const calls = server.university.calls.length
 
-      // Even a class the university no longer knows (a past term's) can be stopped.
       server.university.down = true
       yield* api.alerts.unsubscribe({ params: INTRO_TO_CS })
 

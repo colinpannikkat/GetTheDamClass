@@ -13,8 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Installs the pnpm version named in package.json ("packageManager"). It
-      # has to come before setup-node, which asks pnpm where its cache lives.
+      # Before setup-node, which asks pnpm where its cache lives.
       - uses: pnpm/action-setup@v6
 
       - name: Use Node.js

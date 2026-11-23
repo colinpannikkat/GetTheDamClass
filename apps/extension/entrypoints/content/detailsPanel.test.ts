@@ -2,12 +2,9 @@
 import { Option } from "effect"
 import { beforeEach, describe, expect, it } from "vitest"
 import { findButtonBar, findDetailsPanels, findPanelStack, parseCrn, readCrn, readTerm } from "./detailsPanel"
-// `?raw` imports the file's text. Each is a trimmed copy of the real page,
-// showing the same class in two terms.
 import springPage from "./fixtures/spring-2027-section.html?raw"
 import winterPage from "./fixtures/winter-2027-section.html?raw"
 
-/** Put a fixture on the page and return its one details panel. */
 function loadPage(pageHtml: string = winterPage): Element {
   document.body.innerHTML = pageHtml
   const [panel] = findDetailsPanels(findPanelStack(document)!)
@@ -92,7 +89,6 @@ describe("readCrn", () => {
   it("follows the panel when it changes to another section", () => {
     const panel = loadPage()
     expect(readCrn(panel)).toEqual(Option.some("33940"))
-    // The page rebuilds the body for the section the user picked.
     panel.querySelector(".dtl-section")!.textContent = "Section 400, CRN 51625"
     expect(readCrn(panel)).toEqual(Option.some("51625"))
   })
@@ -115,7 +111,6 @@ describe("readTerm", () => {
 
   it("reads it from the row of the section on screen, not from another section's row", () => {
     const panel = loadPage(springPage)
-    // The Spring class has two sections; give the other one a different term.
     panel.querySelector(".course-section:not(.course-section--viewing)")!.setAttribute("data-srcdb", "209901")
     expect(readTerm(panel)).toEqual(Option.some("202703"))
   })
@@ -140,7 +135,6 @@ describe("readTerm", () => {
     panel.querySelector(".deep-link")!.setAttribute("data-query-string", "?details&crn=33940")
     expect(readTerm(panel)).toEqual(Option.none())
     panel.querySelector(".deep-link")!.remove()
-    // The term's name ("Winter 2027") is still on the page, but not its code.
     expect(panel.querySelector(".detail-srcdb")?.textContent).toBe("Winter 2027")
     expect(readTerm(panel)).toEqual(Option.none())
   })

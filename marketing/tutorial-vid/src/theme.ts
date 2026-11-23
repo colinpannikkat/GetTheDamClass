@@ -22,17 +22,13 @@ export const color = {
   inkDim: "rgba(246,243,238,0.30)",
   inkMuted: "rgba(246,243,238,0.56)",
   line: "rgba(246,243,238,0.14)",
-  /** Oregon State "Beaver Orange", the extension's one accent. */
   accent: "#D73F09",
-  /** The same orange, lifted so it reads as text on the dark canvas. */
   accentText: "#FF6A2B",
   navy: "#061F2E"
 }
 
-/** The Chrome window in the takes, in points. The recordings are twice this in pixels. */
 export const FOOTAGE = { w: 1536, h: 864 }
 
-/** Seconds to frames. */
 export const f = (seconds: number) => Math.round(seconds * FPS)
 
 export const ease = {
@@ -42,7 +38,6 @@ export const ease = {
   soft: Easing.bezier(0.33, 1, 0.68, 1)
 }
 
-/** 0 to 1 between two times (seconds), clamped, with an easing. */
 export const prog = (frame: number, from: number, to: number, easing: (n: number) => number = ease.out) =>
   interpolate(frame, [from * FPS, to * FPS], [0, 1], {
     extrapolateLeft: "clamp",

@@ -15,12 +15,10 @@ const token = "student-token"
 
 const deepLearning: Alert = { term: "202702", crn: "39835", title: "INTRO TO DEEP LEARNING" }
 const ethics: Alert = { term: "202702", crn: "37429", title: "ETHICS IN COMPUTING" }
-/** The same CRN as `deepLearning`, in the term before: another class. */
 const fallClass: Alert = { term: "202701", crn: "39835", title: "DATA STRUCTURES" }
 
 const notSignedIn = new NotSignedIn({ message: "You're not signed in. Sign in with your email to continue." })
 
-/** Render the popup with a fake server. Storage is WXT's in-memory `browser`. */
 function renderPopup(fakeApi: Layer.PartialEffectful<Api["Service"]> = {}) {
   const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.mock(Api, fakeApi), AccountStore.layer))
   return render(
@@ -30,10 +28,8 @@ function renderPopup(fakeApi: Layer.PartialEffectful<Api["Service"]> = {}) {
   )
 }
 
-/** As if the user signed in earlier. */
 const signedIn = () => fakeBrowser.storage.local.set({ email, token })
 
-/** The classes saved as watched, which is what the "Notify me" button on the class page goes by. */
 const savedWatching = () =>
   Effect.runPromise(
     Effect.gen(function*() {
@@ -43,7 +39,6 @@ const savedWatching = () =>
     }).pipe(Effect.provide(AccountStore.layer))
   )
 
-/** The "Stop" button of a class, found by its full name for screen readers. */
 const stopButton = (alert: Alert) => screen.getByRole("button", { name: `Stop alerts for ${alertLabel(alert)}` })
 
 const emailField = () => screen.getByLabelText("Email") as HTMLInputElement
@@ -60,7 +55,6 @@ describe("signed out", () => {
     expect(emailField()).toBeDefined()
     expect(screen.getByRole("button", { name: "Email me a code" })).toBeDefined()
     expect(screen.queryByText("Sign out")).toBeNull()
-    // Nobody signed out just now, so there is nothing to say about that.
     expect(screen.queryByText(/Your alerts keep running/)).toBeNull()
   })
 
@@ -83,13 +77,11 @@ describe("signed out", () => {
   })
 
   it("is at the code step again, with the keyboard in its field, when opened after switching to the inbox", async () => {
-    // The server has not even answered when the popup closes.
     const view = renderPopup({ sendCode: () => Effect.never })
     fireEvent.change(await screen.findByLabelText("Email"), { target: { value: email } })
     fireEvent.click(screen.getByRole("button", { name: "Email me a code" }))
     await screen.findByLabelText("6-digit code")
 
-    // The browser closes the popup when the student clicks away from it.
     view.unmount()
     renderPopup({ signIn: () => Effect.succeed(token), listAlerts: () => Effect.succeed([]) })
 
@@ -245,13 +237,11 @@ describe("stopping a class", () => {
 
     fireEvent.click(stopButton(deepLearning))
 
-    // The message names the class, so stopping the wrong one is noticed.
     const message = await screen.findByText(/Stopped alerts for INTRO TO DEEP LEARNING \(CRN 39835, Winter 2027\)/)
     expect(message.closest("[role=status]")).not.toBeNull()
     expect(screen.queryByText("INTRO TO DEEP LEARNING")).toBeNull()
     expect(screen.getByText("ETHICS IN COMPUTING")).toBeDefined()
     const heading = screen.getByRole("heading", { name: "Classes you're watching 1" })
-    // Keyboard focus moves to the heading instead of vanishing with the row.
     expect(document.activeElement).toBe(heading)
     expect(stopped).toEqual([[token, deepLearning]])
     expect(await savedWatching()).toEqual(["202702/37429"])
@@ -269,7 +259,6 @@ describe("stopping a class", () => {
     })
     await screen.findByText("CRN 51625 · Winter 2027")
 
-    // Each button has a name of its own (`getByRole` fails when two match).
     fireEvent.click(
       screen.getByRole("button", { name: "Stop alerts for INTRODUCTION TO COMPUTER SCIENCE I (CRN 53476, Winter 2027)" })
     )
@@ -309,9 +298,7 @@ describe("stopping a class", () => {
     fireEvent.click(stopButton(deepLearning))
 
     await expect.poll(() => stopButton(deepLearning).getAttribute("aria-busy")).toBe("true")
-    // Busy buttons keep the keyboard: they are not `disabled`.
     expect(stopButton(deepLearning).hasAttribute("disabled")).toBe(false)
-    // Only that row is busy.
     expect(stopButton(ethics).getAttribute("aria-busy")).toBeNull()
   })
 
@@ -326,11 +313,9 @@ describe("stopping a class", () => {
 
     const message = await screen.findByText(/Couldn't reach the server/)
     expect(message.closest("[role=alert]")).not.toBeNull()
-    // The error is inside the row it belongs to, and the row is still there.
     expect(message.closest("li")).toBe(screen.getByText("INTRO TO DEEP LEARNING").closest("li"))
     expect(screen.getByRole("heading", { name: "Classes you're watching 2" })).toBeDefined()
     expect(screen.queryByText(/Stopped alerts/)).toBeNull()
-    // "Stop" can be pressed again.
     expect(stopButton(deepLearning).getAttribute("aria-disabled")).toBeNull()
   })
 
@@ -345,7 +330,6 @@ describe("stopping a class", () => {
 
     expect(await screen.findByRole("heading", { name: "Classes you're watching 1" })).toBeDefined()
     expect(await screen.findByText(/Stopped alerts for ETHICS IN COMPUTING/)).toBeDefined()
-    // No error is shown anywhere: the user got what they asked for.
     expect(screen.getAllByRole("alert").map((alert) => alert.textContent).join("")).toBe("")
   })
 
@@ -361,7 +345,6 @@ describe("stopping a class", () => {
 describe("deleting the account", () => {
   beforeEach(signedIn)
 
-  /** Press the small link and wait for the question. */
   async function askToDelete() {
     fireEvent.click(await screen.findByRole("button", { name: "Delete my account" }))
     return screen.getByRole("group", { name: /Delete your account\?/ })

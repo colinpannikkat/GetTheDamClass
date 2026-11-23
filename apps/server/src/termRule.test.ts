@@ -3,10 +3,6 @@ import { Effect } from "effect"
 import { TestClock } from "effect/testing"
 import { addDeadline, todayInOregon } from "./termRule"
 
-// How the term rule refuses a subscribe, and which sentences it uses, is
-// tested through the API in alerts.test.ts. These are the two calculations
-// underneath.
-
 describe("addDeadline", () => {
   it.each([
     {
@@ -37,7 +33,6 @@ describe("addDeadline", () => {
       deadline: "2027-07-04"
     },
     {
-      // Monday 2027-06-21 to Friday 2027-07-30: what a six-week session looks like.
       title: "running six weeks, to a Friday: not a short session",
       dates: { starts: ["2027-06-21"], ends: ["2027-07-30"] },
       deadline: "2027-07-04"

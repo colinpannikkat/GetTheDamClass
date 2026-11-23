@@ -1,10 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { classFullEmail, seatOpenedEmail } from "./emails"
 
-// The two alert emails on their own. That the check every minute sends them
-// to the right students is tested in poll.test.ts; the sign-in and
-// confirmation emails are tested through the API that sends them.
-
 const alert = {
   title: "C & C++ <ADVANCED>",
   crn: "33940",

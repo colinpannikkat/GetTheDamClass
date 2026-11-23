@@ -4,11 +4,6 @@ import config from "../cloudflare.config"
 import { INTRO_TO_CS, makeTestServer } from "../test/TestServer"
 import { DAILY, EVERY_MINUTE, runScheduled } from "./scheduled"
 
-// Which job each cron trigger runs, told apart by what each job asks the
-// fake university: the check every minute asks for seats, the daily job for
-// the term list.
-
-/** A server where one student watches INTRO_TO_CS, with the university's answers so far forgotten. */
 const watched = Effect.gen(function*() {
   const server = yield* makeTestServer()
   const api = yield* server.client(yield* server.signIn("student@example.com"))

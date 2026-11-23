@@ -5,18 +5,9 @@ import { setOregonTime } from "../test/oregonTime"
 import { INTRO_TO_CS, makeTestServer, type TestServer } from "../test/TestServer"
 import { cleanup } from "./cleanup"
 
-// The daily job, run on the same services as the whole server in this
-// process (see test/TestServer.ts), after students signed in and subscribed
-// through the API. INTRO_TO_CS's add deadline is Sunday 2027-01-17. (Tests
-// stay within the year of signing in, unless they are about that year: past
-// it, the job signs the student out.)
-
-/** Another class in the same term, with a later deadline: Sunday 2027-01-24. */
 const LATE_START = { term: "202702", crn: "12345" } as const
-/** A class without dates, in Fall 2026. */
 const NO_DATES = { term: "202701", crn: "55555" } as const
 
-/** A server whose university knows the two classes above too, and a student who signs in on 2027-01-10. */
 const signedIn = Effect.gen(function*() {
   const server = yield* makeTestServer()
   yield* setOregonTime("2027-01-10T12:00")
@@ -30,11 +21,9 @@ const signedIn = Effect.gen(function*() {
   return { server, api }
 })
 
-/** The classes the student gets alerts for, as "term/crn". */
 const alertsOf = (api: Effect.Success<typeof signedIn>["api"]) =>
   Effect.map(api.alerts.list(), (alerts) => alerts.map((alert) => `${alert.term}/${alert.crn}`))
 
-/** The classes recorded, as "term/crn". */
 const recordedClasses = (server: TestServer) =>
   Effect.gen(function*() {
     const sql = yield* server.sql
@@ -42,7 +31,6 @@ const recordedClasses = (server: TestServer) =>
     return rows.map((row) => `${row.term}/${row.crn}`)
   })
 
-/** Close a term in the fake university's term list. */
 const closeTerm = (server: TestServer, code: string) => {
   server.university.terms = server.university.terms.map((term) => term.code === code ? { ...term, open: false } : term)
 }
@@ -54,7 +42,6 @@ describe("cleanup: alerts", () => {
       yield* api.alerts.subscribe({ payload: INTRO_TO_CS })
       yield* api.alerts.subscribe({ payload: LATE_START })
 
-      // The last minute of the deadline day: still kept.
       yield* setOregonTime("2027-01-17T23:59")
       yield* server.run(cleanup())
       assert.deepStrictEqual(yield* alertsOf(api), ["202702/33940", "202702/12345"])
@@ -157,8 +144,6 @@ describe("cleanup: the log", () => {
       yield* api.alerts.subscribe({ payload: NO_DATES })
       yield* api.alerts.unsubscribe({ params: NO_DATES })
       closeTerm(server, "202701")
-      // Past INTRO_TO_CS's deadline; the sign-in code has long expired, and
-      // the count of that day's sign-in emails is more than a week old.
       yield* setOregonTime("2027-01-18T03:00")
 
       yield* server.run(cleanup())
@@ -170,7 +155,6 @@ describe("cleanup: the log", () => {
 })
 
 describe("cleanup: sign-in codes, email counts and tokens", () => {
-  /** How many sign-in codes are stored. */
   const storedCodes = (server: TestServer) =>
     Effect.gen(function*() {
       const sql = yield* server.sql
@@ -184,7 +168,6 @@ describe("cleanup: sign-in codes, email counts and tokens", () => {
       yield* TestClock.adjust("1 minute")
       yield* api.signIn.sendCode({ payload: { email: "other@example.com" } })
 
-      // Codes work for 15 minutes; the first one has been used.
       yield* TestClock.adjust("14 minutes")
       yield* server.run(cleanup())
       assert.strictEqual(yield* storedCodes(server), 1)
@@ -203,7 +186,6 @@ describe("cleanup: sign-in codes, email counts and tokens", () => {
         yield* api.signIn.sendCode({ payload: { email: `${day}@example.com` } })
       }
 
-      // The daily job's time, a week after 2027-01-04.
       yield* TestClock.setTime(Date.parse("2027-01-11T11:00:00Z"))
       yield* server.run(cleanup())
 
@@ -233,15 +215,12 @@ describe("cleanup: sign-in codes, email counts and tokens", () => {
     Effect.gen(function*() {
       const server = yield* makeTestServer()
       const api = yield* server.client(yield* server.signIn("student@example.com"))
-      // Used 23 hours after signing in: within the day in which `last_used_at`
-      // is not written again, so the database still says "signed in".
+      // Within the day in which `last_used_at` is not written again, so the database still says "signed in".
       yield* TestClock.adjust("23 hours")
       yield* api.alerts.list()
 
-      // A year after signing in, but an hour short of a year after that use.
       yield* TestClock.adjust(Duration.subtract(Duration.days(365), Duration.hours(23)))
       yield* server.run(cleanup())
-      // Asked of the database, so that asking does not count as a use.
       const sql = yield* server.sql
       assert.deepStrictEqual(yield* sql`SELECT COUNT(*) AS tokens FROM tokens`, [{ tokens: 1 }])
 
@@ -255,7 +234,6 @@ describe("cleanup: sign-in codes, email counts and tokens", () => {
       const { server, api } = yield* signedIn
       server.university.down = true
 
-      // A year, and the day a token's last use can go unrecorded.
       yield* TestClock.adjust("366 days")
       yield* server.run(cleanup())
 

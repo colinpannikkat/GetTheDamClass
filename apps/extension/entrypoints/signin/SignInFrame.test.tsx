@@ -12,10 +12,8 @@ import { SignInFrame } from "./SignInFrame"
 const email = "student@oregonstate.edu"
 const token = "student-token"
 
-/** Everything the frame posted to the page around it: `[message, targetOrigin]`. */
 let posted: Array<[unknown, string]>
 
-/** Render the framed page with a fake server, and wait for its form. */
 async function renderFrame(fakeApi: Layer.PartialEffectful<Api["Service"]> = {}) {
   const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.mock(Api, fakeApi), AccountStore.layer))
   render(
@@ -29,7 +27,6 @@ async function renderFrame(fakeApi: Layer.PartialEffectful<Api["Service"]> = {})
 const emailField = () => screen.getByLabelText("Email") as HTMLInputElement
 const codeField = () => screen.getByLabelText("6-digit code") as HTMLInputElement
 
-/** Both steps: ask for a code for `email`, then type `code`. */
 async function signInWith(code: string) {
   fireEvent.change(emailField(), { target: { value: email } })
   fireEvent.click(screen.getByRole("button", { name: "Email me a code" }))
@@ -37,14 +34,12 @@ async function signInWith(code: string) {
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }))
 }
 
-/** Wait a moment, before checking that something did NOT happen. */
 const settled = () => new Promise((resolve) => setTimeout(resolve, 20))
 
 beforeEach(() => {
   fakeBrowser.reset()
   posted = []
-  // In the test there is no page around the frame: `window.parent` is the
-  // window itself, so this catches what the class page would receive.
+  // No page around the frame in tests: `window.parent` is the window itself.
   vi.spyOn(window, "postMessage").mockImplementation((message: unknown, targetOrigin: unknown) => {
     posted.push([message, String(targetOrigin)])
   })
@@ -55,7 +50,6 @@ afterEach(() => {
 })
 
 describe("SignInFrame", () => {
-  /** The messages posted so far, without the ones about the frame's height. */
   const postedEvents = () => posted.filter(([message]) => (message as { type: string }).type !== "getthedamclass/resize")
   const SIGNED_IN = [{ type: "getthedamclass/signed-in" }, "https://classes.oregonstate.edu"]
   const CLOSE = [{ type: "getthedamclass/close" }, "https://classes.oregonstate.edu"]
@@ -67,7 +61,6 @@ describe("SignInFrame", () => {
     await signInWith("012345")
 
     await expect.poll(postedEvents).toEqual([SIGNED_IN])
-    // Saved before the page was told: it reads the saved sign-in straight away.
     expect(await fakeBrowser.storage.local.get()).toEqual({ email, token })
     expect(JSON.stringify(posted)).not.toContain("student")
     expect(JSON.stringify(posted)).not.toContain("012345")
@@ -75,10 +68,6 @@ describe("SignInFrame", () => {
   })
 
   it("tells the class page that it signed in, not to close, when the sign-in shows up in storage before it is done", async () => {
-    // Storage is saved before the form hears back from the workflow, and the
-    // frame can see the change first. Here it is in storage even before the
-    // workflow saves it, which then changes nothing in storage (see
-    // vitest.setup.ts).
     await renderFrame({
       sendCode: () => Effect.void,
       signIn: () =>
@@ -96,7 +85,6 @@ describe("SignInFrame", () => {
   it("asks to be closed when someone signs in somewhere else, and does not say it signed in", async () => {
     await renderFrame()
 
-    // The toolbar popup, or the frame on another tab.
     await fakeBrowser.storage.local.set({ email, token })
 
     await expect.poll(postedEvents).toEqual([CLOSE])
@@ -116,8 +104,6 @@ describe("SignInFrame", () => {
   })
 
   it("asks to be closed, and does not say it signed in, when its own code is refused after a sign-in elsewhere", async () => {
-    // While the code typed here is with the server, a sign-in that shows up
-    // in storage looks like this form's own.
     let asked = () => {}
     const serverAsked = new Promise<void>((resolve) => (asked = resolve))
     let refuse = () => {}
@@ -133,7 +119,6 @@ describe("SignInFrame", () => {
     await signInWith("987654")
     await serverAsked
 
-    // The toolbar popup signs in meanwhile.
     await fakeBrowser.storage.local.set({ email, token })
     await settled()
     expect(postedEvents()).toEqual([])
@@ -171,7 +156,6 @@ describe("SignInFrame", () => {
   })
 
   it("fills in the email last used here, after the server stopped accepting the sign-in", async () => {
-    // What `forgetToken` leaves behind.
     await fakeBrowser.storage.local.set({ email })
     await renderFrame()
 
@@ -211,8 +195,6 @@ describe("SignInFrame", () => {
       }
     )
     await renderFrame()
-    // The form is on screen one step before React runs the effect that creates
-    // the observer, so wait for that too.
     await vi.waitFor(() => expect(resized).toBeDefined())
 
     resized?.()

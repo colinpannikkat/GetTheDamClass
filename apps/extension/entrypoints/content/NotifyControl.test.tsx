@@ -19,12 +19,9 @@ import { NotifyControl } from "./NotifyControl"
 
 const email = "student@oregonstate.edu"
 const token = "student-token"
-/** The section the control is for. */
 const INTRO: ClassId = { term: "202702", crn: "33940" }
-/** The same CRN in the term before: another class. */
 const INTRO_IN_FALL: ClassId = { term: "202701", crn: "33940" }
 
-/** One call the fake server received. */
 interface Call {
   readonly classId: ClassId
   readonly token: string
@@ -32,19 +29,7 @@ interface Call {
 
 const notSignedIn = new NotSignedIn({ message: "You're not signed in. Sign in with your email to continue." })
 
-/**
- * Render the control with a fake server. `subscribe` answers each press of
- * "Notify me" and `unsubscribe` each press of "Stop alerts"; the calls they
- * get are pushed onto the returned `calls` and `stopCalls`. Storage is WXT's
- * in-memory `browser`.
- *
- * The returned `run` executes a workflow against the same fake server and
- * storage. Tests use it to do what the rest of the extension does while the
- * class page is open: sign in (the popup, or the framed sign-in page) or stop
- * an alert (the popup). Signing in there gets the token `signIn` names.
- */
 async function renderControl(options: {
-  /** Like the Api's `subscribe`, but succeeding with nothing: the alert is made up here. */
   readonly subscribe: (
     token: string,
     classId: ClassId
@@ -71,12 +56,10 @@ async function renderControl(options: {
       <NotifyControl classId={INTRO} />
     </RuntimeContext>
   )
-  // The button appears once the control has read the saved account.
   await screen.findAllByRole("button")
   return { calls, stopCalls, run: runtime.runPromise, unmount: view.unmount }
 }
 
-/** As if the student signed in earlier and already watches these classes. */
 const signedIn = (watching: ReadonlyArray<ClassId> = []) =>
   Effect.runPromise(
     Effect.gen(function*() {
@@ -90,18 +73,15 @@ const stopButton = () => screen.getByRole("button", { name: "Stop alerts" })
 const signInFrame = () => screen.getByTitle("Sign in") as HTMLIFrameElement
 const WATCHING_LINE = "We'll email you when a seat opens or the class fills up."
 
-/** Wait a moment, before checking that something did NOT happen. */
 const settled = () => new Promise((resolve) => setTimeout(resolve, 20))
 
-/** Press the button and wait for the sign-in popover to be open and listening. */
 async function openPopover() {
   fireEvent.click(notifyButton())
   const popover = await screen.findByRole("dialog", { name: "Sign in to get alerts" })
-  await act(async () => {}) // lets React finish attaching the popover's listeners
+  await act(async () => {})
   return popover
 }
 
-/** A message as the framed sign-in page would post it, unless `from` says otherwise. */
 function postToPage(data: unknown, from: { readonly origin?: string; readonly source?: unknown } = {}) {
   fireEvent(
     window,
@@ -113,7 +93,6 @@ function postToPage(data: unknown, from: { readonly origin?: string; readonly so
   )
 }
 
-/** What the framed sign-in page posts once the code is accepted and the sign-in saved. */
 const SIGNED_IN = { type: "getthedamclass/signed-in" }
 
 beforeEach(() => {
@@ -137,12 +116,10 @@ describe("NotifyControl, signed in", () => {
 
     const watching = await screen.findByRole("button", { name: "Watching" })
     expect(calls).toEqual([{ classId: INTRO, token }])
-    // The confirmation is announced politely, not as an alert.
     const note = screen.getByText(WATCHING_LINE)
     expect(note.closest("[role=status]")).not.toBeNull()
     expect(screen.queryByRole("alert")?.textContent).toBe("")
 
-    // "Watching" can still be focused but pressing it does nothing more.
     expect(watching.getAttribute("aria-disabled")).toBe("true")
     expect(watching.hasAttribute("disabled")).toBe(false)
     fireEvent.click(watching)
@@ -216,15 +193,12 @@ describe("NotifyControl, in step with the rest of the extension", () => {
     const { calls } = await renderControl({ subscribe: () => Effect.void })
 
     expect(await screen.findByRole("button", { name: "Watching" })).toBeDefined()
-    // No "We'll email you" line: nothing was just set up.
     expect(screen.queryByText(/We'll email you/)).toBeNull()
     expect(calls).toEqual([])
-    // It can be stopped right here.
     expect(stopButton()).toBeDefined()
   })
 
   it("shows Notify me for a class the user does not watch, whatever else they watch", async () => {
-    // The same CRN in another term is another class.
     await signedIn([{ term: "202702", crn: "53476" }, INTRO_IN_FALL])
     await renderControl({ subscribe: () => Effect.void })
     expect(await screen.findByRole("button", { name: "Notify me" })).toBeDefined()
@@ -236,7 +210,6 @@ describe("NotifyControl, in step with the rest of the extension", () => {
     fireEvent.click(notifyButton())
     await screen.findByRole("button", { name: "Watching" })
 
-    // What "Stop" in the popup runs. The control is not touched or redrawn.
     await run(unsubscribe(INTRO))
 
     const button = await screen.findByRole("button", { name: "Notify me" })
@@ -270,20 +243,15 @@ describe("NotifyControl, in step with the rest of the extension", () => {
       unsubscribe: () => (online ? Effect.void : Effect.fail(new NetworkError({ cause: "offline" })))
     })
 
-    // "Stop alerts" fails here...
     fireEvent.click(stopButton())
     await screen.findByText(/Couldn't reach the server/)
-    // ...and works in the popup a little later.
     online = true
     await run(unsubscribe(INTRO))
     fireEvent.click(await screen.findByRole("button", { name: "Notify me" }))
 
-    // Watching again: the old failure is not shown next to it.
     await screen.findByText(WATCHING_LINE)
     expect(screen.queryByRole("alert")?.textContent).toBe("")
 
-    // Stopped here, started here again, then stopped in the popup: the
-    // "Alerts stopped" of the earlier press here does not come back.
     fireEvent.click(stopButton())
     await screen.findByText("Alerts stopped for this class.")
     fireEvent.click(notifyButton())
@@ -315,7 +283,6 @@ describe("NotifyControl, stopping alerts", () => {
   it("stops the alert, goes back to Notify me, says so, and keeps the keyboard", async () => {
     await signedIn([INTRO])
     const { calls, stopCalls } = await renderControl({ subscribe: () => Effect.void })
-    // A real button, so Tab reaches it and Enter or Space presses it.
     expect(stopButton().tagName).toBe("BUTTON")
     expect(stopButton().hasAttribute("disabled")).toBe(false)
 
@@ -325,11 +292,9 @@ describe("NotifyControl, stopping alerts", () => {
     const button = await screen.findByRole("button", { name: "Notify me" })
     expect(stopCalls).toEqual([{ classId: INTRO, token }])
     expect(screen.queryByRole("button", { name: "Stop alerts" })).toBeNull()
-    // Announced politely; and focus did not vanish with the button that had it.
     expect(screen.getByText("Alerts stopped for this class.").closest("[role=status]")).not.toBeNull()
     expect(document.activeElement).toBe(button)
 
-    // And it can be started again, which replaces the line.
     fireEvent.click(button)
     expect(await screen.findByRole("button", { name: "Watching" })).toBeDefined()
     expect(screen.queryByText("Alerts stopped for this class.")).toBeNull()
@@ -338,8 +303,6 @@ describe("NotifyControl, stopping alerts", () => {
   })
 
   it("puts a stale Watching right: the alert was already stopped somewhere else", async () => {
-    // Stopped with the link in an email, or in another browser. This browser
-    // still has it saved, so the page says "Watching".
     await signedIn([INTRO])
     await renderControl({
       subscribe: () => Effect.void,
@@ -388,14 +351,11 @@ describe("NotifyControl, stopping alerts", () => {
 
     fireEvent.click(stopButton())
 
-    // This browser is signed out now, so the class no longer shows as
-    // watched, but the alert is still on: that must not look like success.
     expect(await screen.findByText(notSignedIn.message)).toBeDefined()
     expect(notifyButton()).toBeDefined()
     expect(screen.queryByText("Alerts stopped for this class.")).toBeNull()
     expect(screen.queryByRole("dialog")).toBeNull()
 
-    // Signing in again (in the popup) takes the message away.
     await run(signIn(email, "012345"))
     await expect.poll(() => screen.queryByText(notSignedIn.message)).toBeNull()
   })
@@ -408,17 +368,14 @@ describe("NotifyControl, sign-in popover", () => {
     const popover = await openPopover()
     expect(popover.textContent).toContain("Sign in to get an email when a seat opens or the class fills up.")
     expect(signInFrame().src).toBe(fakeBrowser.runtime.getURL("/signin.html"))
-    // The email and code are typed in that frame. The control itself, which is
-    // drawn inside the university's page, has no field to type them into.
     expect(document.querySelectorAll("input")).toHaveLength(0)
-    expect(calls).toEqual([]) // Signed out: nothing was sent.
+    expect(calls).toEqual([])
   })
 
   it("subscribes without a second press once the user has signed in in its frame", async () => {
     const { calls, run } = await renderControl({ subscribe: () => Effect.void })
     await openPopover()
 
-    // What the framed page does on "Sign in": sign in, save, then say so.
     await run(signIn(email, "012345"))
     postToPage(SIGNED_IN)
 
@@ -437,7 +394,6 @@ describe("NotifyControl, sign-in popover", () => {
 
     const popover = await openPopover()
     expect(popover.textContent).toContain("Sign in to get an email when a seat opens or the class fills up.")
-    // It is not shown as an error next to the button as well.
     expect(screen.queryByText(notSignedIn.message)).toBeNull()
 
     await run(signIn(email, "012345"))
@@ -450,8 +406,7 @@ describe("NotifyControl, sign-in popover", () => {
   it("continues when the sign-in saved by the frame is the one already saved", async () => {
     const { calls } = await renderControl({ subscribe: () => Effect.void })
     await openPopover()
-    // Saved before the frame saves it again, which changes nothing: Chrome
-    // reports no storage change for that. All this control gets is the message.
+    // Chrome reports no storage change when the frame saves the same sign-in again.
     await signedIn()
 
     postToPage(SIGNED_IN)
@@ -464,11 +419,8 @@ describe("NotifyControl, sign-in popover", () => {
     const { calls, run } = await renderControl({ subscribe: () => Effect.void })
     await openPopover()
 
-    // In the toolbar popup, or on another tab: nobody used this form.
     await run(signIn(email, "012345"))
     await settled()
-    // Only the frame can tell whose sign-in it was, so it is the frame that
-    // asks to be closed (see SignInFrame.test.tsx).
     expect(screen.getByRole("dialog")).toBeDefined()
     postToPage({ type: "getthedamclass/close" })
 
@@ -481,9 +433,6 @@ describe("NotifyControl, sign-in popover", () => {
   })
 
   it("drops the request when the control is gone before the sign-in finishes", async () => {
-    // The content script removes the control as soon as its panel shows
-    // another section (see index.test.tsx). A sign-in that finishes after
-    // that must not subscribe to anything.
     const { calls, run, unmount } = await renderControl({ subscribe: () => Effect.void })
     await openPopover()
     const frame = signInFrame().contentWindow
@@ -500,7 +449,7 @@ describe("NotifyControl, sign-in popover", () => {
     const { calls, run } = await renderControl({ subscribe: () => Effect.void })
     await openPopover()
     const frame = signInFrame().contentWindow
-    fireEvent.click(notifyButton()) // closes it
+    fireEvent.click(notifyButton())
 
     await run(signIn(email, "012345"))
     postToPage(SIGNED_IN, { source: frame })
@@ -518,7 +467,6 @@ describe("NotifyControl, sign-in popover", () => {
 
     expect(screen.queryByRole("dialog")).toBeNull()
     expect(document.activeElement).toBe(notifyButton())
-    // Closing is not a failure: no error message, and the button works again.
     expect(screen.queryByRole("alert")?.textContent).toBe("")
     expect(calls).toEqual([])
 
@@ -540,13 +488,11 @@ describe("NotifyControl, sign-in popover", () => {
     await openPopover()
     const heightBefore = signInFrame().style.height
 
-    // The university's page (or a frame in it) posting our messages.
     postToPage({ type: "getthedamclass/close" }, { source: window })
     postToPage({ type: "getthedamclass/close" }, { origin: "https://classes.oregonstate.edu" })
     postToPage({ type: "getthedamclass/resize", height: 9999 }, { origin: "https://classes.oregonstate.edu" })
     postToPage(SIGNED_IN, { source: window })
     postToPage(SIGNED_IN, { origin: "https://classes.oregonstate.edu" })
-    // Our frame posting something we do not know.
     postToPage({ type: "getthedamclass/resize", height: "tall" })
     postToPage("close")
 

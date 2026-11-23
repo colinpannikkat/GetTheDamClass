@@ -1,12 +1,3 @@
-/**
- * A real SQLite database for tests, with the tables the migrations in
- * migrations/ create: the same SQL that runs in D1, run by Node's built-in
- * SQLite (`node:sqlite`) behind the same `SqlClient` the Worker uses. So the
- * tests check the real queries, not a fake of them.
- *
- * Each use gets a new, empty database in a temporary folder, removed again
- * when the test ends.
- */
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { Effect, Layer } from "effect"
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs"
@@ -16,11 +7,7 @@ import { DatabaseSync } from "node:sqlite"
 
 const MIGRATIONS = join(import.meta.dirname, "..", "migrations")
 
-/**
- * Run every migration, in order, on the database file. This uses
- * `node:sqlite` directly because a migration holds many statements, and
- * `SqlClient` runs one at a time.
- */
+// `node:sqlite` directly, because a migration holds many statements and `SqlClient` runs one at a time.
 const migrate = (filename: string) => {
   const db = new DatabaseSync(filename)
   try {

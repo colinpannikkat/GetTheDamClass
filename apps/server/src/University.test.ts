@@ -6,12 +6,6 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { isVacant, University } from "./University"
 
-// The real University on top of a fake `fetch`: no request leaves the test.
-// The pages it answers with are real ones, saved from the university in
-// November 2026 (test/fixtures/): class CRN 33940 of term 202702, CRN 99999,
-// which does not exist, and the term list. Variants of them (other dates, say)
-// are made by changing a copy in the test.
-
 const fixture = (name: string) => readFileSync(join(import.meta.dirname, "..", "test", "fixtures", name), "utf8")
 const classDetails = fixture("getClassDetails.202702.33940.html")
 const enrollment = fixture("getEnrollmentInfo.202702.33940.html")
@@ -20,7 +14,6 @@ const missingEnrollment = fixture("getEnrollmentInfo.202702.99999-missing.html")
 const meetingTimes = fixture("getFacultyMeetingTimes.202702.33940.json")
 const terms = fixture("getTerms.json")
 
-/** The saved meeting times answer, with its one meeting time replaced by these dates. */
 const meetingTimesWith = (dates: Array<{ startDate: string | null; endDate: string | null }>) => {
   const answer = JSON.parse(meetingTimes)
   const [entry] = answer.fmt
@@ -34,7 +27,6 @@ interface RecordedRequest {
   readonly body: string
 }
 
-/** A University whose `fetch` answers every request with `respond()`, and the requests it received. */
 const universityAnswering = (respond: () => Promise<Response>) => {
   const requests: Array<RecordedRequest> = []
   const fetch: typeof globalThis.fetch = (input, init) => {
@@ -50,7 +42,6 @@ const universityAnswering = (respond: () => Promise<Response>) => {
 
 const page = (html: string, status = 200) => () => Promise.resolve(new Response(html, { status }))
 
-/** Run one University call against a fake that always gives the same answer. */
 const ask = <A, E>(respond: () => Promise<Response>, call: (university: University["Service"]) => Effect.Effect<A, E>) =>
   University.use(call).pipe(Effect.provide(universityAnswering(respond).layer))
 
@@ -208,17 +199,10 @@ describe("isVacant", () => {
   it("is true while fewer students are enrolled than fit, and false once it is full", () => {
     assert.isTrue(isVacant({ enrolled: 59, capacity: 60 }))
     assert.isFalse(isVacant({ enrolled: 60, capacity: 60 }))
-    // A class can be over capacity when the department lets students in by hand.
     assert.isFalse(isVacant({ enrolled: 61, capacity: 60 }))
   })
 })
 
-// "No such class" and "the university is having trouble" both come back as
-// HTTP 500. The only difference in what the university sends is the error
-// message inside its error page: for a CRN that does not exist, it says the
-// section it tried to show was `null` (see `isMissingClassPage` in
-// University.ts). So these tests start from the real page for CRN 99999 and
-// change only that message.
 describe("telling a missing class from an outage", () => {
   it.effect.each([
     {

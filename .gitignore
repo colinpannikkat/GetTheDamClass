@@ -1,17 +1,12 @@
-# dependencies
 node_modules
 
-# WXT: build output and generated types
 .output
 .wxt
 stats.html
 stats-*.json
 
-# cf (apps/server): build output, generated types, and the data of the local
-# simulation `cf dev` runs
 .cloudflare
 
-# local files
 .DS_Store
 .env*.local
 *.log

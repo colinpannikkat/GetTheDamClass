@@ -5,7 +5,6 @@ import { TutorialVertical, V } from "./Vertical"
 
 const durationInFrames = Math.ceil(DURATION_S * FPS)
 
-/** The two videos Remotion can render. Both are the same 44 seconds; only the canvas and framing differ. */
 const Root = () => (
   <>
     <Composition id="TutorialHorizontal" component={TutorialHorizontal} width={H.width} height={H.height} fps={FPS} durationInFrames={durationInFrames} />

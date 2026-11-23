@@ -2,14 +2,6 @@ import { AbsoluteFill, Freeze, OffthreadVideo, Sequence, staticFile, useCurrentF
 import { CURSOR, CURSOR_HIDDEN, pageBottom, SEGMENTS, SPOTS, T, type CursorKey } from "./edit"
 import { color, ease, f, FOOTAGE, FPS, lerp, prog } from "./theme"
 
-/**
- * The browser window of the walkthrough: the recordings, cut as edit.ts says,
- * under a moving camera, with a drawn pointer and one spotlit item at a time.
- */
-
-/* ---------- The camera and the pointer ---------- */
-
-/** A camera move: starting at `t`, take `dur` seconds to centre on (x, y) at zoom `s`. Coordinates are footage points. */
 export interface CamKey {
   readonly t: number
   readonly dur: number
@@ -24,7 +16,6 @@ export interface CamState {
   readonly s: number
 }
 
-/** Where the camera is at `time`. `rest` is where it sits before its first move. */
 const cameraAt = (keys: ReadonlyArray<CamKey>, time: number, rest: CamState): CamState => {
   let state = rest
   for (const key of keys) {
@@ -45,11 +36,6 @@ const cameraAt = (keys: ReadonlyArray<CamKey>, time: number, rest: CamState): Ca
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n))
 
-/**
- * The CSS transform that puts the camera's centre in the middle of a `view`
- * (the window the footage shows through, in pixels), without showing past an
- * edge of the footage. `bottom` is how far down the footage is worth showing.
- */
 const cameraTransform = (cam: CamState, bottom: number, view: { readonly w: number; readonly h: number }) => {
   // Never zoomed out so far that the view would show past the footage, or the strip under `bottom`.
   const s = Math.max(cam.s, view.h / bottom, view.w / FOOTAGE.w)
@@ -82,9 +68,6 @@ const cursorAt = (keys: ReadonlyArray<CursorKey>, time: number) => {
   return { x, y }
 }
 
-/* ---------- The window ---------- */
-
-/** The takes, cut and retimed as `SEGMENTS` says. */
 const Footage: React.FC = () => {
   const style = { position: "absolute", left: 0, top: 0, width: FOOTAGE.w, height: FOOTAGE.h, display: "block" } as const
   return (
@@ -144,17 +127,13 @@ const Pointer: React.FC<{ readonly x: number; readonly y: number; readonly press
   )
 }
 
-/** Where the footage sits on the canvas and how the camera moves over it. The horizontal and the vertical video differ only in this. */
 export interface WalkLayout {
   readonly frame: { readonly x: number; readonly y: number; readonly w: number; readonly h: number; readonly r: number }
   readonly camera: ReadonlyArray<CamKey>
-  /** Where the camera rests before its first move. */
   readonly rest: CamState
-  /** Pointer size in pixels at 1x. */
   readonly pointer: number
 }
 
-/** The browser window: the take under a moving camera, a pointer, and one lit item at a time. */
 export const Walkthrough: React.FC<{ readonly layout: WalkLayout }> = ({ layout }) => {
   const view = layout.frame
   const k = layout.pointer / 40

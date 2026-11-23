@@ -2,10 +2,6 @@ import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 import { INTRO_TO_CS, makeTestServer, type TestServer } from "../test/TestServer"
 
-// The page behind the link in emails, requested the way a browser would,
-// against the whole server in this process (see test/TestServer.ts).
-
-/** A server where one student watches INTRO_TO_CS, and the link from their confirmation email. */
 const subscribed = Effect.gen(function*() {
   const server = yield* makeTestServer()
   const api = yield* server.client(yield* server.signIn("student@oregonstate.edu"))
@@ -14,11 +10,7 @@ const subscribed = Effect.gen(function*() {
   return { server, api, link }
 })
 
-/**
- * Request a page, and read it. A browser posts the page's form with
- * `Origin: null`, because the page's Referrer-Policy is "no-referrer", so the
- * POST here does too.
- */
+// A browser posts the page's form with `Origin: null`, because of its "no-referrer" policy.
 const open = (server: TestServer, url: string, method = "GET") =>
   Effect.promise(async () => {
     const response = await server.fetch(url, { method, headers: method === "POST" ? { origin: "null" } : {} })
@@ -30,7 +22,6 @@ const open = (server: TestServer, url: string, method = "GET") =>
     }
   })
 
-/** What every one of these pages must carry, so its key goes nowhere (see PAGE_HEADERS in unsubscribe.ts). */
 const assertPrivate = (headers: Headers) => {
   assert.strictEqual(headers.get("referrer-policy"), "no-referrer")
   assert.strictEqual(headers.get("cache-control"), "no-store")
@@ -40,9 +31,6 @@ const assertPrivate = (headers: Headers) => {
       return [name!, values.join(" ")]
     })
   )
-  // Nothing loads or runs unless named: no script directive of any kind is
-  // there, so scripts fall back to default-src and none run. The page's own
-  // inline styles and its form's POST to itself are the two things allowed.
   assert.strictEqual(policy.get("default-src"), "'none'")
   assert.deepStrictEqual([...policy.keys()].filter((name) => name.startsWith("script-src")), [])
   assert.strictEqual(policy.get("style-src"), "'unsafe-inline'")
@@ -59,7 +47,6 @@ describe("the unsubscribe page", () => {
       assert.include(page.html, "INTRO TO COMPUTER SCIENCE I (CRN 33940)")
       assert.match(page.html, /<form method="post" action="\/unsubscribe\?key=[^"]+">/)
       assertPrivate(page.headers)
-      // Opening it again (as a mail scanner might) still changes nothing.
       yield* open(server, link)
       assert.strictEqual((yield* api.alerts.list()).length, 1)
     }))

@@ -1,15 +1,10 @@
-/**
- * What the captions say and when: the narration word by word, how the words
- * group into caption lines, and the step label shown above them.
- */
-
 export interface Word {
   readonly w: string
   readonly s: number
   readonly e: number
 }
 
-/** Every word of the narration, with when it starts and ends (seconds). From a speech-to-text pass over assets/script-audio.wav. */
+// From a speech-to-text pass over assets/script-audio.wav.
 export const WORDS: ReadonlyArray<Word> = [
   { w: "tired", s: 0.0, e: 0.3 }, { w: "of", s: 0.3, e: 0.54 }, { w: "not", s: 0.54, e: 0.82 },
   { w: "getting", s: 0.82, e: 1.08 }, { w: "the", s: 1.08, e: 1.3 }, { w: "class", s: 1.3, e: 1.54 },
@@ -50,34 +45,30 @@ export const WORDS: ReadonlyArray<Word> = [
   { w: "Dam", s: 37.58, e: 37.96 }, { w: "Class!", s: 37.96, e: 38.42 }
 ]
 
-/** One line of caption: a run of spoken words, shown together and lit word by word. */
 export interface Chunk {
-  readonly from: number // index of the first word
+  readonly from: number
   readonly to: number // index of the last word (inclusive)
-  /** Words (by index) drawn in the accent colour once spoken. */
   readonly accent?: ReadonlyArray<number>
 }
 
-/** The captions under the browser, from "First," to "...a seat opens." */
 export const CHUNKS: ReadonlyArray<Chunk> = [
-  { from: 19, to: 24, accent: [23, 24] }, // First, head to the classes website.
-  { from: 25, to: 32, accent: [28, 30] }, // Search for the class and term you need
-  { from: 33, to: 37, accent: [36, 37] }, // and open the course details.
-  { from: 38, to: 43, accent: [42, 43] }, // Second, scroll down to All Sections
-  { from: 44, to: 48, accent: [47, 48] }, // and pick your exact section.
-  { from: 49, to: 55, accent: [52] }, // Third, confirm the section at the top
-  { from: 56, to: 59, accent: [58, 59] }, // and click Notify me.
-  { from: 60, to: 62, accent: [62] }, // Enter your email
-  { from: 63, to: 68, accent: [67, 68] }, // and type in your verification code.
-  { from: 69, to: 74, accent: [74] }, // Once the button switches to Watching,
-  { from: 75, to: 78, accent: [78] }, // your alert is live.
-  { from: 79, to: 85, accent: [81] }, // You can manage your tracked classes anytime
-  { from: 86, to: 89, accent: [88, 89] }, // in the extension pop-up,
-  { from: 90, to: 95, accent: [95] }, // and you will get an email
-  { from: 96, to: 100, accent: [99, 100] } // the moment a seat opens.
+  { from: 19, to: 24, accent: [23, 24] },
+  { from: 25, to: 32, accent: [28, 30] },
+  { from: 33, to: 37, accent: [36, 37] },
+  { from: 38, to: 43, accent: [42, 43] },
+  { from: 44, to: 48, accent: [47, 48] },
+  { from: 49, to: 55, accent: [52] },
+  { from: 56, to: 59, accent: [58, 59] },
+  { from: 60, to: 62, accent: [62] },
+  { from: 63, to: 68, accent: [67, 68] },
+  { from: 69, to: 74, accent: [74] },
+  { from: 75, to: 78, accent: [78] },
+  { from: 79, to: 85, accent: [81] },
+  { from: 86, to: 89, accent: [88, 89] },
+  { from: 90, to: 95, accent: [95] },
+  { from: 96, to: 100, accent: [99, 100] }
 ]
 
-/** The small label above the caption: which of the three steps we are in. */
 export interface Stage {
   readonly start: number
   readonly step: number // 1..3, or 4 once all three are done

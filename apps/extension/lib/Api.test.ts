@@ -4,28 +4,18 @@ import { TestClock } from "effect/testing"
 import { Api, API_BASE_URL } from "./Api"
 import type { AppError } from "./domain"
 
-// These tests never touch the network: `Api.layerWithFetch` builds the real
-// Api on top of a fake `fetch` that answers with whatever the test says. The
-// answers are written the way the server sends them (try `curl` against a
-// local server, see the README): an error is JSON with its `_tag` and the
-// student's sentence.
-
 const email = "student@oregonstate.edu"
 const token = "token-of-this-browser"
 const intro = { term: "202702", crn: "33940" }
 const introAlert = { ...intro, title: "INTRO TO COMPUTER SCIENCE I" }
 
-/** A `Response` like the server's: a status and a JSON body. */
 const jsonResponse = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
 
-/** The server's answer to a successful call that returns nothing. */
 const noContent = () => new Response(null, { status: 204 })
 
-/** A refusal, as the server sends it. */
 const refusal = (status: number, tag: string) => jsonResponse(status, { _tag: tag, message: `The sentence for ${tag}.` })
 
-/** Build a fake `fetch`, and keep a list of the requests it received. */
 function fakeFetch(respond: () => Response) {
   const requests: Array<Request> = []
   const fetch: typeof globalThis.fetch = async (input, init) => {
@@ -35,15 +25,12 @@ function fakeFetch(respond: () => Response) {
   return { fetch, requests }
 }
 
-/** Run one Api call against a server that always gives the same answer. */
 const callApi = <A, E>(respond: () => Response, call: (api: Api["Service"]) => Effect.Effect<A, E>) =>
   Api.use(call).pipe(Effect.provide(Api.layerWithFetch(fakeFetch(respond).fetch)))
 
-/** The same, for a call that is expected to fail: succeeds with the error. */
 const callApiError = <A, E>(respond: () => Response, call: (api: Api["Service"]) => Effect.Effect<A, E>) =>
   Effect.flip(callApi(respond, call))
 
-/** Every call, with a reply that makes it succeed. */
 const everyCall: ReadonlyArray<{
   readonly name: string
   readonly call: (api: Api["Service"]) => Effect.Effect<unknown, AppError | { readonly _tag: string }>
@@ -59,7 +46,6 @@ const everyCall: ReadonlyArray<{
 ]
 
 describe("requests", () => {
-  /** Run a call against a server that answers `reply`, and return the single request it made. */
   const requestOf = <A, E>(call: (api: Api["Service"]) => Effect.Effect<A, E>, reply: () => Response) =>
     Effect.gen(function*() {
       const fake = fakeFetch(reply)
@@ -68,7 +54,6 @@ describe("requests", () => {
       return fake.requests[0]!
     })
 
-  /** What a request carried: method, URL, sign-in token and JSON body. */
   const describeRequest = (request: Request) =>
     Effect.promise(async () => {
       const text = await request.text()
@@ -170,9 +155,6 @@ describe("requests", () => {
   it.effect.each(everyCall)("$name sends no header the server's CORS rules would refuse", ({ call, success }) =>
     Effect.gen(function*() {
       const request = yield* requestOf(call, success)
-      // A browser sends nothing the server has not allowed in its answer to
-      // the preflight (`Cors` in apps/server/src/server.ts). Tracing headers
-      // (`traceparent`, `b3`) would make every call fail there.
       const allowed = ["authorization", "content-type"]
       assert.deepStrictEqual([...request.headers.keys()].filter((name) => !allowed.includes(name)), [])
     }))
@@ -225,7 +207,6 @@ describe("problems every call can have", () => {
         signal = init?.signal
         return new Promise(() => {})
       }
-      // Run the call in the background, then move the test's clock forward.
       const running = yield* Effect.forkChild(
         Effect.flip(Api.use(call).pipe(Effect.provide(Api.layerWithFetch(neverAnswers))))
       )
@@ -246,7 +227,6 @@ describe("problems every call can have", () => {
 
   it.effect("the bare HTTP 400 the server gives input its schemas refuse: ServerError", () =>
     Effect.gen(function*() {
-      // The forms check what is typed first, so this means a bug.
       const error = yield* callApiError(() => new Response(null, { status: 400 }), (api) => api.sendCode(email))
       assert.strictEqual(error._tag, "ServerError")
     }))

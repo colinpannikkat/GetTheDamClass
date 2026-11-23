@@ -9,9 +9,6 @@ import { Api } from "./Api"
 import { AccountStore } from "./AccountStore"
 import { RuntimeContext, useAccount, useAction, useQuery } from "./react"
 
-// Each hook is used by a tiny component that prints its state as text.
-
-/** Render with a runtime whose Api is fake. Storage is WXT's in-memory `browser`. */
 function renderWithFakeApi(ui: ReactNode, fakeApi: Layer.PartialEffectful<Api["Service"]> = {}) {
   const runtime = ManagedRuntime.make(Layer.mergeAll(Layer.mock(Api, fakeApi), AccountStore.layer))
   return render(<RuntimeContext value={runtime}>{ui}</RuntimeContext>)
@@ -121,11 +118,9 @@ describe("useAccount", () => {
     renderWithFakeApi(<Who />)
     expect(await screen.findByText("signedOut")).toBeDefined()
 
-    // As if the user signed in somewhere else in the extension...
     await fakeBrowser.storage.local.set({ email: "student@oregonstate.edu", token: "student-token" })
     expect(await screen.findByText("signedIn: student@oregonstate.edu, watching:")).toBeDefined()
 
-    // ...asked for alerts for a class there...
     await Effect.runPromise(
       Effect.gen(function*() {
         const store = yield* AccountStore
@@ -134,7 +129,6 @@ describe("useAccount", () => {
     )
     expect(await screen.findByText("signedIn: student@oregonstate.edu, watching: 33940")).toBeDefined()
 
-    // ...and signed out.
     await fakeBrowser.storage.local.clear()
     expect(await screen.findByText("signedOut")).toBeDefined()
   })

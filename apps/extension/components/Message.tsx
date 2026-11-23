@@ -4,9 +4,7 @@ import { cx } from "./cx"
 export type MessageTone = "info" | "success" | "error"
 
 export interface MessageProps {
-  /** Default: `info`. */
   readonly tone?: MessageTone
-  /** The text to show. Pass `null` (or nothing) to show no message. */
   readonly children?: ReactNode
   readonly className?: string
 }
@@ -17,22 +15,12 @@ const toneClasses: Record<MessageTone, string> = {
   error: "bg-danger-soft text-danger"
 }
 
-/**
- * A short inline message: feedback after an action, or an error.
- *
- * Screen readers announce text that appears inside a "live region" which is
- * already on the page. So render `<Message>` all the time and change its
- * children, instead of adding and removing the whole component:
- *
- *   <Message tone="error">{failed ? "Could not save." : null}</Message>
- */
+// Screen readers announce text appearing in a live region already on the page, so keep `<Message>`
+// rendered and change its children.
 export function Message({ tone = "info", children, className }: MessageProps) {
   const isEmpty = children === null || children === undefined || children === false || children === ""
   return (
-    // The live region. `contents` means it has no box of its own, so an empty
-    // message takes up no room (not even a gap in a flex layout).
     <div
-      // Errors interrupt the screen reader; other messages wait their turn.
       role={tone === "error" ? "alert" : "status"}
       aria-live={tone === "error" ? "assertive" : "polite"}
       className="contents"

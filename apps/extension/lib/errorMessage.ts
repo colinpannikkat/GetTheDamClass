@@ -1,15 +1,7 @@
 import type { AppError } from "./domain"
 
-/**
- * A sentence to show the user for each error.
- *
- * The server's refusals carry their own sentence, written for the student,
- * and it is shown as it is. Only the extension's own errors need words from
- * here.
- */
 export function errorMessage(error: AppError): string {
-  // No `default` branch on purpose: when someone adds an error to `AppError`,
-  // TypeScript reports this function until it has a sentence for it.
+  // No `default` on purpose: TypeScript flags a new `AppError` here until it has a sentence.
   switch (error._tag) {
     case "NotSignedIn":
     case "CodeRecentlySent":

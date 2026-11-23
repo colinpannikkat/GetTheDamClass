@@ -1,25 +1,3 @@
-/**
- * Signing in, and the `signIn` endpoints of the API.
- *
- * There are no passwords. A student proves they own an inbox:
- *
- *   1. `sendCode`: the server emails a fresh six-digit code to the address.
- *   2. `signIn`: the student types the code. If it is right, the server
- *      creates the account (if the address is new) and returns a sign-in
- *      token for this browser (see tokens.ts).
- *
- * Signing up, signing in and "I forgot" are all these same two steps, and no
- * account exists until a code is confirmed.
- *
- * The rules, all counted from when the code was sent:
- * - one code per address per minute (a new code replaces the old one);
- * - a code works for 15 minutes, and once;
- * - five tries with a wrong code cancel it.
- *
- * And one for all addresses together: at most so many code emails a day
- * (`SignInEmailsPerDay`), so that asking for codes cannot use up the emails
- * the seat alerts need.
- */
 import { Api } from "@getthedamclass/shared/Api"
 import {
   CodeRecentlySent,
@@ -40,50 +18,16 @@ import { issueToken } from "./tokens"
 const CODE_INTERVAL = Duration.minutes(1)
 const CODE_LIFETIME = Duration.minutes(15)
 const MAX_ATTEMPTS = 5
-/** How long the count of each day's sign-in emails is kept, for a maintainer to look back on. */
 const EMAIL_COUNTS_KEPT = Duration.days(7)
 
-/**
- * The most sign-in code emails the server sends in one day, from
- * configuration (`SIGN_IN_EMAILS_PER_DAY` in cloudflare.config.ts, which says
- * why it is set where it is).
- *
- * Cloudflare limits how many emails the account sends a day, and codes,
- * subscription confirmations and seat alerts all count. Anyone can ask for
- * codes without signing in, for any address, so without this cap a script
- * could use up the day's emails, and the seat alerts after it would be lost
- * (the check every minute does not send them again; see poll.ts). With it, a
- * flood can still stop new sign-ins for the rest of the day, but the students
- * already signed in keep getting their alerts.
- */
 export class SignInEmailsPerDay extends Context.Service<SignInEmailsPerDay, number>()(
   "getthedamclass/SignInEmailsPerDay"
 ) {}
 
-/**
- * The day the cap counts in: a calendar day in UTC, as an ISO date
- * ("2026-11-19"). Cloudflare's own day for its limit starts at another time
- * (`resets_at` in `cf email-sending limits get`; 03:56 UTC when this was
- * last checked), so one of its days holds the end of one of these and the start
- * of the next. So the most a flood can take from one of Cloudflare's days is
- * the cap twice: once just before midnight UTC and once just after. That is
- * why the cap is set to about a third of the limit (cloudflare.config.ts):
- * even then, a third is left for alerts.
- */
 const utcDay = (millis: number) => DateTime.formatIsoDateUtc(DateTime.makeUnsafe(millis))
 
-/**
- * Email a new sign-in code to this address.
- *
- * Once started, it runs to the end, even if the request is dropped meanwhile.
- * That happens all the time: the student asks for a code and switches to
- * their inbox at once, which closes the extension's popup, and the browser
- * drops the request. Effect's router interrupts the handler of a dropped
- * request; cut off after storing the code and before sending it (or before
- * forgetting it when the email fails), the server would hold a code nobody
- * received, and refuse another for a minute.
- * (index.ts keeps the Worker itself running until the handler is done.)
- */
+// Runs to the end even if the request is dropped (the popup closes as the student opens their inbox):
+// cut off between storing and sending, the server would hold a code nobody got.
 export const sendCode = Effect.fn("sendCode")(function*(email: EmailAddress) {
   const sql = yield* SqlClient.SqlClient
   const mailer = yield* Mailer
@@ -91,16 +35,8 @@ export const sendCode = Effect.fn("sendCode")(function*(email: EmailAddress) {
   const code = yield* randomCode
   const codeHash = yield* hashSecret(code)
 
-  // Take one of today's sign-in emails, unless the day's cap is reached. The
-  // check and the write are one statement: when one email is left and many
-  // requests arrive together, only one of them takes it, and only that one
-  // sends. It returns the new total only when it took one.
-  //
-  // This comes first so that a request refused by the cap changes nothing at
-  // all: a student who already has a code that works keeps it. What ends up
-  // counted is every email the server tries to send. A send that fails stays
-  // counted: it is rare, Cloudflare may have counted it too, and counting one
-  // too many only leaves alerts more room.
+  // One statement checks the cap and takes an email, so only one request gets the last one. It comes
+  // first so that a request refused by the cap changes nothing.
   const cap = yield* SignInEmailsPerDay
   const day = utcDay(now)
   const taken = yield* sql<{ sent: number }>`
@@ -114,10 +50,7 @@ export const sendCode = Effect.fn("sendCode")(function*(email: EmailAddress) {
     return yield* new EmailNotSent({ message: "Too many sign-in emails were sent today. Please try again tomorrow." })
   }
 
-  // Store the new code, unless one went to this address less than a minute
-  // ago. Again one statement does both the check and the write, so two
-  // requests at the same moment cannot both get through. It returns a row
-  // only when it stored the code.
+  // One statement checks the minute and stores the code, so two requests at once cannot both get through.
   const stored = yield* sql`
     INSERT INTO sign_in_codes (email, code_hash, sent_at, attempts, used)
     VALUES (${email}, ${codeHash}, ${now}, 0, 0)
@@ -127,16 +60,12 @@ export const sendCode = Effect.fn("sendCode")(function*(email: EmailAddress) {
     RETURNING email
   `
   if (stored.length === 0) {
-    // No email goes out, so give back the one taken above: a request refused
-    // for the minute must not use up the day's emails.
     yield* sql`UPDATE sign_in_emails SET sent = sent - 1 WHERE day = ${day}`
     return yield* new CodeRecentlySent({
       message: "A code went to this address less than a minute ago. Please wait a minute before asking for another."
     })
   }
 
-  // The request that takes the day's last email says so in the log. (Usually
-  // once a day; again if an email was given back above in the meantime.)
   if (taken[0]!.sent === cap) {
     yield* Effect.logWarning("Reached the day's cap on sign-in emails; no more codes go out until midnight UTC", {
       cap
@@ -147,15 +76,12 @@ export const sendCode = Effect.fn("sendCode")(function*(email: EmailAddress) {
     Effect.catchTag("SendFailed", (error) =>
       Effect.gen(function*() {
         yield* Effect.logWarning("Could not send a sign-in code", error.reason)
-        // Forget the code nobody received, so that asking again works
-        // straight away instead of after a minute.
         yield* sql`DELETE FROM sign_in_codes WHERE email = ${email} AND code_hash = ${codeHash}`
         return yield* new EmailNotSent({ message: "We couldn't send the email with your code. Please try again." })
       }))
   )
 }, Effect.uninterruptible, dieOnSqlError)
 
-/** Check a code, and if it is right, return a new sign-in token for its address's account. */
 export const signIn = Effect.fn("signIn")(function*(email: EmailAddress, code: SignInCode) {
   const sql = yield* SqlClient.SqlClient
   const now = yield* Clock.currentTimeMillis
@@ -163,15 +89,12 @@ export const signIn = Effect.fn("signIn")(function*(email: EmailAddress, code: S
     message: "That code isn't right, or it has expired. Check the latest email, or ask for a new code."
   })
 
-  // Count the try before looking at the code. Counting only wrong ones after
-  // checking would let many guesses sent at once all be checked before any of
-  // them was counted.
+  // Counted before the code is checked, so guesses sent at once are all counted.
   const tried = yield* sql<{ codeHash: string; sentAt: number; attempts: number; used: number }>`
     UPDATE sign_in_codes SET attempts = attempts + 1 WHERE email = ${email}
     RETURNING code_hash AS codeHash, sent_at AS sentAt, attempts, used
   `
   const pending = tried[0]
-  // Every way a code can fail looks the same to the caller (see InvalidCode).
   if (
     pending === undefined ||
     pending.used === 1 ||
@@ -182,9 +105,8 @@ export const signIn = Effect.fn("signIn")(function*(email: EmailAddress, code: S
     return yield* invalidCode
   }
 
-  // Use the code up. If two requests got this far with the same code, only
-  // one of them marks it used, and only that one signs in. The row stays, so
-  // the minute before another code can be sent still counts from this one.
+  // If two requests got this far with the same code, only one marks it used. The row stays, so the
+  // minute before another code can be sent still counts from this one.
   const used = yield* sql`
     UPDATE sign_in_codes SET used = 1
     WHERE email = ${email} AND code_hash = ${pending.codeHash} AND used = 0
@@ -194,9 +116,7 @@ export const signIn = Effect.fn("signIn")(function*(email: EmailAddress, code: S
     return yield* invalidCode
   }
 
-  // The account for this address, created if it is new. (The `DO UPDATE`
-  // changes nothing; it is there so that `RETURNING` gives the id of an
-  // existing account too.)
+  // The `DO UPDATE` changes nothing; it makes `RETURNING` give the id of an existing account too.
   const accounts = yield* sql<{ id: number }>`
     INSERT INTO accounts (email, created_at) VALUES (${email}, ${now})
     ON CONFLICT (email) DO UPDATE SET email = excluded.email
@@ -205,11 +125,6 @@ export const signIn = Effect.fn("signIn")(function*(email: EmailAddress, code: S
   return yield* issueToken(accounts[0]!.id)
 }, dieOnSqlError)
 
-/**
- * Remove the codes that have expired, for the daily job (cleanup.ts). Nothing
- * is lost: an expired code signs nobody in, and its row stopped counting for
- * the one-minute wait long before. How many were removed.
- */
 export const deleteExpiredCodes = Effect.fn("deleteExpiredCodes")(function*() {
   const sql = yield* SqlClient.SqlClient
   const now = yield* Clock.currentTimeMillis
@@ -219,12 +134,6 @@ export const deleteExpiredCodes = Effect.fn("deleteExpiredCodes")(function*() {
   return deleted.length
 })
 
-/**
- * Remove the counts of sign-in emails older than a week, for the daily job
- * (cleanup.ts). Only today's count is used; the week before is kept so a
- * maintainer can see how many went out on the days the logs still cover.
- * How many were removed.
- */
 export const deleteOldEmailCounts = Effect.fn("deleteOldEmailCounts")(function*() {
   const sql = yield* SqlClient.SqlClient
   const now = yield* Clock.currentTimeMillis

@@ -10,7 +10,6 @@ const email: Email = {
   html: "<p>Your sign-in code is 123456</p>"
 }
 
-/** A stand-in for Cloudflare's send-email binding that keeps what it was given. */
 const fakeBinding = (send: (message: unknown) => Promise<EmailSendResult>) => {
   const received: Array<unknown> = []
   const binding = {
