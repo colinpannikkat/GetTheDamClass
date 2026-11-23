@@ -1,5 +1,17 @@
 # Marketing
 
+What is used to show GetTheDamClass to people: screenshots of the extension, and the tutorial video.
+
+## Screenshots
+
+`screenshots/` holds three pictures of the extension with placeholder data. The main README and the Chrome Web Store listing can use them.
+
+| | |
+| --- | --- |
+| <img src="screenshots/class-page-watching.png" alt="A class panel with the Watching button and a Stop alerts link" width="420"> | `class-page-watching.png`: a class being watched. |
+| <img src="screenshots/class-page-sign-in.png" alt="The sign-in form opened from Notify me on a class page" width="420"> | `class-page-sign-in.png`: signing in from the class page. |
+| <img src="screenshots/popup.png" alt="The popup listing three watched classes, each with a Stop button" width="220"> | `popup.png`: the toolbar popup. |
+
 ## Tutorial video
 
 A 44-second video that walks through setting up an alert: find a class, pick a section, press **Notify me**, sign in, check the popup. It comes in two cuts with the same narration and music.

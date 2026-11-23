@@ -6,7 +6,7 @@ On [classes.oregonstate.edu](https://classes.oregonstate.edu), open a class and 
 
 | On the class page | In the toolbar popup |
 | --- | --- |
-| <img src="docs/screenshots/class-page-watching.png" alt="A class panel with the Watching button and a Stop alerts link" width="560"> | <img src="docs/screenshots/popup.png" alt="The popup listing three watched classes, each with a Stop button" width="260"> |
+| <img src="marketing/screenshots/class-page-watching.png" alt="A class panel with the Watching button and a Stop alerts link" width="560"> | <img src="marketing/screenshots/popup.png" alt="The popup listing three watched classes, each with a Stop button" width="260"> |
 
 "Notify me" is on every section with an ADD TO CART button, in any term. Whether a class takes alerts is up to the server: its term must be open for registration, and the class's add deadline must not have passed (see `apps/server/src/termRule.ts`). When a class does not, the page says why, in the server's words.
 
@@ -170,8 +170,8 @@ apps/server/              The Cloudflare Worker the extension talks to.
 packages/shared/          What the extension and the server share, used as TypeScript source.
   src/Api.ts              The API: every endpoint, defined once with Effect's HttpApi.
   src/domain.ts           The data (Term, Crn, EmailAddress, Alert) and every API error.
-marketing/                The tutorial video and the project that renders it. Not part of the
-                          pnpm workspace; see marketing/README.md.
+marketing/                Screenshots of the extension, and the tutorial video with the project
+                          that renders it. Not part of the pnpm workspace; see marketing/README.md.
 ```
 
 There is no background script. The extension only needs the `storage` permission, and no access to any website beyond the content script on the class search.
