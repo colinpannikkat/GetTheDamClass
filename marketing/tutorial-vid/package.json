@@ -1,0 +1,24 @@
+{
+  "name": "getthedamclass-tutorial-vid",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.tsx --public-dir=assets",
+    "render:horizontal": "remotion render src/index.tsx TutorialHorizontal videos/horizontal-1080p60.mp4 --public-dir=assets --crf=15 --x264-preset=slow --color-space=bt709 --audio-bitrate=320k",
+    "render:horizontal:4k": "remotion render src/index.tsx TutorialHorizontal videos/horizontal-4k60.mp4 --public-dir=assets --scale=2 --crf=16 --color-space=bt709 --audio-bitrate=320k",
+    "render:vertical": "remotion render src/index.tsx TutorialVertical videos/vertical-1080x1920.mp4 --public-dir=assets --crf=15 --x264-preset=slow --color-space=bt709 --audio-bitrate=320k",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.545",
+    "@remotion/google-fonts": "^4.0.545",
+    "@types/react": "^19.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "remotion": "^4.0.545",
+    "typescript": "^7.0.2"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
+  }
+}

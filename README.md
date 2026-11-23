@@ -170,6 +170,8 @@ apps/server/              The Cloudflare Worker the extension talks to.
 packages/shared/          What the extension and the server share, used as TypeScript source.
   src/Api.ts              The API: every endpoint, defined once with Effect's HttpApi.
   src/domain.ts           The data (Term, Crn, EmailAddress, Alert) and every API error.
+marketing/                The tutorial video and the project that renders it. Not part of the
+                          pnpm workspace; see marketing/README.md.
 ```
 
 There is no background script. The extension only needs the `storage` permission, and no access to any website beyond the content script on the class search.
