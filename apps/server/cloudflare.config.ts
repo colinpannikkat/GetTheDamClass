@@ -94,7 +94,7 @@ export default defineConfig(({ mode }) => {
         // the top of this file), never the real one.
         MAILER: bindings.text(local ? "print" : "cloudflare"),
         // The most sign-in code emails sent in one day (UTC). It keeps room in
-        // the account's daily email limit (200 now; see "How many emails it
+        // the account's daily email limit (1,000 now; see "How many emails it
         // can send" in the README) for subscription confirmations and seat
         // alerts, which share that limit with the codes anyone can ask for.
         // Keep it at about a third of the account's limit, and raise the two
@@ -102,7 +102,7 @@ export default defineConfig(({ mode }) => {
         // line up, so a flood can take the cap twice from one of Cloudflare's
         // days (see `utcDay` in src/signIn.ts). Locally nothing is sent, so
         // the cap is set out of reach.
-        SIGN_IN_EMAILS_PER_DAY: bindings.json(local ? 1_000_000 : 65)
+        SIGN_IN_EMAILS_PER_DAY: bindings.json(local ? 1_000_000 : 330)
       }
     }
   }
